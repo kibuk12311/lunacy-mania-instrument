@@ -19,9 +19,16 @@
 //   build, snapshot/restore for own-range part searches and block retry, a shorter search, cond { msd, style, rate,
 //   source };
 // - request.style (G4): the XGB source blends the mapper's pattern tables; the critic scores the style.
-// opts: { onProgress, patternsOf, critic, personal, deadlineMs, now, source, snapshots, debug } (personal and
+// opts: { onProgress, patternsOf, critic, personal, deadlineMs, now, source, snapshots, debug, boost } (personal and
 // deadlineMs may also come in `input`, as the evaluation tools send them; source: a row source for tests and tools;
 // snapshots: false re-decodes everything (tests); debug: an object filled with internals for tests).
+// boost (0.9.8, src/gen/targeting.js): one rung of the closed-loop dan targeting, for when the plain search fell short
+// of a hard request: { knobMax, knobMin, contrast, chord, danLift, snaps, denser }. The knob may go up to knobMax (in
+// parts with their own range too) and down to knobMin (the soften rung, for a map that came out too hard; a negative
+// chord and danLift then make it lighter), the light parts' contrast is multiplied by `contrast`, a row weighs
+// exp(chord × its notes over one) more (up to the family's CHORD_ROOM), the model is conditioned on the dan + danLift,
+// `snaps` are allowed beside the request's and `denser` leans the grid choice towards the finer grids. Absent or
+// null: exactly as before.
 import { timingSections, sectionsToPoints, beatsFromTiming, slotsForBeats } from "./grid.js";
 import { slotFeatures, AUDIO_FEATURES } from "./slotFeatures.js";
 import { slotEnergy, slotStrengths } from "./intensity.js";
@@ -32,7 +39,7 @@ import { searchKnob, searchRange, patternScore, flavourAwareScore, planShares } 
 import { detectedFlavours } from "./flavourMetrics.js";
 import { normalizeRequest, normalizeParts } from "./request.js";
 import { detectParts, partIndexOfSlots } from "./songParts.js";
-import { chooseBeatDivs, gridShares } from "./snap.js";
+import { chooseBeatDivs, gridShares, denserGridsFor } from "./snap.js";
 import { createGuard, rowStats, findIssues } from "./playability.js";
 import { planBlocks, scoreBlock, describeParts } from "./partReport.js";
 import { excerptOsu } from "./excerpt.js";
@@ -75,6 +82,9 @@ const NN2_SPAN = { min: -2, max: 1 };
 const FREE = 255;
 const NO_RNGS = { fill: () => 0, size: () => 0, pattern: () => 0 };
 const WARM_OFFSET = -1e9; // a step this far down gives no row: it only runs the decoder up to that slot's beat
+// boost.chord: how many notes over one a family's rows gain weight for (a stream becomes at most a jumpstream)
+export const CHORD_ROOM = Object.freeze({ Stream: 1, Jumpstream: 1, Handstream: 2, Tech: 1, Chordjack: 3, Jack: 2 });
+const STREAM_CHORD = 0.5; // streams take half the chord boost: single notes are what makes them streams
 
 const popcount = (m) => ((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1));
 const maskToCols = (m) => [0, 1, 2, 3].filter((c) => m & (1 << c));
@@ -92,6 +102,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
     const onProgress = opts.onProgress ?? (() => {});
     const patternsOf = opts.patternsOf ?? defaultPatternsOf;
     const debug = opts.debug ?? null;
+    const boost = opts.boost ?? null;
 
     // ---- prepare ----
     const request = normalizeRequest(input.request, durationMs);
@@ -107,10 +118,13 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         while (p + 1 < parts.length && t >= parts[p + 1].startMs) p += 1;
         return p;
     };
-    const danOf = (p) => (parts[p].range ? (parts[p].range.lo + parts[p].range.hi) / 2 : request.target);
+    const danLift = boost?.danLift ?? 0;
+    const danOf = (p) => (parts[p].range ? (parts[p].range.lo + parts[p].range.hi) / 2 : request.target) + danLift;
     const beatPart = beats.map((b) => partAt(b.t));
+    // the boost's grids only where their rows stay humanly fast at the song's tempo (snap.js denserGridsFor)
+    const allowedSnaps = boost?.snaps ? [...new Set([...request.snaps, ...denserGridsFor(sections[0].bpm, boost.snaps)])] : request.snaps;
     const divs = chooseBeatDivs({
-        envelope, beats, allowed: request.snaps, model,
+        envelope, beats, allowed: allowedSnaps, model, ...(boost?.denser ? { denser: true } : {}),
         dan: beatPart.map(danOf),
         families: beatPart.map((p) => (parts[p].empty ? null : (parts[p].patterns ?? request.patterns)[0].name)),
         rng: mulberry32(deriveSeed(request.planSeed, SEED_DIVS)),
@@ -163,7 +177,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
     // awaited: the GPU source (stream W, opts.nnBackend) prepares asynchronously; a plain prepare is unchanged
     const prep = await source.prepare({
         model, audio, slots, dan, family: assign, ...(anyFlavour ? { flavour } : {}),
-        ...(infill ? { known, cond: { msd: msdPriorOf(model, request.target, request.patterns), style, rate: 1, source: "osu" }, structure } : {}),
+        ...(infill ? { known, cond: { msd: msdPriorOf(model, request.target + danLift, request.patterns), style, rate: 1, source: "osu" }, structure } : {}),
         ...(!infill && style !== null ? { style } : {}),
     });
     const echo = repeats ? createEcho({ structure, slots, assign }) : null;
@@ -181,7 +195,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         const top = Math.max(0.05, percentile(own, 0.9));
         for (let i = 0; i < slots.length; i += 1) if (partOf[i] === p) energy[i] = Math.min(1, rawEnergy[i] / top);
     });
-    const contrast = CONTRAST_MAX * (1 - request.stamina);
+    const contrast = CONTRAST_MAX * (1 - request.stamina) * (boost?.contrast ?? 1);
     const burst = request.burst - 0.3;
     const adjustOf = (i, scale) => -contrast * scale * (1 - energy[i]) ** 1.3 + 3 * burst * (energy[i] - 0.5);
 
@@ -194,6 +208,17 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         audioFilename: meta.audioFilename, previewMs: Math.round(durationMs * 0.4),
     });
     const partSeed = (p) => parts[p].seed ?? p;
+    // boost.chord: per family, a row's weight by its note count (null: no boost, the guard's weight alone)
+    const chordCache = new Map();
+    const chordWeights = (family) => {
+        if (!boost?.chord) return null;
+        if (!chordCache.has(family)) {
+            const c = boost.chord * (family === "Stream" ? STREAM_CHORD : 1);
+            const room = CHORD_ROOM[family] ?? 1;
+            chordCache.set(family, Float64Array.from({ length: 5 }, (_, n) => Math.exp(c * Math.min(Math.max(0, n - 1), room))));
+        }
+        return chordCache.get(family);
+    };
 
     // ---- one map from a plan: fixed blocks stay, the others are drawn with their own streams ----
     // knobOf(part) → knob; fixed: Map(block → rows); seedOf(block) → uint32; only: Set of parts to draw (others empty).
@@ -273,7 +298,11 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
                 const fl = flavourAt(i);
                 const ahead = next?.length ? aheadOf(next, slot) : null;
                 const before = guard.forced;
-                const weightOf = Object.assign((m) => guard.weight(m, i, family, ahead, fl), { fallback: () => guard.fallback(i, family, ahead, fl) });
+                const chordW = chordWeights(family);
+                const weightOf = Object.assign(
+                    chordW ? (m) => guard.weight(m, i, family, ahead, fl) * chordW[popcount(m)] : (m) => guard.weight(m, i, family, ahead, fl),
+                    { fallback: () => guard.fallback(i, family, ahead, fl) },
+                );
                 const offset = knob + adjustOf(i, scale);
                 let mask;
                 if (echoRun) {
@@ -367,7 +396,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         const score = (a) => (anyFlavour
             ? flavourAwareScore({ rows: a.rows, top3: a.result?.top3, families, shares, familyScoreOf: (fams) => partFamilyScore(a, fams) }).score
             : partFamilyScore(a));
-        const { best } = await searchRange({ evaluate, lo: part.range.lo, hi: part.range.hi, min: KNOB_MIN, max: KNOB_MAX, seed: request.noteSeed, score, budget: nn2 ? NN2_BUDGET : PART_BUDGET });
+        const { best } = await searchRange({ evaluate, lo: part.range.lo, hi: part.range.hi, min: KNOB_MIN, max: Math.max(KNOB_MAX, boost?.knobMax ?? KNOB_MAX), seed: request.noteSeed, score, budget: nn2 ? NN2_BUDGET : PART_BUDGET });
         frozen.set(p, { knob: best.knob, rows: best.rows });
     }
     const baseFixed = new Map(lockedFixed);
@@ -397,6 +426,10 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
     const span = locked && Number.isFinite(locked.knob)
         ? { min: Math.max(KNOB_MIN, locked.knob - LOCK_KNOB_SPAN), max: Math.min(KNOB_MAX, locked.knob + LOCK_KNOB_SPAN) }
         : nn2 ? { ...NN2_SPAN } : { min: KNOB_MIN, max: KNOB_MAX };
+    if (!(locked && Number.isFinite(locked.knob))) {
+        if (boost?.knobMax) span.max = Math.max(span.max, boost.knobMax);
+        if (boost?.knobMin) span.min = Math.min(span.min, boost.knobMin);
+    }
     let { best, reachable } = await globalSearch({ ...span, scale: 1 });
 
     // ---- far off: once more with room for denser light parts (and half the contrast) or for sparser notes ----
@@ -405,7 +438,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         let again = null;
         if (best.numeric < range.lo - DAN_FAR) {
             danRetry = "low";
-            again = await globalSearch({ min: span.min, max: LOW_KNOB_MAX, scale: 0.5 });
+            again = await globalSearch({ min: span.min, max: Math.max(LOW_KNOB_MAX, span.max + LOW_KNOB_MAX - KNOB_MAX), scale: 0.5 });
         } else if (best.numeric > range.hi + DAN_FAR) {
             danRetry = "high";
             again = await globalSearch({ min: HIGH_KNOB_MIN, max: span.max, scale: 1 });
@@ -572,6 +605,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         ...(criticOut ? { critic: criticOut } : {}),
         ...(structure ? { structure: structureToResponse(structure) } : {}),
         ...(styleUsed ? { style } : {}),
+        ...(boost ? { boost } : {}),
     };
 }
 

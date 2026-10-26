@@ -30,6 +30,8 @@ import { createResultView, newDiff, addVariant, rankFallback } from "./resultVie
 import { initExportPanel } from "./exportPanel.js";
 import { initRemapPanel } from "./remapPanel.js";
 import { createGenOptions, probeGpu } from "./genOptions.js";
+import { runAuto } from "./autoPick.js";
+import { ensureProfile as ensureSharedProfile } from "./profile.js";
 
 const ANALYSIS_RATE = 22050;
 const CHECK_SEC = 8;
@@ -39,7 +41,7 @@ const REDETECT_MS = 300;
 const CURVE_POINTS = 432;
 const PHASE_KEYS = {
     search: "create.progress.search", retry: "create.progress.retry", describe: "create.progress.describe", prepare: "create.generating",
-    critic: "create.progress.critic",
+    critic: "create.progress.critic", soften: "create.progress.soften",
 };
 const RATINGS_RECHECK_MS = 4000; // the personal model is refitted 2 s after a rating; look again a little later
 
@@ -164,6 +166,7 @@ async function loadSong(file) {
     if (!path) return setStatus(t("create.song.noPath"));
     $("drop").textContent = t("create.song.reading", { name: file.name });
     $("generate").disabled = true;
+    setAutoDisabled(true);
     ui.options?.askGpu();
     await new Promise((r) => setTimeout(r, 30)); // let the label paint before the heavy work
     const load = (state.loads += 1);
@@ -229,6 +232,7 @@ async function loadSong(file) {
         const secs = String(Math.round(buffer.duration % 60)).padStart(2, "0");
         $("drop").textContent = `${file.name} · ${mins}:${secs}`;
         $("generate").disabled = false;
+        setAutoDisabled(false);
         setStatus("");
         ui.exportPanel.onSongLoaded?.(songForExport());
         ui.options?.refresh(); // detect-timing told main the model's styles
@@ -283,6 +287,7 @@ function chosenPatterns() {
 function phaseText(p) {
     if (p.phase === "partSearch") return t("create.progress.partSearch", { i: Math.min(p.n, (p.i ?? 0) + 1), n: p.n, kind: kindText(p.kind) });
     if (p.phase === "candidates") return t("create.progress.candidates", { i: Math.min(p.n, (p.i ?? 0) + 1), n: p.n });
+    if (p.phase === "boost") return t("create.progress.boost", { i: Math.min(3, Math.max(1, p.i ?? 1)), n: 3 });
     const key = PHASE_KEYS[p.phase];
     return key ? t(key) : "";
 }
@@ -384,6 +389,7 @@ async function runJobs(jobs, { kind }) {
     const song = state.song;
     state.running = { stop: false, jobId: null, prefix: "" };
     ui.diffList.setBusy(true);
+    setAutoDisabled(true);
     $("generate").textContent = t("create.variants.stop");
     redrawResults();
     let failure = null;
@@ -420,6 +426,7 @@ async function runJobs(jobs, { kind }) {
         state.running = null;
         ui.diffList.setBusy(false);
         $("generate").disabled = !state.song;
+        setAutoDisabled(!state.song);
         if (state.focus) focusCard(state.focus.d, state.focus.id);
         else redrawResults();
         setStatus(failure ?? "");
@@ -427,6 +434,45 @@ async function runJobs(jobs, { kind }) {
         ui.options?.refresh(); // the worker may have named the model's styles
         refreshRatings(); // the personal model may have become active meanwhile
     }
+}
+
+const setAutoDisabled = (off) => {
+    const button = $("auto-map");
+    if (button) button.disabled = off;
+};
+
+// «Автоподбор»: the plan for the loaded song (autoPick.js) into the controls, then «Создать карту» with them.
+function autoMap() {
+    if (!state.song || state.running) return undefined;
+    if (!ui.timing.valid()) return setStatus(t("create.timing.check"));
+    const song = state.song;
+    return runAuto({
+        busy: () => Boolean(state.running),
+        song: () => (state.song === song ? { bpm: ui.timing.timing.bpm, durationMs: song.durationMs, envelope: song.envelope, stems: song.stems } : null),
+        parts: () => ui.timeline.parts,
+        ensureProfile: ui.ensureProfile,
+        available: () => ui.options?.available?.() ?? {},
+        controls: {
+            diffList: ui.diffList,
+            setPatterns: (selected) => {
+                state.selected = selected;
+                renderPatterns();
+            },
+            setMix: (mix) => {
+                state.mix = mix;
+                for (const c of $("mix").children) c.classList.toggle("sel", c.dataset.mix === mix);
+            },
+            stamina: $("stamina"), burst: $("burst"), timing: ui.timing, options: ui.options, timeline: ui.timeline,
+        },
+        summaryRoot: $("auto-summary"),
+        onEdit: () => {
+            const summary = $("auto-summary");
+            if (summary) summary.hidden = true;
+            $("diffs").scrollIntoView?.({ behavior: "smooth", block: "center" });
+        },
+        generate: () => (state.song === song ? generate() : undefined),
+        setStatus,
+    });
 }
 
 function currentParts() {
@@ -591,13 +637,13 @@ function typingInField() {
 
 // opts are for tests: random (seeds), core (instead of loading src/gen/songParts.js and variants.js), player,
 // the stream C panels; stems (instead of src/audio/stems.js) and pause (the wait between their chunks); gpu (the
-// graphics-card probe of the model-strength picker).
+// graphics-card probe of the model-strength picker); ensureProfile (the profile «Автоподбор» reads, renderer/profile.js).
 const nextTask = () => (globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0)));
 export function initCreateTab({
     random = Math.random, core = null, player = null, exportPanel = initExportPanel, remapPanel = initRemapPanel,
-    stems = null, pause = nextTask, gpu = probeGpu,
+    stems = null, pause = nextTask, gpu = probeGpu, ensureProfile = ensureSharedProfile,
 } = {}) {
-    ui = { random, core: core ? Promise.resolve(core) : null, checking: false, rankVariants: null, stemsGiven: stems, stemsModule: null, pause };
+    ui = { ensureProfile, random, core: core ? Promise.resolve(core) : null, checking: false, rankVariants: null, stemsGiven: stems, stemsModule: null, pause };
     ui.player = player ?? createAudioPlayer();
     ui.timing = createTimingPanel({
         root: $("timing-sections"), snapsRoot: $("snaps"), bpmInput: $("bpm"), offsetInput: $("offset"), note: $("timing-note"),
@@ -706,7 +752,17 @@ export function initCreateTab({
     });
     $("file").addEventListener("change", (e) => { if (e.target.files[0]) loadSong(e.target.files[0]); });
     $("listen").addEventListener("click", checkByEar);
-    $("generate").addEventListener("click", () => generate());
+    $("generate").addEventListener("click", () => {
+        // a run of the player's own settings: the «Автоподбор» line no longer says what they are
+        const summary = $("auto-summary");
+        if (summary && !state.running) summary.hidden = true;
+        return generate();
+    });
+    const auto = $("auto-map");
+    if (auto) {
+        auto.title = t("create.auto.hint");
+        auto.addEventListener("click", () => autoMap());
+    }
 
     // Space plays / pauses the song unless a field has the keyboard; the tab must be showing in song mode
     document.addEventListener?.("keydown", (e) => {

@@ -4,7 +4,10 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { LANGS } from "../src/i18n/i18n.js";
 
-export const DEFAULT_WINDOW = { width: 320, height: 380, alwaysOnTop: false, autoUpdate: true };
+// 0.9.8: big enough for the whole analysis tab (card, difficulty line, dan by part, the ladder) without scrolling
+export const DEFAULT_WINDOW = { width: 440, height: 820, alwaysOnTop: false, autoUpdate: true };
+// a window.json from before 0.9.8 (no `size` mark) that is smaller than the new default grows to it once
+const SIZE_VERSION = 2;
 
 function centred(size, displays) {
     const area = displays[0].workArea;
@@ -25,11 +28,20 @@ export function loadWindowState(file, displays) {
     } catch {
         saved = {};
     }
-    const height = Number.isFinite(saved.height) ? saved.height : DEFAULT_WINDOW.height;
+    const old = saved.size !== SIZE_VERSION;
+    const area = displays[0].workArea;
+    // never taller or wider than the screen's work area (a laptop's 768 px screen gets the window that fits)
+    const fit = (v, max) => Math.max(200, Math.min(v, max));
+    let width = Number.isFinite(saved.width) ? saved.width : DEFAULT_WINDOW.width;
+    let height = Number.isFinite(saved.height) ? saved.height : DEFAULT_WINDOW.height;
+    // saved in the old compact mode, or by a version with the small window: grown to the new default once
+    if (old || saved.compact === true) {
+        width = Math.max(width, DEFAULT_WINDOW.width);
+        height = Math.max(height, DEFAULT_WINDOW.height);
+    }
     const state = {
-        width: Number.isFinite(saved.width) ? saved.width : DEFAULT_WINDOW.width,
-        // saved in the old compact mode: the strip's height, not the window's
-        height: saved.compact === true ? Math.max(height, DEFAULT_WINDOW.height) : height,
+        width: fit(width, area.width - 20),
+        height: fit(height, area.height - 20),
         alwaysOnTop: saved.alwaysOnTop === true,
         lang: LANGS.includes(saved.lang) ? saved.lang : null,
         // on unless turned off: a window.json from before this setting has no field and checks
@@ -43,5 +55,5 @@ export function loadWindowState(file, displays) {
 export function saveWindowState(file, state) {
     mkdirSync(path.dirname(file), { recursive: true });
     const { x, y, width, height, alwaysOnTop, lang = null, autoUpdate = true } = state;
-    writeFileSync(file, JSON.stringify({ x, y, width, height, alwaysOnTop: alwaysOnTop === true, lang, autoUpdate: autoUpdate !== false }), "utf8");
+    writeFileSync(file, JSON.stringify({ x, y, width, height, alwaysOnTop: alwaysOnTop === true, lang, autoUpdate: autoUpdate !== false, size: SIZE_VERSION }), "utf8");
 }

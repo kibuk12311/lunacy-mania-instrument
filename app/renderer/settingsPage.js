@@ -61,9 +61,10 @@ function writeSource(storage, source) {
     }
 }
 
-// page: the page's section; openButton: ⚙ under the card; $: by id; interlude: the IL block (its shown()).
+// page: the page's section; openButton: ⚙ under the card; tabButton: ⚙ at the end of the tab bar (opens and closes the
+// page, lit while it is open); $: by id; interlude: the IL block (its shown()).
 export function initSettingsPage({
-    page, openButton, $ = (id) => document.getElementById(id), api = window.danApi,
+    page, openButton, tabButton = null, $ = (id) => document.getElementById(id), api = window.danApi,
     storage = () => globalThis.localStorage, onProfileChange = manualChanged, interlude = null,
     setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
@@ -78,6 +79,7 @@ export function initSettingsPage({
     function open(section = null) {
         page.hidden = false;
         document.body?.classList?.add("settings-open");
+        tabButton?.classList?.add("on");
         void refresh();
         interlude?.shown?.({ focus: section === "interlude" });
         if (section) $(`st-${section}`)?.scrollIntoView?.({ block: "start" });
@@ -85,8 +87,10 @@ export function initSettingsPage({
     function close() {
         page.hidden = true;
         document.body?.classList?.remove("settings-open");
+        tabButton?.classList?.remove("on");
     }
     openButton?.addEventListener("click", () => open());
+    tabButton?.addEventListener("click", () => (isOpen() ? close() : open()));
     $("settings-back")?.addEventListener("click", close);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen()) close(); });
     api.onOpenSettings?.(() => open());

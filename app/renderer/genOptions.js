@@ -414,5 +414,21 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
             renderCount();
         },
         get chosen() { return { ...chosen }; },
+        // «Автоподбор» (0.9.8): what can run here — the choices that can be picked, the graphics card, the stems, the critic
+        available() {
+            const open = Object.fromEntries(choices().map((c) => [c.size, c.ok && (c.size === "auto" || info?.sizes?.[c.size] === true)]));
+            return { sizes: open, gpu: Boolean(gpuNow()), stems: stems === true, critic: Boolean(info?.critic) };
+        },
+        // «Автоподбор» fills the controls: the model, the candidates and the repeats (each only when given), remembered
+        apply({ modelSize, candidates, repeats: wantRepeats } = {}) {
+            if (MODEL_SIZES.includes(modelSize)) chosen.modelSize = modelSize;
+            if (Number.isFinite(candidates)) {
+                chosen.candidates = clampCandidates(candidates);
+                count.value = String(chosen.candidates);
+            }
+            if (typeof wantRepeats === "boolean") chosen.repeats = wantRepeats;
+            save();
+            render();
+        },
     };
 }

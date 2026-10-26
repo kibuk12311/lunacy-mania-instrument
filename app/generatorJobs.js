@@ -184,8 +184,18 @@ export function createGeneratorJobs({ load = (spec) => import(spec), readModel, 
             return { kind: "generated", ...out, engine: "rules", modelInfo };
         }
         const { generateLearnedMap } = await load("../src/gen/generateLearned.js");
+        // the dan targeting is optional: without its module the generator runs once, as before 0.9.8
+        const targeting = await Promise.resolve().then(() => load("../src/gen/targeting.js")).catch(() => null);
         const backend = m.kind === "nn-v2" && nnBackend ? await Promise.resolve().then(nnBackend).catch(() => null) : null;
-        const out = await generateLearnedMap(input, analyze, m, { onProgress, critic: c, personal: payload.personal ?? null, deadlineMs: payload.deadlineMs ?? null, ...(backend ? { nnBackend: backend } : {}) });
+        const opts = { onProgress, critic: c, personal: payload.personal ?? null, deadlineMs: payload.deadlineMs ?? null, ...(backend ? { nnBackend: backend } : {}) };
+        // 0.9.8: a map short of (or far over) its range is made again with the limits lifted (src/gen/targeting.js)
+        const once = (boost) => generateLearnedMap(input, analyze, m, boost ? { ...opts, boost } : opts);
+        const out = !targeting?.generateToTarget ? await once(null) : await targeting.generateToTarget({
+            generate: once,
+            range: input.request?.range ?? null, analyze,
+            ...(Number.isFinite(payload.targetBudgetMs) ? { budgetMs: payload.targetBudgetMs } : {}),
+            onRung: (b) => onProgress?.({ phase: b.rung < 0 ? "soften" : "boost", i: Math.max(0, Math.ceil(b.rung)), n: 3 }),
+        });
         return { kind: "generated", ...out, engine: engineOf(m), modelInfo: backend ? { ...modelInfo, gpu: true } : modelInfo };
     }
 

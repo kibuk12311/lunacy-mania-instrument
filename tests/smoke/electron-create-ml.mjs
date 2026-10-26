@@ -13,6 +13,9 @@
 // leaves the style list off and says why, that XGBoost v3 shows its styles at once (most maps first, «Name · N карт»),
 // that the search box finds one and Enter picks it, and that Neural net S keeps it with a proper name (not "n:…");
 // it captures the three (create-ml-style-<classic|xgb3|nn-s>-<lang>.png), and the card names the style used.
+// 0.9.8 «Автоподбор» / "Auto": with the stems and the critic here, one click picks a model that reads the stems
+// (neural M with a graphics card, else XGBoost v3), 4 candidates (so 2 cards), repeats on, parts with their patterns,
+// and the summary names that model; captured to create-ml-auto-<lang>.png.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -263,6 +266,26 @@ app.whenReady().then(async () => {
     const regenerated = await until(win, `document.querySelectorAll(".cr-card").length >= 3 && document.getElementById("generate").textContent !== ${stop}`, 20000);
     const onlyLock = requests[2]?.request.lock ?? null;
 
+    // «Автоподбор»: the model, the candidates and the summary with the stems and the critic here
+    const autoFrom = made;
+    await win.webContents.executeJavaScript(`document.getElementById("auto-map").click(); true`);
+    for (let waited = 0; waited < 20000 && made < autoFrom + 2; waited += 100) await sleep(100);
+    const autoDone = await until(win, `document.getElementById("generate").textContent !== ${stop}`, 8000);
+    const autoReq = requests.at(-1)?.request ?? null;
+    const auto = {
+        made: made - autoFrom, modelSize: autoReq?.modelSize, candidates: autoReq?.candidates, repeats: autoReq?.repeats, stems: Boolean(requests.at(-1)?.stems),
+        parts: (autoReq?.parts ?? []).map((p) => p.patterns?.[0]?.name ?? null), range: autoReq?.range,
+        summary: await win.webContents.executeJavaScript(`document.getElementById("auto-summary").textContent`),
+    };
+    await win.webContents.executeJavaScript(`document.getElementById("auto-map").scrollIntoView({ block: "start" }); true`);
+    await sleep(400);
+    await win.webContents.capturePage();
+    shots.auto = path.join(outDir, `create-ml-auto-${lang}.png`);
+    writeFileSync(shots.auto, (await win.webContents.capturePage()).toPNG());
+    const autoModelName = { m: lang === "en" ? "neural M" : "нейросеть M", s: lang === "en" ? "neural S" : "нейросеть S", xgb3: "XGBoost v3" }[auto.modelSize];
+    const autoOk = autoDone && auto.made === 2 && ["m", "s", "xgb3"].includes(auto.modelSize) && auto.candidates === 4 && auto.repeats === true && auto.stems
+        && auto.parts.length >= 1 && auto.parts.every(Boolean) && Boolean(autoModelName) && auto.summary.includes(autoModelName);
+
     const report = await win.webContents.executeJavaScript(`(() => {
         const tab = document.getElementById("create-tab");
         const edge = tab.getBoundingClientRect().right;
@@ -287,9 +310,9 @@ app.whenReady().then(async () => {
     const pickerOk = picker.length === 5 && picker.find((p) => p.size === "auto")?.on === true && picker.find((p) => p.size === "l")?.disabled === true
         && picker.filter((p) => p.size !== "l").every((p) => !p.disabled) && defaultCandidates === "1";
     const styleLine = report.cardStyle;
-    const ok = pickerOk && styleOk && sent?.modelSize === "s" && sent?.style === stylePicked.value && Boolean(styleLine) && loaded && generated && regenerated && report.cards === 3 && made === 3 && sent?.stems && sent.candidates === 12 && sent.repeats === true
+    const ok = pickerOk && styleOk && sent?.modelSize === "s" && sent?.style === stylePicked.value && Boolean(styleLine) && loaded && generated && regenerated && report.cards === 2 && made === 5 && sent?.stems && sent.candidates === 12 && sent.repeats === true
         && first.request.parts?.length === 2 && onlyLock?.fromId === "smoke-1" && JSON.stringify(onlyLock?.parts) === "[1]"
-        && rated.length >= 2 && rated[0].vote === -1 && rated.at(-1).tags.includes("tooJacky") && report.critic.length === report.cards;
-    console.log(JSON.stringify({ lang, loaded, loadMs, generated, made, sent, rated, picker, pickerOk, defaultCandidates, styleOk, styleLine, styleOptions: styleOptions.slice(0, 6), regenerated, onlyLock, ...report, ok, shots, problems: problems.slice(0, 10) }, null, 2));
+        && rated.length >= 2 && rated[0].vote === -1 && rated.at(-1).tags.includes("tooJacky") && report.critic.length === report.cards && autoOk;
+    console.log(JSON.stringify({ lang, auto, autoOk, loaded, loadMs, generated, made, sent, rated, picker, pickerOk, defaultCandidates, styleOk, styleLine, styleOptions: styleOptions.slice(0, 6), regenerated, onlyLock, ...report, ok, shots, problems: problems.slice(0, 10) }, null, 2));
     app.exit(report.wide.length || report.scrollWidth > report.clientWidth || !ok ? 1 : 0);
 });

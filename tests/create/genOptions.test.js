@@ -382,3 +382,25 @@ test("style names and the option text: plural maps in ru, «маппер #id» f
     assert.deepEqual(stylesOf({ styles: [{ key: "k", name: "K", maps: 2 }], stylesBySize: { auto: [] } }, "auto"), []);
     assert.deepEqual(stylesOf(null, "s"), []);
 });
+
+test("0.9.8 «Автоподбор»: available() says what can run; apply() sets the model, candidates and repeats and remembers them", async () => {
+    const { opts, storage } = await options({ gpu: true });
+    opts.setStems(true);
+    const can = opts.available();
+    assert.equal(can.sizes.auto, true);
+    assert.equal(can.sizes.m, true);
+    assert.equal(can.gpu, true);
+    assert.equal(can.stems, true);
+    assert.equal(can.critic, true);
+    opts.apply({ modelSize: "m", candidates: 4, repeats: true });
+    assert.deepEqual(opts.request(), { modelSize: "m", candidates: 4, style: null, repeats: true });
+    assert.equal(JSON.parse(storage.get(STORE_KEY)).modelSize, "m");
+    assert.equal(opts.variants(3), CARDS_WITH_CRITIC);
+    // an unknown size is ignored; the rest still applies
+    opts.apply({ modelSize: "zz", candidates: 1 });
+    assert.equal(opts.request().modelSize, "m");
+    assert.equal(opts.request().candidates, 1);
+    // a file that is not there is not offered
+    const { opts: few } = await options({ info: { ...INFO, sizes: { auto: true, xgb3: false, s: false, m: false, l: false } } });
+    assert.deepEqual(Object.entries(few.available().sizes).filter(([, v]) => v).map(([k]) => k), ["auto"]);
+});

@@ -305,5 +305,49 @@ export default {
     },
     "create.remap.onlyRice": { ru: "Переделка работает только для рисовых 4K-карт", en: "Remapping works only for 4K rice maps" },
     "create.remap.failed": { ru: "Не вышло: {message}", en: "Didn't work: {message}" },
+    // 0.9.8: the dan targeting (src/gen/targeting.js) and «Автоподбор» (src/gen/autoPlan.js, app/renderer/autoPick.js)
+    "create.progress.boost": { ru: "Дан не доставал — делаем плотнее, с аккордами и мельче сеткой (шаг {i} из 3)…", en: "The dan fell short — making it denser, with chords and a finer grid (step {i} of 3)…" },
+    "create.progress.soften": { ru: "Дан вышел выше — делаем легче…", en: "The dan came out too high — making it lighter…" },
+    "create.result.boosted": {
+        ru: "Сложность подтянута к заказу: шаг {rung} из 3 (плотнее, больше аккордов, мельче сетка)",
+        en: "Difficulty pulled up to the request: step {rung} of 3 (denser, more chords, a finer grid)",
+    },
+    "create.result.softened": { ru: "Карта вышла слишком тяжёлой — сделана легче", en: "The map came out too hard — made lighter" },
+    "create.result.ceiling": {
+        ru: "Для этой песни максимум ≈ {label} — попробуй рейт {rate}x (тогда ≈ {rateLabel})",
+        en: "This song tops out at ≈ {label} — try rate {rate}x (≈ {rateLabel} then)",
+    },
+    "create.result.ceilingNoRate": {
+        ru: "Для этой песни максимум ≈ {label}: она слишком медленная или редкая для такого дана, даже на рейте 2.0x",
+        en: "This song tops out at ≈ {label}: it's too slow or sparse for that dan, even at rate 2.0x",
+    },
+    "create.auto.hint": {
+        ru: "Один клик: приложение само выберет дан, паттерны по частям песни и модель, и создаст карту",
+        en: "One click: the app picks the dan, the patterns per song part and the model, and makes the map",
+    },
+    "create.auto.summary": { ru: "Автоподбор: {dan} · {groups}; модель: {model}", en: "Auto: {dan} · {groups}; model: {model}" },
+    "create.auto.fromProfile": { ru: "Дан — из твоего профиля ({dan}), на шаг выше для роста", en: "The dan comes from your profile ({dan}), a step up to grow" },
+    "create.auto.fromSong": { ru: "Профиля нет — дан подобран по темпу и плотности песни", en: "No profile — the dan is picked from the song's tempo and density" },
+    "create.auto.noLn": {
+        ru: "В песне есть долгие тянущиеся звуки, но LN не ставим: генератор и анализатор данов работают только с рисом",
+        en: "The song has long sustained sounds, but no LNs: the generator and the dan analyser work with rice only",
+    },
+    "create.auto.edit": { ru: "изменить выбор", en: "edit these choices" },
+    "create.auto.editHint": {
+        ru: "Всё выбранное уже стоит в обычных настройках выше — поправь и нажми «Создать карту»",
+        en: "Everything chosen is already set in the normal controls above — tweak it and press “Create map”",
+    },
+    "create.auto.family.Stream": { ru: "стрим", en: "stream" },
+    "create.auto.family.Jumpstream": { ru: "джампстрим", en: "jumpstream" },
+    "create.auto.family.Handstream": { ru: "хендстрим", en: "handstream" },
+    "create.auto.family.Chordjack": { ru: "чордджек", en: "chordjack" },
+    "create.auto.family.Jack": { ru: "джеки", en: "jacks" },
+    "create.auto.family.Tech": { ru: "тех", en: "tech" },
+    "create.auto.model.auto": { ru: "классическая", en: "Classic" },
+    "create.auto.model.xgb3": { ru: "XGBoost v3", en: "XGBoost v3" },
+    "create.auto.model.s": { ru: "нейросеть S", en: "neural S" },
+    "create.auto.model.m": { ru: "нейросеть M", en: "neural M" },
+    "create.auto.model.l": { ru: "нейросеть L", en: "neural L" },
+    "create.auto.noSong": { ru: "Сначала загрузи песню", en: "Load a song first" },
     // <<< mapgen-C
 };

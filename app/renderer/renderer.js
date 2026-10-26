@@ -79,7 +79,7 @@ function draw() {
 }
 
 function showTab(tab) {
-    for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.tab === tab);
+    for (const b of document.querySelectorAll(".tabs button[data-tab]")) b.classList.toggle("on", b.dataset.tab === tab);
     document.getElementById("analysis-tab").hidden = tab !== "analysis";
     document.getElementById("create-tab").hidden = tab !== "create";
     document.getElementById("rate-tab").hidden = tab !== "rate";
@@ -109,7 +109,8 @@ window.danApi.onOsuClient?.((p) => {
     draw();
     window.dispatchEvent(new CustomEvent("osu-client", { detail: osuClient }));
 });
-for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
+// a tab closes the Settings page if it is open; ⚙ at the end of the bar opens and closes it
+for (const b of document.querySelectorAll(".tabs button[data-tab]")) b.addEventListener("click", () => { settingsView?.close(); showTab(b.dataset.tab); });
 // One tab opens another: open-tab { tab }, open-rate { rate } (the rate tab at that rate).
 window.addEventListener("open-tab", (e) => { if (TABS.includes(e.detail?.tab)) showTab(e.detail.tab); });
 window.addEventListener("open-rate", (e) => {
@@ -143,7 +144,9 @@ const interludeBlock = initInterludePanel({
     button: document.getElementById("interlude-toggle"), panel: document.getElementById("interlude-panel"),
     onOpen: () => settingsView?.open("interlude"), visible: () => !settingsPage.hidden,
 });
-const settingsView = initSettingsPage({ page: settingsPage, openButton: document.getElementById("settings-open"), interlude: interludeBlock });
+const settingsView = initSettingsPage({
+    page: settingsPage, openButton: document.getElementById("settings-open"), tabButton: document.getElementById("settings-tab"), interlude: interludeBlock,
+});
 onInterludeState((s) => {
     const next = s?.selected ?? null;
     const linked = Boolean(s?.linked);

@@ -259,6 +259,13 @@ export function createTimingPanel({ root, snapsRoot, bpmInput, offsetInput, note
         nudge(deltaMs) { return apply(nudgeSection(timing, selected, deltaMs)); },
         valid: () => typedOk,
         snaps: () => SNAP_ORDER.filter((d) => snaps.has(d)),
+        // «Автоподбор» (0.9.8) sets the grids; 1/4 always stays
+        setSnaps(list) {
+            snaps.clear();
+            snaps.add(4);
+            for (const d of list ?? []) if (SNAP_ORDER.includes(d)) snaps.add(d);
+            renderSnaps();
+        },
         normalizeSv: () => normalizeSv,
         setModelInfo(info) {
             modelGrid = info?.grid ?? "q4";

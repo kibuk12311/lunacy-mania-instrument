@@ -7,7 +7,7 @@
 // (ratingBar.js) on every card, and under the cards the ratings line («Учитываю твои оценки: n» once the personal
 // model is active) with «Выгрузить мои оценки».
 import { t } from "../../src/i18n/i18n.js";
-import { confidenceWord, labelBeside } from "../../src/core/labels.js";
+import { confidenceWord, labelBeside, numericToLabel } from "../../src/core/labels.js";
 import { clockText } from "./snapColors.js";
 import { rangeText } from "./timeline.js";
 import { isDetailed, patternsInMode } from "./patternMode.js";
@@ -103,6 +103,23 @@ function sizeNoteText(note) {
 }
 const percentOf = (x) => Math.round(Number(x) > 1 ? Number(x) : Number(x) * 100);
 
+// 0.9.8, the dan targeting (src/gen/targeting.js): the song's ceiling when the range was out of reach (with the rate
+// that would reach it), else which boost step pulled the dan up or that the map was made lighter; null: nothing to say.
+export function targetingLine(answer) {
+    const c = answer?.ceiling;
+    const label = (n) => numericToLabel(n, { number: false }).text;
+    if (c && Number.isFinite(c.numeric)) {
+        if (Number.isFinite(c.rate)) {
+            return { text: t("create.result.ceiling", { label: label(c.numeric), rate: c.rate.toFixed(1), rateLabel: Number.isFinite(c.rateNumeric) ? label(c.rateNumeric) : "—" }), cls: "warn" };
+        }
+        return { text: t("create.result.ceilingNoRate", { label: label(c.numeric) }), cls: "warn" };
+    }
+    const rung = Number(answer?.targeting?.rung);
+    if (rung > 0) return { text: t("create.result.boosted", { rung: Math.ceil(rung) }), cls: "muted" };
+    if (rung < 0) return { text: t("create.result.softened"), cls: "muted" };
+    return null;
+}
+
 // One problem spot as a line.
 export function issueText(issue) {
     const key = ISSUE_KEYS[issue.kind];
@@ -159,6 +176,8 @@ export function cardLines(answer, range, { detailed = isDetailed() } = {}) {
     if (answer.retries?.blocks > 0) add(t("create.retry.blocks", { n: answer.retries.blocks }));
     if (answer.retries?.dan === "low") add(t("create.retry.danLow"));
     if (answer.retries?.dan === "high") add(t("create.retry.danHigh"));
+    const aim = targetingLine(answer);
+    if (aim) add(aim.text, aim.cls);
     return lines;
 }
 

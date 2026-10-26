@@ -29,8 +29,10 @@ const MAX_CANDIDATES = 20;
 const MAX_STYLE = 128;
 // the candidate phase's time budget in the worker (§1.1)
 const DEADLINE_MS = 4000;
+// 0.9.8: the dan targeting's time budget in the worker (src/gen/targeting.js): the boosted tries after the first map
+const TARGET_BUDGET_MS = 30000;
 // request fields only main may set; whatever the window put there is dropped
-const MAIN_ONLY = ["personal", "deadlineMs", "critic", "blend"];
+const MAIN_ONLY = ["personal", "deadlineMs", "critic", "blend", "targetBudgetMs"];
 // a lock holds while the timing and the locked part edges are the same, within these
 const SECTION_TIME_MS = 0.5;
 const SECTION_BPM = 1e-6;
@@ -178,6 +180,9 @@ const badRequest = (what) => ({ ok: false, code: "badRequest", message: t("app.g
 
 // the critic's answer for the window: its feature vector stays in the store (§2.6)
 const publicCritic = ({ features: _features, ...rest }) => rest;
+// the dan targeting for the window: the rung that won and how many tries it took
+const publicTargeting = (x) => ({ rung: isNumber(x.rung) ? x.rung : 0, tries: Array.isArray(x.attempts) ? x.attempts.length : 1 });
+const publicCeiling = (c) => ({ numeric: c.numeric, rate: isNumber(c.rate) ? c.rate : null, rateNumeric: isNumber(c.rateNumeric) ? c.rateNumeric : null });
 // the GPU capability for the window (stream W): the flag, the adapter's name, why not, and where the decoder runs
 const publicGpu = (gpu) => ({ gpuAvailable: Boolean(gpu?.gpuAvailable), adapter: gpu?.adapter ?? null, reason: gpu?.reason ?? null, decoder: gpu?.decoder ?? "cpu" });
 
@@ -245,6 +250,7 @@ export function registerCreateIpc(deps) {
                 meta: { title, audioFilename: audioNameFor(audioPath) },
                 personal: ratings.personal() ?? null,
                 deadlineMs: DEADLINE_MS,
+                targetBudgetMs: TARGET_BUDGET_MS,
             }, forward);
             if (out?.kind !== "generated") {
                 log(`generate failed: ${out?.message}`);
@@ -267,7 +273,7 @@ export function registerCreateIpc(deps) {
                 critic, style: styleUsed, candidates: request.candidates ?? 1,
             });
             const ms = Date.now() - started;
-            log(`generated ${id} got ${out.result?.numeric} reachable ${out.reachable} in ${ms} ms`);
+            log(`generated ${id} got ${out.result?.numeric} reachable ${out.reachable}${out.targeting?.rung ? ` rung ${out.targeting.rung}` : ""}${out.ceiling ? ` ceiling ${out.ceiling.numeric}` : ""} in ${ms} ms`);
             return {
                 ok: true, id, engine: out.engine, modelInfo: out.modelInfo, version: out.version, osuText: out.osuText,
                 result: out.result, reachable: out.reachable, range, noteCount: out.noteCount, patternScore: out.patternScore,
@@ -278,6 +284,9 @@ export function registerCreateIpc(deps) {
                 retries: out.retries ?? { blocks: 0, dan: null }, grid: out.grid ?? Q4_GRID, ms,
                 ...(critic ? { critic: publicCritic(critic) } : {}),
                 ...(isObject(out.structure) ? { structure: out.structure } : {}),
+                // 0.9.8: how the dan targeting went, and the song's ceiling when the range was out of reach
+                ...(isObject(out.targeting) ? { targeting: publicTargeting(out.targeting) } : {}),
+                ...(isObject(out.ceiling) && isNumber(out.ceiling.numeric) ? { ceiling: publicCeiling(out.ceiling) } : {}),
                 // { key, name, user } of the style used, and of the one asked for when the model that ran had none
                 style: await describeStyle(styleUsed), styleAsked: styleUsed ? null : await describeStyle(request.style),
             };

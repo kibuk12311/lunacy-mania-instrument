@@ -59,7 +59,7 @@ function mount({ lang = "ru", storage = { "rec-settings": JSON.stringify({ sourc
     let changed = 0;
     let shown = null;
     const view = initSettingsPage({
-        page, openButton, $: dom.$, api, onProfileChange: () => { changed += 1; },
+        page, openButton, tabButton: dom.$("settings-tab"), $: dom.$, api, onProfileChange: () => { changed += 1; },
         interlude: { shown: (o) => { shown = o; } },
         setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
     });
@@ -91,6 +91,23 @@ test("opens from ⚙ and the tray, closes by back, Esc and another tab; the Inte
     assert.deepEqual(m.shown(), { focus: true });
     m.window.dispatchEvent(new CustomEvent("open-tab", { detail: { tab: "analysis" } }));
     assert.equal(m.page.hidden, true, "a chart put on the card: back to it");
+});
+
+test("⚙ at the end of the tab bar opens the page as a page of its own and closes it again, lit while open", async () => {
+    const m = mount();
+    const gear = m.$("settings-tab");
+    const lit = new Set();
+    gear.classList = { add: (c) => lit.add(c), remove: (c) => lit.delete(c), toggle() {}, contains: (c) => lit.has(c) };
+    await fire(gear, "click");
+    assert.equal(m.page.hidden, false);
+    assert.ok(gear.classList.contains("on"));
+    await fire(gear, "click");
+    assert.equal(m.page.hidden, true);
+    assert.ok(!gear.classList.contains("on"));
+    await fire(m.openButton, "click"); // ⚙ under the card lights the tab's ⚙ too
+    assert.ok(gear.classList.contains("on"));
+    await fire(m.$("settings-back"), "click");
+    assert.ok(!gear.classList.contains("on"));
 });
 
 test("what main says: version, the folder, tosu's port, the client; 📌 and the update check go through main's toggles", async () => {

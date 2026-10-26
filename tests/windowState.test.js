@@ -80,12 +80,29 @@ test("a window.json saved in the old compact mode opens the normal window, and t
     writeFileSync(file, JSON.stringify({ x: 10, y: 10, width: 330, height: 103, alwaysOnTop: true, compact: true, lang: "ru" }));
     const s = loadWindowState(file, ONE_SCREEN);
     assert.equal(s.height, DEFAULT_WINDOW.height, "the strip's height is not the window's");
-    assert.equal(s.width, 330);
+    assert.equal(s.width, DEFAULT_WINDOW.width, "an old small window grows to the new default once");
     assert.equal(s.alwaysOnTop, true);
     assert.equal("compact" in s, false);
     saveWindowState(file, s);
     assert.equal("compact" in JSON.parse(readFileSync(file, "utf8")), false);
-    // a tall window saved with compact off keeps its height
-    writeFileSync(file, JSON.stringify({ x: 10, y: 10, width: 330, height: 600, compact: true }));
-    assert.equal(loadWindowState(file, ONE_SCREEN).height, 600);
+    // a window bigger than the default keeps its size
+    writeFileSync(file, JSON.stringify({ x: 10, y: 10, width: 600, height: 950, compact: true }));
+    assert.equal(loadWindowState(file, ONE_SCREEN).height, 950);
+});
+
+test("0.9.8: an old small window grows to the bigger default once, a saved new size is kept, never past the screen", async () => {
+    const { writeFileSync, readFileSync } = await import("node:fs");
+    const dir = await mkdtemp(path.join(tmpdir(), "окно "));
+    const file = path.join(dir, "window.json");
+    writeFileSync(file, JSON.stringify({ x: 10, y: 10, width: 320, height: 380, alwaysOnTop: false }));
+    const grown = loadWindowState(file, ONE_SCREEN);
+    assert.deepEqual([grown.width, grown.height], [DEFAULT_WINDOW.width, DEFAULT_WINDOW.height]);
+    // made small again by the player after the update: kept
+    saveWindowState(file, { ...grown, width: 330, height: 400 });
+    assert.equal(JSON.parse(readFileSync(file, "utf8")).size, 2);
+    assert.deepEqual([loadWindowState(file, ONE_SCREEN).width, loadWindowState(file, ONE_SCREEN).height], [330, 400]);
+    // a 1366×768 laptop: the default fits the work area
+    const laptop = [{ workArea: { x: 0, y: 0, width: 1366, height: 728 } }];
+    const missing = path.join(dir, "none.json");
+    assert.equal(loadWindowState(missing, laptop).height, 708);
 });

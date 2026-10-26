@@ -54,9 +54,7 @@ The app isn't code-signed, so Windows may show "Windows protected your PC". Clic
 
 1. Start osu! and the app, go to song select. The card shows the selected map's dan.
 2. **⚙** under the card opens the **Settings** page (also "Settings…" in the tray): the calculator, the language, 📌 always on top, the overlay, Interlude, the profile source and "Record my plays", folders, updates, osu!/tosu, caches and About. 📌, the language and "Check for updates" are in the tray icon's menu too. (The old compact mode is gone since 0.9.6 — the in-game overlay does that job.)
-3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them (on osu! lazer they come as an .osz instead, see above). Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania` (if you have the folder of an older version, `Sneezey's dan calculator` or `Анализатор данов`, the app keeps using it), and finished `.osz` files are opened in osu! so the game imports them.
-
-More detail for friends: [docs/for-friends.md](docs/for-friends.md).
+3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them (on osu! lazer they come as an .osz instead, see above). Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania`, and finished `.osz` files are opened in osu! so the game imports them.
 
 ## In-game overlay
 

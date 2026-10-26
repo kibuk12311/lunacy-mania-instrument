@@ -119,3 +119,13 @@
 .ml-ratings[hidden] { display: none; }
 .ml-ratings .ok { color: var(--green); }
 /* <<< mapgen-ML */
+
+/* 0.9.8: «Автоподбор» beside «Создать карту», and what it chose */
+.gen-buttons { gap: 8px; align-items: center; flex-wrap: wrap; }
+.gen-buttons button.primary { margin-top: 8px; }
+.gen-buttons #generate { flex: 1 1 auto; }
+button.primary.auto-map { background: transparent; color: var(--gold); border: 1px solid var(--gold); padding: 8px 14px; }
+.auto-summary { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.auto-summary[hidden] { display: none; }
+.auto-summary .auto-line:first-child { color: var(--text); font-weight: 600; }
+.auto-summary .auto-edit { margin-top: 4px; }

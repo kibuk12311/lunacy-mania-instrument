@@ -184,3 +184,11 @@ test("the note: variable BPM, refined from the waveform, or detected automatical
         setLang("ru");
     }
 });
+
+test("0.9.8 «Автоподбор»: setSnaps sets the grid chips; 1/4 always stays, unknown grids are dropped", () => {
+    const { p } = panel();
+    p.setSnaps([8, 3, 12]);
+    assert.deepEqual(p.snaps(), [4, 3, 8]);
+    p.setSnaps([]);
+    assert.deepEqual(p.snaps(), [4]);
+});

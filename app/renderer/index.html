@@ -23,6 +23,7 @@
         <button data-tab="profile" data-i18n="profile.html.tab">Профиль</button>
         <button data-tab="create" title="Создать карту" data-i18n="html.tab.create" data-i18n-title="html.tab.createTitle">Создать</button>
         <button data-tab="skin" title="Скин osu!mania 4K: редактор и конструктор" data-i18n="skin.html.tab" data-i18n-title="skin.html.tabTitle">Скин</button>
+        <button id="settings-tab" class="tab-gear" title="Настройки" data-i18n-title="settings.html.openTitle">⚙</button>
     </nav>
     <section id="skin-tab" hidden>
         <div id="sk-start" class="group">
@@ -548,7 +549,11 @@
                 <div class="flabel" data-i18n="create.html.genOptions">Генератор</div>
             </div>
 
-            <button id="generate" class="primary" disabled data-i18n="html.create.generate">Создать карту</button>
+            <div class="row gen-buttons">
+                <button id="generate" class="primary" disabled data-i18n="html.create.generate">Создать карту</button>
+                <button id="auto-map" class="primary auto-map" disabled data-i18n="html.create.auto">Автоподбор</button>
+            </div>
+            <div id="auto-summary" class="auto-summary" hidden></div>
             <div id="gen-status" class="muted"></div>
             <div id="gen-result" class="result" hidden></div>
 

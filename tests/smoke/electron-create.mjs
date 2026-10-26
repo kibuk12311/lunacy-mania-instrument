@@ -6,6 +6,10 @@
 // mode: three kinds for the map and one for the part, three more variants, the patterns, part editor and cards captured
 // (create-detailed-*.png); back in General a run sends families only and the kinds stay remembered. Exits 1 when the
 // tab scrolls sideways or a mode check fails. User data stays in outDir.
+// 0.9.8: «Автоподбор» / "Auto": one click fills the dan, the patterns, the parts, the grids and the model and makes the
+// variants; the summary with «изменить выбор» and a card with the song's ceiling (the fake answer reports one for a
+// request with 1/8 allowed) are captured to create-auto-<lang>.png and create-auto-cards-<lang>.png; «изменить выбор»
+// hides the summary. Exits 1 when that fails too.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -78,6 +82,11 @@ app.whenReady().then(async () => {
         return {
             ...fixture, id: `smoke-${made}`, planSeed: req.request.planSeed, noteSeed: req.request.noteSeed,
             patternScore: [0.79, 0.86, 0.71][(made - 1) % 3], result: { ...fixture.result, numeric }, range: req.request.range, ...flavoured,
+            // «Автоподбор» allows 1/8: this fake song then tops out under the range, as a slow song would
+            ...(req.request.snaps?.includes(8) ? (() => {
+                const top = Math.round((req.request.range.lo - 1.4) * 10) / 10;
+                return { result: { ...fixture.result, numeric: top, label: "" }, reachable: false, targeting: { rung: 3, tries: 3 }, ceiling: { numeric: top, rate: 1.2, rateNumeric: req.request.range.lo + 0.3 } };
+            })() : {}),
         };
     });
     ipcMain.handle("song-tags", async () => ({ ok: true, artist: "Unknown", title: "click174" }));
@@ -224,6 +233,36 @@ app.whenReady().then(async () => {
     const modeOk = detailed.families === 6 && detailed.chosen.length === 3 && detailed.ran && detailed.request?.some((p) => p.flavours?.length)
         && general.kinds === 0 && general.chips === 6 && general.ran && general.request?.every((p) => !p.flavours) && general.remembered.length === 3;
 
+    // «Автоподбор»: one click; the summary and a card with the ceiling; «изменить выбор» hides the summary
+    const autoFrom = made;
+    await win.webContents.executeJavaScript(`document.getElementById("auto-map").click(); true`);
+    for (let waited = 0; waited < 20000 && made < autoFrom + 3; waited += 100) await sleep(100);
+    const autoDone = await until(win, `document.getElementById("generate").textContent !== ${JSON.stringify(lang === "en" ? "Stop" : "Стоп")}`, 8000);
+    const auto = await win.webContents.executeJavaScript(`(() => ({
+        button: document.getElementById("auto-map").textContent,
+        summary: document.getElementById("auto-summary").textContent,
+        shown: !document.getElementById("auto-summary").hidden,
+        ceiling: [...document.querySelectorAll(".cr-card")].some((c) => c.textContent.includes(${JSON.stringify(lang === "en" ? "tops out" : "максимум ≈")})),
+        dan: [...document.querySelectorAll("#diffs select")].map((s) => s.value).join(" "),
+    }))()`);
+    auto.request = requests.at(-1);
+    auto.made = made - autoFrom;
+    for (const [name, id] of [["auto", "auto-map"], ["auto-cards", "gen-result"]]) {
+        await win.webContents.executeJavaScript(`document.getElementById(${JSON.stringify(id)}).scrollIntoView({ block: "start" }); true`);
+        await sleep(400);
+        await win.webContents.capturePage();
+        const file = path.join(outDir, `create-${name}-${lang}.png`);
+        writeFileSync(file, (await win.webContents.capturePage()).toPNG());
+        shots[name] = file;
+    }
+    auto.edited = await win.webContents.executeJavaScript(`(async () => {
+        document.querySelector("#auto-summary [data-role=auto-edit]").click();
+        await new Promise((r) => setTimeout(r, 300));
+        return document.getElementById("auto-summary").hidden;
+    })()`);
+    const autoOk = autoDone && auto.made >= 3 && auto.shown && auto.ceiling && auto.edited
+        && auto.summary.startsWith(lang === "en" ? "Auto:" : "Автоподбор:") && auto.request?.snaps?.includes(8) && auto.request?.parts?.every((p) => p.patterns?.length);
+
     const report = await win.webContents.executeJavaScript(`(() => {
         const tab = document.getElementById("create-tab");
         const edge = tab.getBoundingClientRect().right;
@@ -238,6 +277,6 @@ app.whenReady().then(async () => {
             parts: document.getElementById("part-editor").textContent.slice(0, 120),
         };
     })()`);
-    console.log(JSON.stringify({ lang, loaded, generated, made, play, ...report, detailed, wideDetailed, general, modeOk, shots, problems: problems.slice(0, 10) }, null, 2));
-    app.exit(report.wide.length || wideDetailed.length || report.scrollWidth > report.clientWidth || !loaded || !generated || !modeOk ? 1 : 0);
+    console.log(JSON.stringify({ lang, loaded, generated, made, play, ...report, detailed, wideDetailed, general, modeOk, auto: { ...auto, request: auto.request ? { range: auto.request.range, snaps: auto.request.snaps, modelSize: auto.request.modelSize, patterns: auto.request.patterns, parts: auto.request.parts?.length } : null }, autoOk, shots, problems: problems.slice(0, 10) }, null, 2));
+    app.exit(report.wide.length || wideDetailed.length || report.scrollWidth > report.clientWidth || !loaded || !generated || !modeOk || !autoOk ? 1 : 0);
 });

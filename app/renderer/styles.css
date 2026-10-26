@@ -208,6 +208,10 @@ footer button.il-toggle.warn { color: var(--gold); }
     white-space: nowrap; /* five tabs on one line at the default 320px window */
 }
 .tabs button.on { color: var(--gold); border-bottom-color: var(--gold); }
+/* ⚙ at the end of the bar: the Settings page as a page of its own, a narrow icon-only tab */
+.tabs button.tab-gear { flex: 0 0 auto; padding: 6px 4px; font-size: 12px; }
+/* eight buttons since ⚙: Russian labels take a slightly tighter font below 340px */
+@media (max-width: 340px) { .tabs button { font-size: 10.5px; letter-spacing: -0.2px; padding-left: 1px; padding-right: 1px; } .tabs button.tab-gear { padding: 6px 3px; } }
 
 #analysis-tab { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #create-tab { flex: 1; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; user-select: text; }
@@ -228,9 +232,9 @@ footer button.il-toggle.warn { color: var(--gold); }
 /* below ~245px five tabs no longer fit on one line: let «Создать карту» wrap */
 @media (max-width: 245px) { .tabs button { white-space: normal; padding: 6px 0; } }
 /* six tabs since «Профиль»: a narrow window takes a smaller font before anything spills */
-@media (max-width: 290px) { .tabs button { font-size: 10px; letter-spacing: -0.2px; } }
+@media (max-width: 290px) { .tabs button { font-size: 9.5px; letter-spacing: -0.3px; } }
 /* seven tabs since «Скин»: the narrowest windows take a smaller font still */
-@media (max-width: 235px) { .tabs button { font-size: 9px; letter-spacing: -0.3px; padding: 6px 0; } }
+@media (max-width: 235px) { .tabs button { font-size: 8.5px; letter-spacing: -0.4px; padding: 6px 0; } .tabs button.tab-gear { padding: 6px 2px; } }
 #rate-tab { flex: 1; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .rate-map { flex: 1; font-size: 14px; font-weight: 600; color: var(--blue); }
 #rate-slider { flex: 1; accent-color: var(--gold); }

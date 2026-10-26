@@ -68,6 +68,7 @@ export default {
     "html.create.burst": { ru: "Всплески", en: "Bursts" },
     "html.create.burstHint": { ru: "ровно → сильные бёрсты", en: "steady → strong bursts" },
     "html.create.generate": { ru: "Создать карту", en: "Create map" },
+    "html.create.auto": { ru: "Автоподбор", en: "Auto" },
 
     // >>> mapgen-P: headers of the create tab's v3 shells (the streams build the rest with JS)
     "html.create.modeSong": { ru: "Из песни", en: "From a song" },
