@@ -1,0 +1,13 @@
+.superpowers/
+node_modules/
+data/
+dist/
+.venv/
+vendor/tosu/
+__pycache__/
+models/mapper.json
+.lekhapion/
+models/mapper-nn.json
+models/mapper-nn2*.json
+models/critic.json
+models/archive/

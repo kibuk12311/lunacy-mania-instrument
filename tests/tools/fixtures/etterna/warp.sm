@@ -1,0 +1,22 @@
+#TITLE:Warp Song;
+#ARTIST:Gimmick Artist;
+#MUSIC:warp.ogg;
+#OFFSET:0;
+#BPMS:0.000=120.000,4.000=-120.000,5.000=120.000;
+#STOPS:;
+#NOTES:
+     dance-single:
+     Gimmicker:
+     Hard:
+     10:
+     :
+1000
+0100
+0010
+0001
+,
+1000
+0100
+0010
+0001
+;

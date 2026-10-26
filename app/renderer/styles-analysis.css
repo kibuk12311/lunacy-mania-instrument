@@ -1,0 +1,70 @@
+/* The analysis tab's own rules (tabs v2). Classes start with .an- only; colours come from the tokens in styles.css :root. */
+
+/* the blocks under the card (analysisExtras.js): difficulty line, pattern strip, "for you", dan by rate */
+.an-extras { margin-top: 10px; padding-bottom: 6px; display: flex; flex-direction: column; gap: 9px; }
+.an-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.an-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.an-chip { font-size: 11px; color: var(--gold); background: var(--accent-bg); border-radius: 10px; padding: 1px 7px; white-space: nowrap; }
+.an-muted { color: var(--muted); }
+
+.an-tl-svg { display: block; width: 100%; height: 34px; margin-top: 4px; }
+.an-tl-area { fill: var(--muted); opacity: 0.35; }
+.an-tl-hot { fill: var(--gold); opacity: 0.9; }
+.an-fam { display: flex; height: 8px; margin-top: 2px; border-radius: 3px; overflow: hidden; }
+.an-fam i { display: block; flex-basis: 0; min-width: 0; }
+.an-axis { display: flex; justify-content: space-between; margin-top: 1px; font-size: 10px; color: var(--muted); }
+.an-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin-top: 3px; font-size: 11px; color: #cccccc; }
+.an-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 4px; }
+.an-fam i.fam-stream, .an-legend i.fam-stream { background: var(--blue); }
+.an-fam i.fam-jumpstream, .an-legend i.fam-jumpstream { background: var(--gold); }
+.an-fam i.fam-handstream, .an-legend i.fam-handstream { background: var(--orange); }
+.an-fam i.fam-chordjack, .an-legend i.fam-chordjack { background: var(--red); }
+.an-fam i.fam-jack, .an-legend i.fam-jack { background: var(--pink); }
+.an-fam i.fam-tech, .an-legend i.fam-tech { background: var(--purple); }
+.an-fam i.fam-break { background: var(--line); }
+
+.an-foryou { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.35; }
+.an-name { text-transform: none; letter-spacing: 0; color: var(--text); }
+.an-fit { color: var(--text); border-left: 2px solid var(--line); padding-left: 6px; }
+.an-fit.an-band-easy { border-color: var(--blue); }
+.an-fit.an-band-comfort { border-color: var(--green); }
+.an-fit.an-band-growth { border-color: var(--gold); }
+.an-fit.an-band-challenge { border-color: var(--orange); }
+.an-fit.an-band-hard { border-color: var(--red); }
+.an-msd { padding-left: 8px; font-size: 11px; color: var(--muted); }
+.an-link {
+    background: transparent; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--blue);
+    text-align: left; text-decoration: underline; cursor: pointer;
+}
+
+.an-ladder { display: flex; flex-direction: column; gap: 3px; }
+.an-ltoggle {
+    align-self: flex-start; background: transparent; border: 0; padding: 0; font: inherit; font-size: 11px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+}
+.an-ltoggle:hover, .an-ltoggle:focus-visible { color: var(--text); outline: none; }
+.an-lrows { display: flex; flex-direction: column; gap: 1px; }
+.an-lrow {
+    display: grid; grid-template-columns: 34px minmax(0, 1fr) 30px 34px; column-gap: 6px; align-items: baseline; width: 100%;
+    background: transparent; border: 0; border-radius: 6px; padding: 2px 4px; font: inherit; font-size: 12px;
+    color: #cccccc; text-align: left; cursor: pointer;
+}
+.an-lrow:hover { background: var(--panel); }
+.an-lrow:focus-visible { background: var(--panel); outline: none; box-shadow: inset 0 0 0 1px var(--blue); }
+.an-lrate { color: var(--muted); }
+.an-ldan { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.an-lname { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.an-lname.an-muted { color: var(--muted); }
+.an-ldan em { flex: none; font-style: normal; font-size: 10px; white-space: nowrap; }
+.an-lnum, .an-ldelta { text-align: right; color: var(--muted); }
+.an-now { color: var(--gold); }
+.an-grow { color: var(--green); }
+.an-lnow .an-lname { color: var(--gold); }
+
+/* the «Общие / Подробно» switch of the pattern strip (app/renderer/patternMode.js), and flavour runs: a flavour has its
+   family's colour, a thin gap marks where one flavour gives way to the next */
+.an-tl .an-head { flex-wrap: wrap; row-gap: 3px; }
+.an-tl .an-title { white-space: nowrap; }
+.an-head .pm-switch { margin-left: auto; }
+.an-head .pm-switch span { margin: 0 0 0 4px; padding: 0 7px; font-size: 10px; }
+.an-fam i.fl-edge { box-shadow: inset 1px 0 0 var(--bg); }

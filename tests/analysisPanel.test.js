@@ -1,0 +1,210 @@
+// The analysis panel in the window: the ladder runner (one rate at a time, stops when the map changes, takes the
+// current rate from the card), clicks on the blocks under the card, the details and the profile it draws.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { fakeDom, fire } from "./helpers/fakeDom.js";
+import { createLadderRunner, createAnalysisPanel } from "../app/renderer/analysisPanel.js";
+import { LADDER_RATES } from "../app/renderer/analysisExtras.js";
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+const RESULT = { kind: "ok", label: "Gamma mid", numeric: 13, primary: "Jumpstream", tech: false, rate: 1, durationSec: 120, msd: {} };
+const view = (key, result = RESULT) => ({ screen: "result", result, key });
+const DETAILS = { v: 1, durationSec: 120, strain: [0.2, 1, 0.5], hardest: [{ fromSec: 40, toSec: 80, peak: 1 }], families: ["stream", "stream", "-"] };
+const SKILL = { overall: 12.5, tiles: { speed: 13.1, stamina: 12.6, tech: 11.9, jack: null }, msd: {} };
+
+// rates answered by hand: calls[i].answer(row)
+function manualRate() {
+    const calls = [];
+    const analysisRate = (key, rate) => new Promise((resolve) => { calls.push({ key, rate, answer: resolve }); });
+    return { calls, analysisRate };
+}
+
+test("the ladder runner asks one rate at a time, 1.0x first, never the current rate", async () => {
+    const { calls, analysisRate } = manualRate();
+    const rows = [];
+    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: (key, rate, row) => rows.push([key, rate, row.state]) });
+    runner.start({ key: "a", currentRate: 1.5 });
+    await flush();
+    assert.deepEqual(calls.map((c) => c.rate), [1]);
+    calls[0].answer({ ok: true, rate: 1, kind: "ok", label: "Gamma mid", numeric: 13 });
+    await flush();
+    assert.deepEqual(calls.map((c) => c.rate), [1, 0.9]);
+    for (let i = 1; i < 6; i += 1) {
+        calls[i].answer(i === 2 ? { ok: true, rate: calls[i].rate, kind: "not-rice", message: "" } : { ok: true, rate: calls[i].rate, kind: "ok", numeric: 13 });
+        await flush();
+    }
+    assert.deepEqual(calls.map((c) => c.rate), [1, 0.9, 1.1, 1.2, 1.3, 1.4]);
+    assert.deepEqual(rows.map((r) => r[2]), ["ok", "ok", "fail", "ok", "ok", "ok"]);
+    assert.ok(calls.every((c) => c.key === "a"));
+    assert.equal(runner.key, null);
+});
+
+test("the ladder runner: 1.0x is not asked when it is the current rate; a known rate is skipped", async () => {
+    const { calls, analysisRate } = manualRate();
+    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: () => {} });
+    runner.start({ key: "a", currentRate: 1, have: [1.1] });
+    for (let i = 0; i < 5; i += 1) {
+        await flush();
+        calls[i].answer({ ok: true, kind: "ok", numeric: 13 });
+    }
+    await flush();
+    assert.deepEqual(calls.map((c) => c.rate), [0.9, 1.2, 1.3, 1.4, 1.5]);
+});
+
+test("the ladder runner stops on another map, and on a stale answer", async () => {
+    const { calls, analysisRate } = manualRate();
+    const rows = [];
+    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: (key, rate) => rows.push([key, rate]) });
+    runner.start({ key: "a", currentRate: 1 });
+    await flush();
+    runner.start({ key: "b", currentRate: 1 });
+    await flush();
+    calls[0].answer({ ok: true, kind: "ok", numeric: 13 }); // a's answer comes late: dropped
+    await flush();
+    assert.deepEqual(rows, []);
+    assert.deepEqual(calls.map((c) => c.key), ["a", "b"]);
+    calls[1].answer({ ok: false, stale: true });
+    await flush();
+    assert.equal(calls.length, 2);
+    assert.equal(runner.key, null);
+
+    runner.start({ key: "c", currentRate: 1 });
+    await flush();
+    runner.stop();
+    calls[2].answer({ ok: true, kind: "ok", numeric: 13 });
+    await flush();
+    assert.equal(calls.length, 3);
+});
+
+function panelSetup({ api = {}, storage = {}, profileState = { state: "idle" } } = {}) {
+    const dom = fakeDom(api, { storage });
+    const card = dom.$("card");
+    let draws = 0;
+    const subscribers = [];
+    let ensured = 0;
+    const profile = {
+        current: profileState,
+        getProfile: () => profile.current,
+        onProfile: (cb) => { subscribers.push(cb); return () => {}; },
+        ensureProfile: () => { ensured += 1; return Promise.resolve(profile.current); },
+        set(next) { profile.current = next; for (const cb of subscribers) cb(next); },
+    };
+    const timers = [];
+    const panel = createAnalysisPanel({
+        card, redraw: () => { draws += 1; }, profile,
+        setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
+    });
+    return { dom, card, panel, profile, timers, draws: () => draws, ensured: () => ensured };
+}
+
+test("a click on a ladder row opens the rate tab at that rate; the picks link opens the picks tab", async () => {
+    const { dom, card } = panelSetup();
+    const row = { dataset: { rate: "1.2" }, parentElement: card };
+    await fire(card, "click", { target: { dataset: {}, parentElement: row } });
+    const [event] = dom.events;
+    assert.equal(event.type, "open-rate");
+    assert.deepEqual(event.detail, { rate: 1.2 });
+    await fire(card, "click", { target: { dataset: { go: "recommend" }, parentElement: card } });
+    assert.equal(dom.events[1].type, "open-tab");
+    assert.deepEqual(dom.events[1].detail, { tab: "recommend" });
+    // anything else, or a rate out of range, does nothing
+    await fire(card, "click", { target: { dataset: { rate: "7" }, parentElement: card } });
+    await fire(card, "click", { target: { dataset: {}, parentElement: null } });
+    assert.equal(dom.events.length, 2);
+});
+
+test("the profile state becomes the for-you line, and a first ok card asks for the profile once", async () => {
+    const { panel, profile, draws, ensured } = panelSetup();
+    assert.ok(!panel.html(view("a"), { compact: false }).includes("Для тебя"));
+    await flush();
+    assert.equal(ensured(), 1);
+    profile.set({ state: "ready", player: { id: 7, username: "Мира" }, skill: SKILL });
+    await flush();
+    assert.ok(draws() >= 1);
+    const html = panel.html(view("a"), { compact: false }).replace(/<[^>]*>/g, "");
+    assert.ok(html.includes("Для тебя (Мира)"));
+    assert.ok(html.includes("Stamina-дан: Gamma low (12.6) · карта +0.4"));
+    panel.html(view("a"), { compact: false });
+    await flush();
+    assert.equal(ensured(), 1);
+    assert.equal(panel.html(view("a"), { compact: true }), "");
+});
+
+test("details are drawn for their own key only, also when they come before the card", async () => {
+    let onDetails;
+    const { panel, draws } = panelSetup({ api: { onAnalysisDetails: (cb) => { onDetails = cb; return () => {}; } } });
+    assert.equal(typeof onDetails, "function");
+    panel.html(view("a"), { compact: false });
+    onDetails({ key: "b", details: DETAILS });
+    await flush();
+    assert.ok(!panel.html(view("a"), { compact: false }).includes("<svg"));
+    onDetails({ key: "a", details: DETAILS });
+    await flush();
+    assert.ok(draws() >= 1);
+    assert.ok(panel.html(view("a"), { compact: false }).includes("пик 0:40–1:20"));
+    // another map: its details came first
+    onDetails({ key: "c", details: DETAILS });
+    assert.ok(panel.html(view("c"), { compact: false }).includes("<svg"));
+    assert.ok(!panel.html({ screen: "loading" }, { compact: false }).includes("<svg"));
+});
+
+test("the ladder opens on a click, remembers that, and fills row by row from analysisRate", async () => {
+    const asked = [];
+    const api = { analysisRate: async (key, rate) => { asked.push([key, rate]); return { ok: true, rate, kind: "ok", label: "x", numeric: 12 + rate }; } };
+    const { dom, card, panel, timers } = panelSetup({ api });
+    assert.ok(panel.html(view("a"), { compact: false }).includes("Дан на рейтах ▸"));
+    await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
+    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: true }));
+    for (let i = 0; i < 10; i += 1) await flush();
+    assert.deepEqual(asked.map(([, rate]) => rate), [0.9, 1.1, 1.2, 1.3, 1.4, 1.5]);
+    const html = panel.html(view("a"), { compact: false });
+    assert.ok(html.includes("Дан на рейтах ▾"));
+    assert.ok(html.includes("13.5"));
+    assert.ok(!html.includes("считаем…"));
+
+    // a new map with the ladder open waits 600 ms before it starts
+    panel.html(view("b"), { compact: false });
+    const waiting = timers.filter((t) => t.ms === 600);
+    assert.equal(waiting.length, 1);
+    assert.ok(panel.html(view("b"), { compact: false }).includes("считаем…"));
+    waiting[0].fn();
+    for (let i = 0; i < 10; i += 1) await flush();
+    assert.equal(asked.filter(([key]) => key === "b").length, 6);
+
+    // folded again: remembered, no rows
+    await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
+    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: false }));
+    assert.ok(!panel.html(view("b"), { compact: false }).includes("data-rate="));
+});
+
+test("an open ladder is read back from localStorage, and a broken or missing storage is fine", () => {
+    const open = panelSetup({ storage: { "analysis-extras": JSON.stringify({ ladderOpen: true }) } });
+    assert.ok(open.panel.html(view("a"), { compact: false }).includes("Дан на рейтах ▾"));
+    const broken = panelSetup({ storage: { "analysis-extras": "{" } });
+    assert.ok(broken.panel.html(view("a"), { compact: false }).includes("Дан на рейтах ▸"));
+    const none = panelSetup({ storage: null });
+    assert.ok(none.panel.html(view("a"), { compact: false }).includes("Дан на рейтах ▸"));
+});
+
+test("a stale ladder answer stops asking for that map until the map changes", async () => {
+    const asked = [];
+    let stale = true;
+    const api = { analysisRate: async (key, rate) => { asked.push([key, rate]); return stale ? { ok: false, stale: true } : { ok: true, rate, kind: "ok", numeric: 12 }; } };
+    const { panel, timers } = panelSetup({ api, storage: { "analysis-extras": JSON.stringify({ ladderOpen: true }) } });
+    panel.html(view("a"), { compact: false });
+    timers.at(-1).fn();
+    await flush();
+    assert.equal(asked.length, 1);
+    panel.html(view("a"), { compact: false });
+    assert.equal(timers.length, 1); // not scheduled again
+    stale = false;
+    panel.html(view("b"), { compact: false });
+    timers.at(-1).fn();
+    for (let i = 0; i < 10; i += 1) await flush();
+    assert.equal(asked.filter(([key]) => key === "b").length, 6);
+    // compact mode stops the ladder; back from it, the rest is scheduled again
+    panel.html(view("c"), { compact: true });
+    assert.equal(timers.length, 2);
+    panel.html(view("c"), { compact: false });
+    assert.equal(timers.length, 3);
+});

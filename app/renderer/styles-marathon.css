@@ -1,0 +1,20 @@
+/* The marathon tab's own rules (tabs v2). Classes start with .mar- only; colours come from the tokens in styles.css :root. */
+
+/* .row and .check are flex boxes, which would show a [hidden] one */
+#marathon-tab [hidden] { display: none; }
+
+/* auto-marathon panel */
+.mar-auto { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.mar-auto select { flex: 1; min-width: 0; }
+.mar-auto .chips span { margin-bottom: 4px; }
+.mar-auto button.small:disabled { opacity: 0.4; cursor: default; }
+.mar-profile, .mar-indent { margin-left: 20px; line-height: 1.35; }
+.mar-auto-status { min-height: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+.mar-auto-result { display: flex; flex-direction: column; gap: 2px; }
+.mar-warn { font-size: 12px; color: var(--orange); line-height: 1.35; }
+
+/* difficulty curve under the list */
+.mar-curve { display: flex; flex-direction: column; gap: 3px; }
+.mar-curve-svg { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 2px; }
+.mar-curve-svg:empty { display: none; }
+.mar-curve-svg svg { display: block; width: 100%; height: auto; }

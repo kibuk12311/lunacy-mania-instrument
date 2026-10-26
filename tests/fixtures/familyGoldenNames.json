@@ -1,0 +1,66 @@
+[
+ {
+  "name": "learned Stream seed 7",
+  "hash": "d67290720bd9c907"
+ },
+ {
+  "name": "learned Stream seed 11",
+  "hash": "6ad69100ac0d3efc"
+ },
+ {
+  "name": "learned Jumpstream seed 7",
+  "hash": "e588e8453ae43a52"
+ },
+ {
+  "name": "learned Jumpstream seed 11",
+  "hash": "9f9f401961160360"
+ },
+ {
+  "name": "learned Handstream seed 7",
+  "hash": "3810d271e85b3022"
+ },
+ {
+  "name": "learned Handstream seed 11",
+  "hash": "29ac9156054f4271"
+ },
+ {
+  "name": "learned Chordjack seed 7",
+  "hash": "7f758d75a462d8ad"
+ },
+ {
+  "name": "learned Chordjack seed 11",
+  "hash": "a854ec976af4799a"
+ },
+ {
+  "name": "learned Jack seed 7",
+  "hash": "7519348da88438c1"
+ },
+ {
+  "name": "learned Jack seed 11",
+  "hash": "eec0ebffcf9ce79b"
+ },
+ {
+  "name": "learned Tech seed 7",
+  "hash": "2a2b87f6238f19f7"
+ },
+ {
+  "name": "learned Tech seed 11",
+  "hash": "d16592b62f44542f"
+ },
+ {
+  "name": "learned Stream+Chordjack sections seed 7",
+  "hash": "b323e88329f34a9b"
+ },
+ {
+  "name": "learned Stream+Chordjack sections seed 11",
+  "hash": "6d832bc953696fab"
+ },
+ {
+  "name": "learned Jumpstream+Jack+Tech mixed seed 7",
+  "hash": "c6b721736c35575d"
+ },
+ {
+  "name": "learned Jumpstream+Jack+Tech mixed seed 11",
+  "hash": "a3aa9c6a94fdeb78"
+ }
+]

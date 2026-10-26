@@ -1,0 +1,26 @@
+{
+ "id": 1,
+ "name": "Fixture Pack",
+ "songs": [
+  {
+   "folder": "1 Song C",
+   "charts": [
+    {
+     "file": "Artist C - Song C (ANOTHER) [Challenge 9].osu",
+     "msd": 17.13,
+     "eoSongId": 5
+    }
+   ]
+  },
+  {
+   "folder": "1 Song F",
+   "charts": [
+    {
+     "file": "Artist F - Song F (E) [Hard 12].osu",
+     "msd": 12.5,
+     "eoSongId": 6
+    }
+   ]
+  }
+ ]
+}

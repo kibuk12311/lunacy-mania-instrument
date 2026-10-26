@@ -1,0 +1,37 @@
+/* The create tab's metadata, saving and remap panels (mapgen v3, stream C). Colours come from the tokens in styles.css :root. */
+
+/* metadata: label and field side by side, the field taking the rest of the row */
+.exp-meta, .exp-save { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.exp-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12px; color: #cccccc; }
+.exp-field input {
+    min-width: 0; width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 8px; font-size: 13px; color: var(--text); user-select: text;
+}
+.exp-field input:focus, .exp-preview-row input:focus, .exp-custom input:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+
+/* background chips, the picker and a small thumbnail of the chosen picture */
+.exp-bg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.exp-bg-row .chips { margin-top: 0; }
+.exp-bg-row .chips span { margin-bottom: 0; }
+.exp-bg-row .link { font-size: 12px; }
+.exp-thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+
+/* the preview point and the rate versions */
+.exp-preview-row .field input { width: 64px; }
+.exp-rates { gap: 6px 10px; }
+.exp-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #cccccc; cursor: pointer; }
+.exp-check input { accent-color: var(--blue); margin: 0; }
+.exp-custom input { width: 56px; }
+.exp-custom input::placeholder { color: var(--muted); }
+
+/* the result of a save: the file, then one line per rate version */
+.exp-lines { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+
+/* remap mode */
+#remap-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#remap-panel[hidden], #remap-panel [hidden], .exp-meta [hidden], .exp-save [hidden] { display: none; }
+#remap-panel .chips { margin-top: 0; }
+.remap-map { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.remap-map.warn, .remap-result.warn { color: var(--gold); }
+.remap-result { font-size: 13px; overflow-wrap: anywhere; }
+.remap-result.ok { color: var(--green); }

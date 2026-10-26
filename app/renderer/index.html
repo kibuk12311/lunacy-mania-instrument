@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' blob:; img-src 'self' https://assets.ppy.sh data:">
+    <title>Lunacy mania</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles-analysis.css">
+    <link rel="stylesheet" href="styles-rate.css">
+    <link rel="stylesheet" href="styles-marathon.css">
+    <link rel="stylesheet" href="styles-picks.css">
+    <link rel="stylesheet" href="create.css">
+    <link rel="stylesheet" href="export.css">
+</head>
+<body>
+    <nav class="tabs">
+        <button data-tab="analysis" class="on" data-i18n="html.tab.analysis">Анализ</button>
+        <button data-tab="rate" data-i18n="html.tab.rate">Рейт</button>
+        <button data-tab="marathon" data-i18n="html.tab.marathon">Марафон</button>
+        <button data-tab="recommend" title="Рекомендации карт" data-i18n="html.tab.recommend" data-i18n-title="html.tab.recommendTitle">Подбор</button>
+        <button data-tab="create" data-i18n="html.tab.create">Создать карту</button>
+    </nav>
+    <section id="recommend-tab" hidden>
+        <div class="group">
+            <div class="flabel" data-i18n="html.rec.skill">Твой скилл</div>
+            <div id="rec-source" class="chips"></div>
+            <div id="rec-tracker" class="row">
+                <input id="rec-user" class="rec-input" type="text" maxlength="64" placeholder="ник или id в osu!" data-i18n-placeholder="html.rec.userPlaceholder" spellcheck="false">
+                <button id="rec-load" class="small" data-i18n="html.rec.load">Загрузить</button>
+                <button id="rec-me" class="small" title="Взять ник из запущенной osu!" data-i18n="html.rec.me" data-i18n-title="html.rec.meTitle">из osu!</button>
+            </div>
+            <div id="rec-manual" class="row" hidden><span class="muted" data-i18n="html.rec.dan">дан</span><select id="rec-level"></select><select id="rec-step"></select></div>
+            <div id="rec-manual-note" class="muted rec-manual-note" hidden data-i18n="recommend.html.manualRangeNote">Для «Своего диапазона» дан не нужен — ищу по выбранному диапазону</div>
+            <div id="rec-skill" class="rec-skill" hidden></div>
+        </div>
+
+        <div id="rec-mode" class="chips rec-mode"></div>
+
+        <div id="rec-picks-pane" class="rec-pane">
+            <div class="group">
+                <div class="pm-row"><div class="flabel" data-i18n="html.rec.pattern">Паттерн</div><span id="rec-pattern-mode"></span></div>
+                <div id="rec-patterns" class="chips"></div>
+            </div>
+
+            <div class="group">
+                <div class="flabel" data-i18n="html.rec.goal">Цель</div>
+                <div id="rec-goals" class="chips"></div>
+                <div id="rec-goal-hint" class="muted"></div>
+                <div id="rec-range" class="rec-range" hidden>
+                    <div class="row"><span class="muted rec-range-word" data-i18n="recommend.html.rangeFrom">от</span><select id="rec-range-from-level"></select><select id="rec-range-from-step"></select></div>
+                    <div class="row"><span class="muted rec-range-word" data-i18n="recommend.html.rangeTo">до</span><select id="rec-range-to-level"></select><select id="rec-range-to-step"></select></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="rec-plan-pane" class="rec-pane" hidden>
+            <div class="group">
+                <div class="flabel" data-i18n="recommend.html.planSize">Карт</div>
+                <div id="rec-plan-size" class="chips"></div>
+            </div>
+            <div class="group">
+                <div class="pm-row"><div class="flabel" data-i18n="recommend.html.planPatterns">Паттерны — от 1 до 3, по очереди</div><span id="rec-plan-pattern-mode"></span></div>
+                <div id="rec-plan-patterns" class="chips"></div>
+            </div>
+        </div>
+
+        <div id="rec-filters" class="group">
+            <div class="flabel" data-i18n="html.rec.filters">Фильтры</div>
+            <div class="row"><span class="muted" data-i18n="html.rec.length">Длина</span><select id="rec-length"></select></div>
+            <label class="check"><input id="rec-ranked" type="checkbox"> <span data-i18n="html.rec.rankedOnly">только ranked / loved</span></label>
+            <label id="rec-hide-played-row" class="check"><input id="rec-hide-played" type="checkbox" checked> <span data-i18n="html.rec.hidePlayed">не показывать сыгранные</span></label>
+        </div>
+
+        <div id="rec-picks-run" class="rec-pane">
+            <button id="rec-go" class="primary" data-i18n="html.rec.go">Подобрать карты</button>
+            <div id="rec-status" class="muted"></div>
+            <div id="rec-target" class="muted rec-target" hidden></div>
+            <div id="rec-list" class="rec-list"></div>
+            <button id="rec-more" class="small" hidden data-i18n="html.rec.more">Ещё</button>
+        </div>
+
+        <div id="rec-plan-run" class="rec-pane" hidden>
+            <button id="rec-plan-go" class="primary" data-i18n="recommend.html.planGo">Составить план</button>
+            <div id="rec-plan-status" class="muted"></div>
+            <div id="rec-plan-head" class="rec-plan-head" hidden></div>
+            <div id="rec-plan-list" class="rec-list"></div>
+            <div id="rec-plan-actions" class="rec-actions rec-plan-actions" hidden>
+                <button id="rec-plan-download" class="small accent" data-i18n="recommend.html.planDownload">Скачать всё</button>
+                <button id="rec-plan-fav" class="small" data-i18n="recommend.html.planFav">Всё в избранное</button>
+                <button id="rec-plan-rates" class="small" title="Наш анализ и рейт под каждое место плана" data-i18n="recommend.html.planRates" data-i18n-title="recommend.html.planRatesTitle">Рейты под план</button>
+            </div>
+        </div>
+
+        <div id="rec-fav-pane" class="rec-pane" hidden>
+            <div id="rec-fav-status" class="muted"></div>
+            <div id="rec-fav-list" class="rec-list"></div>
+            <div class="group rec-fav-export">
+                <label class="field wide"><span data-i18n="recommend.html.favName">Имя коллекции</span> <input id="rec-fav-name" type="text" maxlength="64" spellcheck="false"></label>
+                <button id="rec-fav-export" class="primary" data-i18n="recommend.html.favExport">Экспорт в collection.db</button>
+                <div id="rec-fav-result" class="result" hidden></div>
+                <div class="muted" data-i18n="recommend.html.favHint">Для osu!stable: добавь через Collection Manager (merge), не заменяй свой collection.db</div>
+            </div>
+        </div>
+
+        <div id="rec-progress-pane" class="rec-pane" hidden>
+            <div id="rec-progress-days" class="chips"></div>
+            <div id="rec-progress-status" class="muted"></div>
+            <div id="rec-progress-summary" class="rec-progress-summary"></div>
+            <div id="rec-progress-list" class="rec-list"></div>
+            <div id="rec-progress-change" class="rec-progress-change"></div>
+            <div id="rec-progress-axes" class="chips"></div>
+            <div id="rec-progress-chart" class="rec-chart"></div>
+            <div class="muted rec-progress-note" data-i18n="recommend.html.progressNote">mania-tracker видит ~70 последних игр и топ-200 по каждой оси</div>
+        </div>
+    </section>
+    <section id="marathon-tab" hidden>
+        <label class="field wide"><span data-i18n="html.mar.title">Название</span> <input id="mar-title" type="text" maxlength="80" data-i18n-value="html.mar.defaultTitle"></label>
+
+        <div id="mar-auto" class="group mar-auto">
+            <div class="flabel" data-i18n="marathon.html.auto">Автомарафон</div>
+            <div class="row"><span class="muted" data-i18n="marathon.html.template">Шаблон</span><select id="mar-tpl"></select></div>
+            <div id="mar-tpl-hint" class="muted"></div>
+            <div id="mar-custom" class="row" hidden>
+                <label class="field"><span data-i18n="marathon.html.count">Карт</span> <input id="mar-count" type="number" min="3" max="6" step="1" value="4"></label>
+                <label class="field"><span data-i18n="marathon.html.step">Шаг</span> <input id="mar-step" type="number" min="0.1" max="0.4" step="0.05" value="0.2"></label>
+            </div>
+            <div class="flabel" data-i18n="marathon.html.final">Финальный дан</div>
+            <label class="check"><input id="mar-src-profile" type="radio" name="mar-src" checked> <span data-i18n="marathon.html.fromProfile">по профилю из «Подбора»</span></label>
+            <div id="mar-profile" class="muted mar-profile"></div>
+            <label class="check"><input id="mar-src-manual" type="radio" name="mar-src"> <span data-i18n="marathon.html.manual">вручную</span></label>
+            <div id="mar-manual" class="row mar-indent" hidden><select id="mar-level"></select><select id="mar-dan-step"></select></div>
+            <div class="pm-row"><div class="flabel" data-i18n="marathon.html.patterns">Паттерны (1–3)</div><span id="mar-pattern-mode"></span></div>
+            <div id="mar-patterns" class="chips"></div>
+            <label class="check" title="Нужен профиль, загруженный в «Подборе»" data-i18n-title="marathon.html.skipPlayedTitle"><input id="mar-skip-played" type="checkbox"> <span data-i18n="marathon.html.skipPlayed">не брать сыгранные</span></label>
+            <label class="check"><input id="mar-ranked" type="checkbox"> <span data-i18n="marathon.html.rankedOnly">только ranked / loved</span></label>
+            <div id="mar-mode" class="row" hidden>
+                <label class="check"><input id="mar-mode-replace" type="radio" name="mar-mode" checked> <span data-i18n="marathon.html.replace">Заменить список</span></label>
+                <label class="check"><input id="mar-mode-append" type="radio" name="mar-mode"> <span data-i18n="marathon.html.append">Добавить в конец</span></label>
+            </div>
+            <div class="row">
+                <button id="mar-pick" class="small" data-i18n="marathon.html.pick">Подобрать карты</button>
+                <button id="mar-stop" class="small" hidden data-i18n="marathon.html.stop">Стоп</button>
+            </div>
+            <div id="mar-auto-status" class="muted mar-auto-status"></div>
+            <div id="mar-auto-result" class="mar-auto-result"></div>
+        </div>
+
+        <div class="group">
+            <div class="flabel" data-i18n="html.mar.maps">Карты по порядку</div>
+            <div id="mar-list" class="mar-list"><div class="muted" data-i18n="html.mar.empty">Пока пусто — добавь карты ниже.</div></div>
+            <div class="row">
+                <button id="mar-add-current" class="small" data-i18n="html.mar.addCurrent">+ выбранная в osu!</button>
+                <label class="small link-button"><span data-i18n="html.mar.addFile">+ файл .osu</span><input id="mar-file" type="file" accept=".osu" multiple hidden></label>
+            </div>
+        </div>
+
+        <div id="mar-curve-box" class="group" hidden>
+            <div class="flabel" data-i18n="marathon.html.curve">Кривая сложности</div>
+            <div id="mar-curve" class="mar-curve"></div>
+        </div>
+
+        <div class="group">
+            <div class="flabel" data-i18n="html.mar.settings">Настройки</div>
+            <div class="row">
+                <label class="field"><span data-i18n="html.mar.gap">Пауза между картами</span> <input id="mar-gap" type="number" min="0" max="120" step="1" value="10"> <span data-i18n="html.mar.seconds">с</span></label>
+            </div>
+            <div class="row">
+                <label class="field">OD <input id="mar-od" type="number" min="0" max="10" step="0.1" value="8"></label>
+                <label class="field">HP <input id="mar-hp" type="number" min="0" max="10" step="0.1" value="8"></label>
+            </div>
+            <label class="check"><input id="mar-pitch" type="checkbox"> <span data-i18n="html.mar.pitch">Менять высоту звука на рейтах (nightcore)</span></label>
+        </div>
+
+        <button id="mar-create" class="primary" disabled data-i18n="html.mar.create">Создать марафон</button>
+        <div id="mar-status" class="muted"></div>
+        <div id="mar-result" class="result" hidden></div>
+    </section>
+    <section id="rate-tab" hidden>
+        <div class="row"><div id="rate-map" class="rate-map" data-i18n="html.rate.noMap">Карта не выбрана</div><span id="rate-ln" class="rate-ln" hidden></span><button id="rate-refresh" class="small" title="Взять карту, выбранную в osu!" data-i18n-title="html.rate.refreshTitle">⟳</button></div>
+
+        <div class="group">
+            <div class="flabel" data-i18n="html.rate.rate">Рейт</div>
+            <div class="row">
+                <input id="rate-slider" type="range" min="0.5" max="2" step="0.01" value="1.1">
+                <label class="field">× <input id="rate-value" type="number" min="0.5" max="2" step="0.01" value="1.1"></label>
+            </div>
+            <div class="row">
+                <span class="chips" id="rate-quick"></span>
+            </div>
+            <div class="rate-presets-row"><span class="muted" data-i18n="rate.html.presets">Пресеты:</span><span id="rate-presets" class="rate-presets"></span></div>
+            <div id="rate-bpm" class="muted"></div>
+            <label class="check"><input id="rate-pitch" type="checkbox"> <span data-i18n="html.rate.pitch">Менять высоту звука (nightcore)</span></label>
+        </div>
+
+        <div class="group">
+            <div class="flabel" data-i18n="rate.html.target">Рейт под дан</div>
+            <div class="row">
+                <select id="rate-target-level"></select><select id="rate-target-step"></select>
+                <button id="rate-target-find" class="small" disabled data-i18n="rate.html.find">Найти рейт</button>
+            </div>
+            <div id="rate-target-status" class="muted"></div>
+        </div>
+
+        <div class="group">
+            <div class="flabel" data-i18n="html.rate.difficulty">Сложность</div>
+            <div class="row">
+                <label class="field">OD <input id="rate-od" type="number" min="0" max="10" step="0.1"></label>
+                <label class="field">HP <input id="rate-hp" type="number" min="0" max="10" step="0.1"></label>
+            </div>
+            <label class="check"><input id="rate-mirror" type="checkbox"> <span data-i18n="rate.html.mirror">Зеркально (колонки наоборот)</span></label>
+            <label class="check"><input id="rate-noln" type="checkbox"> <span data-i18n="rate.html.noLn">Без LN (LN → обычные ноты)</span></label>
+        </div>
+
+        <div id="rate-preview" class="result rate-preview">—</div>
+        <button id="rate-create" class="primary" disabled data-i18n="html.rate.create">Создать карту с этим рейтом</button>
+        <button id="rate-save-preset" class="small rate-save" data-i18n="rate.html.savePreset">Сохранить пресет</button>
+        <div id="rate-status" class="muted"></div>
+
+        <details id="rate-batch" class="rate-batch">
+            <summary data-i18n="rate.html.batch">Несколько рейтов</summary>
+            <div class="rate-batch-body">
+                <div class="row">
+                    <label class="field rate-field"><span data-i18n="rate.html.from">от</span> <input id="rate-batch-from" type="number" min="0.5" max="2" step="0.05" value="1.0"></label>
+                    <label class="field rate-field"><span data-i18n="rate.html.to">до</span> <input id="rate-batch-to" type="number" min="0.5" max="2" step="0.05" value="1.5"></label>
+                    <label class="field rate-field"><span data-i18n="rate.html.step">шаг</span> <input id="rate-batch-step" type="number" min="0.01" max="1.5" step="0.01" value="0.05"></label>
+                    <span id="rate-batch-count" class="muted"></span>
+                </div>
+                <div class="row">
+                    <button id="rate-batch-dans" class="small" disabled data-i18n="rate.html.countDans">Посчитать даны</button>
+                    <button id="rate-batch-create" class="small" disabled></button>
+                    <button id="rate-batch-stop" class="small" hidden data-i18n="rate.html.stop">Стоп</button>
+                </div>
+                <div id="rate-batch-table" class="rate-table"></div>
+                <div id="rate-batch-status" class="muted"></div>
+            </div>
+        </details>
+    </section>
+    <section id="analysis-tab">
+        <main id="card"></main>
+        <footer>
+            <select id="calc" title="Какой калькулятор показывать" data-i18n-title="html.analysis.calcTitle"></select>
+            <button id="lang" title="Язык: русский / English — Language" data-i18n-title="html.analysis.langTitle">RU</button>
+            <button id="pin" title="Поверх всех окон" data-i18n-title="html.analysis.pinTitle">📌</button>
+            <button id="compact" title="Компактный режим" data-i18n-title="html.analysis.compactTitle">▭</button>
+        </footer>
+    </section>
+    <section id="create-tab" hidden>
+        <div id="create-mode" class="chips" hidden>
+            <span data-mode="song" class="sel" data-i18n="html.create.modeSong">Из песни</span>
+            <span data-mode="remap" data-i18n="html.create.modeRemap">Из готовой карты</span>
+        </div>
+        <div id="song-mode">
+            <div id="drop" class="drop"><span data-i18n="html.create.drop">Перетащи сюда песню (mp3 / ogg) или</span> <label class="link"><span data-i18n="html.create.pickFile">выбери файл</span><input id="file" type="file" accept=".mp3,.ogg,audio/*" hidden></label></div>
+
+            <div class="group">
+                <div class="flabel" data-i18n="html.create.timing">Тайминг</div>
+                <div class="row">
+                    <label class="field">BPM <input id="bpm" type="number" min="40" max="400" step="0.01"></label>
+                    <label class="field"><span data-i18n="html.create.offset">Смещение</span> <input id="offset" type="number" min="0" step="1"> <span data-i18n="html.create.ms">мс</span></label>
+                    <button id="listen" class="small" data-i18n="html.create.listen">▶ проверить на слух</button>
+                </div>
+                <div id="timing-note" class="muted"></div>
+                <div id="timing-sections" hidden></div>
+                <canvas id="wave-strip" tabindex="0" hidden></canvas>
+                <div id="snaps" class="chips" hidden></div>
+            </div>
+
+            <div class="group">
+                <div class="flabel" data-i18n="html.create.dan">Дан (диапазон: от любого до любого)</div>
+                <div id="diffs" hidden></div>
+            </div>
+
+            <div class="group">
+                <div class="pm-row"><div class="flabel" data-i18n="html.create.patterns">Паттерны (можно несколько)</div><span id="pattern-mode"></span></div>
+                <div id="patterns" class="chips"></div>
+                <div id="shares"></div>
+                <div class="flabel" style="margin-top:8px" data-i18n="html.create.mix">Как смешивать</div>
+                <div id="mix" class="chips">
+                    <span data-mix="sections" class="sel" data-i18n="html.create.mixSections">По частям песни</span>
+                    <span data-mix="mixed" data-i18n="html.create.mixMixed">Вперемешку</span>
+                </div>
+            </div>
+
+            <div class="group">
+                <div class="flabel" data-i18n="html.create.character">Характер</div>
+                <label class="slider-row"><span data-i18n="html.create.stamina">Выносливость</span><input id="stamina" type="range" min="0" max="100" value="50"><span class="muted" data-i18n="html.create.staminaHint">много пауз → без отдыха</span></label>
+                <label class="slider-row"><span data-i18n="html.create.burst">Всплески</span><input id="burst" type="range" min="0" max="100" value="30"><span class="muted" data-i18n="html.create.burstHint">ровно → сильные бёрсты</span></label>
+            </div>
+
+            <div id="parts-group" class="group" hidden>
+                <div class="flabel" data-i18n="html.create.parts">Части песни</div>
+                <canvas id="timeline"></canvas>
+                <div id="part-editor"></div>
+            </div>
+
+            <div id="preview" class="group" hidden>
+                <div class="flabel" data-i18n="html.create.preview">Предпросмотр</div>
+                <canvas id="playfield" tabindex="0"></canvas>
+                <div id="play-controls"></div>
+            </div>
+
+            <button id="generate" class="primary" disabled data-i18n="html.create.generate">Создать карту</button>
+            <div id="gen-status" class="muted"></div>
+            <div id="gen-result" class="result" hidden></div>
+
+            <div id="meta-group" class="group" hidden>
+                <div class="flabel" data-i18n="html.create.metadata">Метаданные</div>
+            </div>
+            <div id="export-panel" class="group" hidden>
+                <div class="flabel" data-i18n="html.create.save">Сохранение</div>
+            </div>
+        </div>
+        <div id="remap-panel" hidden></div>
+    </section>
+    <script type="module" src="renderer.js"></script>
+</body>
+</html>

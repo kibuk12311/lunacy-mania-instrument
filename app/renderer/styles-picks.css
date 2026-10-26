@@ -1,0 +1,66 @@
+/* The picks tab's own rules (tabs v2). Classes start with .rec- only; colours come from the tokens in styles.css :root. */
+
+/* modes */
+.rec-mode { margin-top: -4px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.rec-mode span.sel { border-color: var(--gold); color: var(--gold); background: var(--accent-bg); }
+.rec-pane { display: flex; flex-direction: column; gap: 12px; }
+
+/* custom range: from / to dan pickers under the goals; the manual dan dims while the picks don't use it */
+.rec-range { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.rec-range .rec-range-word { min-width: 34px; }
+.rec-range select:first-of-type { min-width: 96px; }
+.rec-manual-off { opacity: 0.5; }
+.rec-manual-note { font-size: 12px; }
+
+/* card extras: the star, the plan's role badge, the similar section */
+.rec-actions button.rec-star { color: var(--muted); min-width: 26px; }
+.rec-actions button.rec-star.on { color: var(--gold); border-color: var(--gold); }
+.rec-role {
+    border-radius: 6px; padding: 0 6px; font-size: 11px; font-weight: 700; color: var(--bg); background: var(--blue);
+}
+.rec-role-warmup { background: var(--green); }
+.rec-role-growth { background: var(--blue); }
+.rec-role-challenge { background: var(--orange); }
+.rec-card.rec-empty { opacity: 0.6; }
+.rec-similar { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 6px 0 0 8px; border-left: 2px solid var(--line); }
+.rec-similar-head { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.rec-similar .bad { color: var(--red); }
+.rec-compact {
+    display: flex; flex-direction: column; gap: 2px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 7px; font-size: 12px; min-width: 0;
+}
+.rec-list > .rec-compact { background: var(--panel); }
+.rec-compact.played { opacity: 0.75; }
+.rec-compact .rec-title { font-size: 12px; }
+.rec-sim { color: var(--purple); }
+
+/* plan */
+.rec-plan-head { color: var(--blue); font-weight: 600; font-size: 13px; user-select: text; }
+.rec-plan-actions { justify-content: center; }
+.rec-plan-actions button.small { padding: 4px 10px; font-size: 12px; }
+
+/* favourites */
+.rec-fav-export { margin-top: 4px; }
+.rec-fav-export .field input { width: 100%; }
+.rec-fav-export .field { display: flex; align-items: center; gap: 6px; }
+.rec-fav-export .result .ok { color: var(--green); }
+.rec-fav-export .result .bad { color: var(--red); }
+
+/* progress */
+.rec-progress-summary { font-size: 14px; font-weight: 600; color: var(--blue); }
+.rec-progress-row {
+    display: flex; flex-direction: column; gap: 1px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 7px; font-size: 12px;
+}
+.rec-progress-state.ok { color: var(--green); }
+.rec-progress-state.bad { color: var(--red); }
+.rec-progress-state.muted { color: var(--muted); }
+.rec-progress-change { display: flex; flex-direction: column; gap: 2px; user-select: text; }
+.rec-progress-dan { font-size: 14px; font-weight: 600; color: var(--gold); }
+.rec-chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.rec-chart-svg { display: block; width: 100%; height: auto; }
+.rec-chart-line { fill: none; stroke: var(--blue); stroke-width: 2; stroke-linejoin: round; }
+.rec-chart-base { stroke: var(--line); stroke-width: 1; }
+.rec-chart-mark { fill: var(--gold); stroke: var(--bg); stroke-width: 1; }
+.rec-chart-label { fill: var(--muted); font-size: 9px; }
+.rec-progress-note { opacity: 0.8; }

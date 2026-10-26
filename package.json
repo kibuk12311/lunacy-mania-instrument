@@ -1,0 +1,112 @@
+{
+  "name": "dan-analyzer",
+  "version": "0.8.0",
+  "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
+  "author": "Sneezey",
+  "license": "MIT",
+  "repository": "github:kibuk12311/lunacy-mania-instrument",
+  "homepage": "https://github.com/kibuk12311/lunacy-mania-instrument",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "extract": "node tools/extract-features.mjs",
+    "train": ".venv/Scripts/python -I tools/train.py --dump-parity tests/fixtures/model-parity.json"
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2",
+    "ffmpeg-static": "5.2.0",
+    "onnxruntime-common": "1.24.3"
+  },
+  "devDependencies": {
+    "electron": "38.2.0",
+    "electron-builder": "26.0.12",
+    "rcedit": "5.0.2",
+    "ws": "8.18.3"
+  },
+  "main": "app/main.js",
+  "build": {
+    "appId": "io.github.kibuk12311.lunacymania",
+    "productName": "Lunacy mania",
+    "asar": true,
+    "afterPack": "tools/after-pack.mjs",
+    "files": [
+      "app/**",
+      "src/**",
+      "vendor/leoblack/**",
+      "models/**",
+      "package.json",
+      "!**/*.osu",
+      "!node_modules/ffmpeg-static/**"
+    ],
+    "extraFiles": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/tosu",
+        "to": "tosu",
+        "filter": [
+          "**/*",
+          "!*.zip"
+        ]
+      },
+      {
+        "from": "node_modules/ffmpeg-static",
+        "to": "ffmpeg",
+        "filter": [
+          "ffmpeg.exe",
+          "ffmpeg.exe.LICENSE",
+          "ffmpeg.exe.README"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lunacy mania",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Lunacy-mania-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "Lunacy-mania-${version}.exe"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kibuk12311",
+        "repo": "lunacy-mania-instrument",
+        "releaseType": "release"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

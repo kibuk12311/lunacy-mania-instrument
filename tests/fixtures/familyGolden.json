@@ -1,0 +1,66 @@
+[
+ {
+  "name": "rule Stream",
+  "hash": "20bb58103e102b5b"
+ },
+ {
+  "name": "learned Stream",
+  "hash": "ff09c5557d02b12f"
+ },
+ {
+  "name": "rule Jumpstream",
+  "hash": "b83b635abc8ab8e5"
+ },
+ {
+  "name": "learned Jumpstream",
+  "hash": "26b481571694ba57"
+ },
+ {
+  "name": "rule Handstream",
+  "hash": "94426bc52596838a"
+ },
+ {
+  "name": "learned Handstream",
+  "hash": "7352946af476dd56"
+ },
+ {
+  "name": "rule Chordjack",
+  "hash": "4069c8db59733bd1"
+ },
+ {
+  "name": "learned Chordjack",
+  "hash": "7f758d75a462d8ad"
+ },
+ {
+  "name": "rule Jack",
+  "hash": "4be42b3549fb912e"
+ },
+ {
+  "name": "learned Jack",
+  "hash": "422283807d01c5bb"
+ },
+ {
+  "name": "rule Tech",
+  "hash": "05a39737f921d92d"
+ },
+ {
+  "name": "learned Tech",
+  "hash": "2a2b87f6238f19f7"
+ },
+ {
+  "name": "rule Stream+Chordjack sections",
+  "hash": "fee124a933a0fe04"
+ },
+ {
+  "name": "learned Stream+Chordjack sections",
+  "hash": "b323e88329f34a9b"
+ },
+ {
+  "name": "rule Jumpstream+Jack+Tech mixed",
+  "hash": "77aebf0ea91f0a39"
+ },
+ {
+  "name": "learned Jumpstream+Jack+Tech mixed",
+  "hash": "7c66dab0f65237f9"
+ }
+]

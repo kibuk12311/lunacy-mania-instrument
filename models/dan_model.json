@@ -1,0 +1,113 @@
+{
+ "modelSpec": {
+  "type": "mean",
+  "features": [
+   10,
+   4
+  ],
+  "fallback": [
+   6,
+   2,
+   8
+  ]
+ },
+ "featureNames": [
+  "est_sunny",
+  "has_sunny",
+  "est_daniel",
+  "has_daniel",
+  "est_azusa",
+  "has_azusa",
+  "est_roxy",
+  "has_roxy",
+  "est_companella",
+  "has_companella",
+  "est_mixed",
+  "has_mixed",
+  "est_min",
+  "est_max",
+  "est_mean",
+  "est_range",
+  "esta_min",
+  "esta_max",
+  "esta_mean",
+  "esta_range",
+  "msd_overall",
+  "msd_stream",
+  "msd_jumpstream",
+  "msd_handstream",
+  "msd_stamina",
+  "msd_jackspeed",
+  "msd_chordjack",
+  "msd_technical",
+  "interlude",
+  "note_count",
+  "duration_sec",
+  "bpm",
+  "ln_ratio",
+  "pat_share1",
+  "pat_share2",
+  "pat_share3",
+  "pat_mixed_share",
+  "top_cluster_mixed"
+ ],
+ "variant": "M",
+ "model": "mean",
+ "rangeFeature": "est_range",
+ "techMsdRatio": 0.83,
+ "spread": {
+  "bins": [
+   0.4300000000000006,
+   0.6099999999999994,
+   0.8300000000000001
+  ],
+  "halfWidth": [
+   0.3899998664855957,
+   0.3449999999999996,
+   0.31999982833862256,
+   0.3939999771118167
+  ]
+ },
+ "metrics": {
+  "oof": {
+   "n": 1245,
+   "mae": 0.23968273605208795,
+   "bias": 0.000518071450382785,
+   "within1": 0.9783132530120482,
+   "byPattern": {
+    "course": 0.4979411321527818,
+    "jack": 0.22651900351802,
+    "speed": 0.26591227958076874,
+    "stamina": 0.20616553884905733,
+    "tech": 0.23485107371147637
+   }
+  },
+  "clean": {
+   "n": 576,
+   "mae": 0.16778646326727328,
+   "bias": 0.03101563172207928,
+   "within1": 0.9947916666666666,
+   "byPattern": {
+    "jack": 0.1516477319327267,
+    "speed": 0.19175923930274108,
+    "stamina": 0.1572321585246494,
+    "tech": 0.1841129156850998
+   }
+  },
+  "mixedOof": {
+   "n": 1245,
+   "mae": 0.2398072289156626,
+   "bias": 0.012722891566265028,
+   "within1": 0.9783132530120482,
+   "byPattern": {
+    "course": 0.4729411764705884,
+    "jack": 0.23025316455696193,
+    "speed": 0.2537894736842105,
+    "stamina": 0.20597972972972972,
+    "tech": 0.2477872340425531
+   }
+  }
+ },
+ "trainedAt": "2026-10-24T05:42:56.071525+00:00",
+ "leoblackCommit": "b700ebc000d502a476ba3fc97d09cef32fa90eb7"
+}

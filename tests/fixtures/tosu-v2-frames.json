@@ -1,0 +1,27 @@
+{
+  "songSelectNoMod": {
+    "state": { "number": 5, "name": "selectPlay" },
+    "beatmap": { "checksum": "aaa111", "mode": { "number": 3, "name": "mania" } },
+    "play": { "mods": { "checksum": "", "number": 0, "name": "", "array": [], "rate": 1 } }
+  },
+  "songSelectDT": {
+    "state": { "number": 5, "name": "selectPlay" },
+    "beatmap": { "checksum": "aaa111" },
+    "play": { "mods": { "checksum": "", "number": 64, "name": "DT", "array": [{ "acronym": "DT" }], "rate": 1.5 } }
+  },
+  "playingHT": {
+    "state": { "number": 2, "name": "play" },
+    "beatmap": { "checksum": "bbb222" },
+    "play": { "mods": { "checksum": "", "number": 256, "name": "HT", "array": [{ "acronym": "HT" }] } }
+  },
+  "menuNoBeatmap": {
+    "state": { "number": 0, "name": "menu" },
+    "beatmap": { "checksum": "" },
+    "play": { "mods": { "number": 0, "name": "" } }
+  },
+  "resultsNC": {
+    "state": { "number": 7, "name": "resultScreen" },
+    "beatmap": { "checksum": "ccc333" },
+    "play": { "mods": { "number": 576, "name": "NCDT" } }
+  }
+}

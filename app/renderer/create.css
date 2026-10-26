@@ -1,0 +1,73 @@
+/* The create tab's own rules (mapgen v3, stream B). Colours come from the tokens in styles.css :root. */
+/* a shell stays out of the layout until its stream fills it and drops `hidden` (.group sets display: flex) */
+#create-tab [hidden] { display: none; }
+/* the song mode lays out its children like #create-tab did before it was wrapped */
+#song-mode { display: flex; flex-direction: column; gap: 12px; }
+#create-tab button.small:disabled { opacity: 0.4; cursor: default; }
+#create-tab .check i { font-style: normal; }
+
+/* timing: the red lines table, the buttons, the wave strip and the snap chips */
+#timing-sections { display: flex; flex-direction: column; gap: 4px; }
+#timing-sections .row { gap: 4px; }
+.cr-sections { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 52px auto; gap: 3px 6px; align-items: center; font-size: 12px; }
+.cr-input {
+    width: 100%; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px 5px; font-size: 12px;
+}
+.cr-input.sel { border-color: var(--gold); }
+#wave-strip, #timeline { display: block; width: 100%; border-radius: 6px; cursor: crosshair; }
+#wave-strip { height: 96px; }
+#timeline { height: 64px; }
+#wave-strip:focus, #playfield:focus { outline: 1px solid var(--blue); outline-offset: 1px; }
+#snaps { display: flex; flex-wrap: wrap; align-items: center; }
+#snaps .flabel { flex-basis: 100%; margin-bottom: 4px; }
+#snaps .cr-check { margin: 0 0 6px 4px; }
+
+/* parts: the editor under the timeline */
+#part-editor { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+#part-editor .row { gap: 6px; }
+#part-editor select { padding: 3px 6px; font-size: 12px; }
+.cr-locked { color: var(--gold) !important; border-color: var(--gold) !important; }
+
+/* the playfield and its controls side by side */
+#preview { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+#preview > .flabel { grid-column: 1 / -1; }
+#playfield { display: block; width: 160px; height: 300px; border-radius: 6px; background: var(--bg); }
+#play-controls { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 12px; }
+#play-controls .slider-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.cr-time { font-variant-numeric: tabular-nums; }
+
+/* difficulties */
+#diffs { display: flex; flex-direction: column; gap: 4px; }
+.cr-diff { gap: 4px; }
+.cr-diff select { padding: 3px 4px; font-size: 12px; }
+
+/* results: one section per difficulty, cards inside */
+#gen-result { background: transparent; padding: 0; gap: 10px; }
+.cr-diffset { display: flex; flex-direction: column; gap: 6px; }
+.cr-diffset-head { justify-content: space-between; color: var(--gold); }
+.cr-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 3px; font-size: 12px; min-width: 0; overflow-wrap: anywhere;
+}
+.cr-card.sel { border-color: var(--blue); }
+.cr-card .ok { color: var(--green); }
+.cr-card .warn { color: var(--gold); }
+.cr-card-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.cr-best { color: var(--bg); background: var(--green); border-radius: 8px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+.cr-card details { margin-top: 2px; }
+.cr-card summary { cursor: pointer; color: #cccccc; }
+.cr-card details > div { padding-left: 12px; }
+.cr-part { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.cr-part button.small { padding: 1px 7px; font-size: 11px; flex-shrink: 0; }
+.cr-chosen { color: var(--green) !important; border-color: var(--green) !important; }
+
+/* patterns: the «Общие / Подробно» switch beside the label, and the detailed chips (a line per family) */
+.pm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pm-switch { display: inline-flex; margin-top: 0; }
+.pm-switch span { margin: 0 0 0 4px; padding: 1px 8px; font-size: 11px; }
+.pp-detailed { display: flex; flex-direction: column; gap: 2px; }
+.pp-family { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; }
+.pp-family > span { margin-bottom: 3px; }
+.pp-family > span[data-pattern] { min-width: 84px; text-align: center; }
+.pp-family .pp-flavour { padding: 2px 7px; font-size: 11px; margin-right: 4px; }

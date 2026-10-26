@@ -1,0 +1,107 @@
+// "marathon" texts: key → { ru, en }. A value is a string with {param} slots or a function of the params.
+export default {
+    // the list of maps
+    "marathon.empty": { ru: "Пока пусто — добавь карты ниже.", en: "Nothing here yet — add maps below." },
+    "marathon.row.rate": { ru: "Рейт", en: "Rate" },
+    "marathon.row.up": { ru: "Выше", en: "Move up" },
+    "marathon.row.down": { ru: "Ниже", en: "Move down" },
+    "marathon.row.remove": { ru: "Убрать", en: "Remove" },
+    "marathon.row.target": { ru: "цель: {dan}", en: "target: {dan}" },
+    "marathon.add.failed": { ru: "Не добавлено: {message}", en: "Not added: {message}" },
+    "marathon.add.not4k": { ru: "«{name}» — не 4K osu!mania, в марафон не подходит.", en: "“{name}” isn't 4K osu!mania, so it can't go in a marathon." },
+
+    // building and the result
+    "marathon.building": {
+        ru: "Собираем марафон: режем и ускоряем песни, рисуем фон… обычно 10–60 секунд",
+        en: "Building the marathon: cutting and speeding up the songs, drawing the background… usually 10–60 seconds",
+    },
+    "marathon.defaultTitle": { ru: "Марафон", en: "Marathon" },
+    "marathon.done": {
+        ru: "Готово: марафон, {n} шт., {time}",
+        en: ({ n }) => `Done: a marathon of {n} ${Number(n) === 1 ? "map" : "maps"}, {time}`,
+    },
+    "marathon.error": { ru: "Ошибка: {message}", en: "Error: {message}" },
+    "marathon.link.open": { ru: "Открыть в osu!", en: "Open in osu!" },
+    "marathon.link.show": { ru: "Показать файл", en: "Show file" },
+
+    // course templates (src/rate/marathonTemplates.js); {level} is the final dan's level: Gamma, 7 …
+    "marathon.tpl.dan.name": { ru: "Дан-курс (4 карты)", en: "Dan course (4 maps)" },
+    "marathon.tpl.dan.hint": { ru: "Четыре карты одного дана, каждая чуть сложнее", en: "Four maps of one dan, each a bit harder" },
+    "marathon.tpl.dan.title": { ru: "{level} Dan Course", en: "{level} Dan Course" },
+    "marathon.tpl.stamina.name": { ru: "Стамина-марафон", en: "Stamina marathon" },
+    "marathon.tpl.stamina.hint": { ru: "4 длинные карты (4+ мин): JS/HS/стамина", en: "4 long maps (4+ min): JS/HS/stamina" },
+    "marathon.tpl.stamina.title": { ru: "{level} — стамина-марафон", en: "{level} Stamina Marathon" },
+    "marathon.tpl.warmup.name": { ru: "Разминка → вызов", en: "Warm-up → challenge" },
+    "marathon.tpl.warmup.hint": { ru: "5 коротких карт: от −1.2 до +0.3 дана", en: "5 short maps: from −1.2 to +0.3 dan" },
+    "marathon.tpl.warmup.title": { ru: "{level} — разминка и вызов", en: "{level} Warm-up to Challenge" },
+    "marathon.tpl.custom.name": { ru: "Свой", en: "Custom" },
+    "marathon.tpl.custom.hint": { ru: "Сколько карт и шаг между ними — ниже", en: "How many maps and the step between them — below" },
+    "marathon.tpl.custom.title": { ru: "{level} — марафон", en: "{level} Marathon" },
+
+    // the difficulty curve under the list (and on the background)
+    "marathon.curve.plan": { ru: "план шаблона", en: "template plan" },
+    "marathon.curve.total": { ru: "Всего {time} · {maps} · {from} → {to}", en: "Total {time} · {maps} · {from} → {to}" },
+    "marathon.curve.drop": { ru: "Карта {i} легче предыдущей ({delta})", en: "Map {i} is easier than the one before ({delta})" },
+    "marathon.curve.jump": { ru: "Скачок {delta} между {a} и {b}", en: "Jump of {delta} between {a} and {b}" },
+
+    // the auto-marathon panel; {maps} is "4 карты" / "4 maps"
+    "marathon.auto.maps.one": { ru: "{n} карта", en: "{n} map" },
+    "marathon.auto.maps.few": { ru: "{n} карты", en: "{n} maps" },
+    "marathon.auto.maps.many": { ru: "{n} карт", en: "{n} maps" },
+    "marathon.auto.profile": { ru: "Профиль: {name}, {tile}: {dan}", en: "Profile: {name}, {tile}: {dan}" },
+    "marathon.auto.profileNoTile": { ru: "Профиль: {name} — нет дана для {tile}", en: "Profile: {name} — no dan for {tile}" },
+    "marathon.auto.profileLoading": { ru: "Загружаем профиль…", en: "Loading the profile…" },
+    "marathon.auto.starting": { ru: "Начинаем подбор…", en: "Starting the pick…" },
+    "marathon.auto.stopping": { ru: "Останавливаем…", en: "Stopping…" },
+    "marathon.auto.progress.search": { ru: "Карта {i}/{n}: ищем {pattern} ≈ {dan}…", en: "Map {i}/{n}: looking for {pattern} ≈ {dan}…" },
+    "marathon.auto.progress.songs": { ru: "Карта {i}/{n}: …нашли в Songs — {name}", en: "Map {i}/{n}: …found in Songs — {name}" },
+    "marathon.auto.progress.downloadStart": { ru: "Карта {i}/{n}: …скачиваем {name}", en: "Map {i}/{n}: …downloading {name}" },
+    "marathon.auto.progress.download": { ru: "Карта {i}/{n}: …скачиваем {name} — {pct}%", en: "Map {i}/{n}: …downloading {name} — {pct}%" },
+    "marathon.auto.progress.analyze": { ru: "Карта {i}/{n}: …подгоняем рейт", en: "Map {i}/{n}: …fitting the rate" },
+    "marathon.auto.progress.skip": { ru: "Карта {i}/{n}: {name} не подошла, пробуем другую", en: "Map {i}/{n}: {name} didn't fit, trying another one" },
+    "marathon.auto.done": {
+        ru: "Готово: {maps} подобрано — проверь и жми «Создать марафон».",
+        en: "Done: {maps} picked — check them and press “Create marathon”.",
+    },
+    "marathon.auto.stopped": { ru: "Остановлено: {maps} подобрано.", en: "Stopped: {maps} picked." },
+    "marathon.auto.failed": { ru: "Не вышло: {message}", en: "Didn't work: {message}" },
+    "marathon.auto.warn.miss": { ru: "Карта {i}: подходящей не нашлось ({reason})", en: "Map {i}: nothing fitting found ({reason})" },
+    "marathon.auto.warn.short": { ru: "Карта {i}: даже на {rate}x только {label}", en: "Map {i}: only {label} even at {rate}x" },
+    "marathon.auto.warn.over": { ru: "Карта {i}: даже на {rate}x уже {label}", en: "Map {i}: already {label} even at {rate}x" },
+
+    // the tab's markup (data-i18n in index.html)
+    "marathon.html.auto": { ru: "Автомарафон", en: "Auto-marathon" },
+    "marathon.html.template": { ru: "Шаблон", en: "Template" },
+    "marathon.html.count": { ru: "Карт", en: "Maps" },
+    "marathon.html.step": { ru: "Шаг", en: "Step" },
+    "marathon.html.final": { ru: "Финальный дан", en: "Final dan" },
+    "marathon.html.fromProfile": { ru: "по профилю из «Подбора»", en: "from my Picks profile" },
+    "marathon.html.manual": { ru: "вручную", en: "manual" },
+    "marathon.html.patterns": { ru: "Паттерны (1–3)", en: "Patterns (1–3)" },
+    "marathon.html.skipPlayed": { ru: "не брать сыгранные", en: "skip maps I've played" },
+    "marathon.html.skipPlayedTitle": { ru: "Нужен профиль, загруженный в «Подборе»", en: "Needs a profile loaded on the Picks tab" },
+    "marathon.html.rankedOnly": { ru: "только ranked / loved", en: "ranked / loved only" },
+    "marathon.html.replace": { ru: "Заменить список", en: "Replace list" },
+    "marathon.html.append": { ru: "Добавить в конец", en: "Append" },
+    "marathon.html.pick": { ru: "Подобрать карты", en: "Pick maps" },
+    "marathon.html.stop": { ru: "Стоп", en: "Stop" },
+    "marathon.html.curve": { ru: "Кривая сложности", en: "Difficulty curve" },
+
+    // main-process refusals and errors
+    "marathon.err.badZip": { ru: "скачанный архив повреждён", en: "the downloaded archive is damaged" },
+    "marathon.err.noChart": { ru: "в архиве нет этой сложности", en: "this difficulty isn't in the archive" },
+    "marathon.err.noAudio": { ru: "в архиве нет звука этой сложности", en: "the archive has no audio for this difficulty" },
+    "marathon.err.noCandidates": { ru: "в трекере нет карт под это окно", en: "the tracker has no maps in this window" },
+    "marathon.err.noDan": { ru: "анализатор не дал дан", en: "the analyser gave no dan" },
+    "marathon.err.autoBusy": { ru: "автоподбор уже идёт — дождись его или нажми «Стоп»", en: "an auto-pick is already running — wait for it or press “Stop”" },
+    "marathon.err.badTemplate": { ru: "неизвестный шаблон", en: "unknown template" },
+    "marathon.err.badPatterns": { ru: "выбери от 1 до 3 паттернов", en: "pick 1 to 3 patterns" },
+    "marathon.err.badDan": { ru: "выбери финальный дан", en: "pick the final dan" },
+    "marathon.err.badCount": { ru: "карт — от 3 до 6", en: "the number of maps must be from 3 to 6" },
+    "marathon.err.badStep": { ru: "шаг — от 0.1 до 0.4 дана", en: "the step must be from 0.1 to 0.4 dan" },
+    "marathon.err.noProfile": {
+        ru: "Профиль не загружен — загрузи его во вкладке «Подбор» или выбери дан вручную.",
+        en: "No profile loaded — load one on the Picks tab or pick a dan by hand.",
+    },
+    "marathon.err.noTileDan": { ru: "в профиле нет дана для этого паттерна — выбери дан вручную", en: "the profile has no dan for this pattern — pick a dan by hand" },
+};

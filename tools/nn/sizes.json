@@ -1,0 +1,7 @@
+{
+  "_comment": "nn-v2 size presets (ML addendum §4.4 and §11). Read by tools/nn/infill_model.py and tools/bench-nn.mjs. XS is the tiny model behind tests/fixtures/infill-parity.json.",
+  "XS": { "d": 16, "enc_layers": 1, "enc_heads": 2, "enc_ffn": 32, "dec_d": 16, "dec_layers": 1, "dec_heads": 2, "dec_ffn": 32, "lane_hidden": 16 },
+  "S": { "d": 96, "enc_layers": 4, "enc_heads": 4, "enc_ffn": 384, "dec_d": 64, "dec_layers": 2, "dec_heads": 4, "dec_ffn": 256, "lane_hidden": 64 },
+  "M": { "d": 192, "enc_layers": 6, "enc_heads": 6, "enc_ffn": 480, "dec_d": 96, "dec_layers": 3, "dec_heads": 4, "dec_ffn": 288, "lane_hidden": 96 },
+  "L": { "d": 320, "enc_layers": 8, "enc_heads": 8, "enc_ffn": 960, "dec_d": 160, "dec_layers": 4, "dec_heads": 8, "dec_ffn": 480, "lane_hidden": 160 }
+}
