@@ -139,7 +139,7 @@ test("Marathon tab: empty list, refusals, row tooltips and the result in English
         // the auto-marathon panel: templates, the profile line (none loaded), the patterns
         assert.deepEqual($("mar-tpl").children.map((o) => o.textContent), ["Dan course (4 maps)", "Stamina marathon", "Warm-up → challenge", "Custom"]);
         assert.equal($("mar-tpl-hint").textContent, "Four maps of one dan, each a bit harder");
-        assert.equal($("mar-profile").textContent, "No profile loaded — load one on the Picks tab or pick a dan by hand.");
+        assert.equal($("mar-profile").textContent, "No profile loaded — load one on the Picks tab (or set your level by hand there) or pick a dan below.");
         assert.equal(textOf($("mar-patterns")), "Stream | Jumpstream | Handstream | Stamina | Chordjack | Jack | Tech");
 
         next = { ok: false, message: "no map selected" };

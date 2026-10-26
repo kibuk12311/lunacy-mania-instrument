@@ -97,16 +97,22 @@ export function createPlanner({ api, recommender, pages = PLAN_PAGES }) {
         const player = recommender.currentPlayer();
         let skill = null;
         let plays = { played: new Map(), partial: false };
-        if (req.manual) {
+        // a hand-set profile (manualProfile.js manualSkill) takes the place of the tracker's skill
+        const handSet = req.manual && req.manualSkill?.manual ? req.manualSkill : null;
+        if (handSet) {
+            skill = handSet;
+            // a loaded profile's plays and a linked Interlude's (recommend.js extraPlayed) are still left out
+            plays = await recommender.playedMaps().catch(() => ({ played: new Map(), partial: true }));
+        } else if (req.manual) {
             if (!Number.isFinite(req.manualDan)) throw new Error(t("core.rec.needManualDan"));
-            // a loaded profile's plays are still left out
-            if (player) plays = await recommender.playedMaps().catch(() => ({ played: new Map(), partial: true }));
+            // a loaded profile's plays and a linked Interlude's (recommend.js extraPlayed) are still left out
+            plays = await recommender.playedMaps().catch(() => ({ played: new Map(), partial: true }));
         } else {
             if (!player) throw new Error(t("core.rec.needProfile"));
             skill = player.skill;
             plays = await recommender.playedMaps();
         }
-        const targets = slotTargets({ skill, manualDan: req.manual ? req.manualDan : null, patternIds, slots });
+        const targets = slotTargets({ skill, manualDan: req.manual && !handSet ? req.manualDan : null, patternIds, slots });
         const query = (patternId, lo, hi) => ({ patternId, lo, hi, lengthId: req.lengthId, rankedOnly: Boolean(req.rankedOnly) });
 
         const itemsByPattern = new Map();
@@ -135,6 +141,7 @@ export function createPlanner({ api, recommender, pages = PLAN_PAGES }) {
                 label: numericToLabel(head.playerDan).text,
                 tile: head.source === "tile" ? TILE_NAMES[head.tile] ?? null : null,
                 source: head.source,
+                ...(head.handSet ? { handSet: true } : {}),
                 patternId: head.patternId,
             },
             slots: targets.map((s, i) => ({ role: s.role, patternId: s.patternId, lo: s.target.lo, hi: s.target.hi, center: s.target.center, card: cards[i] })),

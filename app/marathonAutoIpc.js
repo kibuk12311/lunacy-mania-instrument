@@ -4,6 +4,7 @@
 import { templateById, stepTargets, CUSTOM } from "../src/rate/marathonTemplates.js";
 import { patternById } from "../src/recommend/catalog.js";
 import { playerDanFor } from "../src/recommend/skill.js";
+import { normalizeManualProfile, manualSkill } from "../src/recommend/manualProfile.js";
 import { MIN_DAN, MAX_DAN, danOf } from "./validate.js";
 import { t } from "../src/i18n/i18n.js";
 
@@ -33,9 +34,17 @@ function cleanRequest(req, profile) {
         if (dan === null || dan < MIN_DAN - EPS || dan > MAX_DAN + EPS) return t("marathon.err.badDan");
         finalDan = dan;
     } else if (req.source === "profile") {
-        const current = profile.current();
-        if (!current?.ok) return t("marathon.err.noProfile");
-        const own = playerDanFor(current.skill, ids[0]);
+        // the profile set by hand in the picks tab (no mania-tracker) comes with the request; else main's loaded one
+        let skill;
+        if (req.manualProfile !== undefined && req.manualProfile !== null) {
+            skill = manualSkill(normalizeManualProfile(req.manualProfile));
+            if (!skill) return t("recommend.err.badManualProfile");
+        } else {
+            const current = profile.current();
+            if (!current?.ok) return t("marathon.err.noProfile");
+            skill = current.skill;
+        }
+        const own = playerDanFor(skill, ids[0]);
         if (!own) return t("marathon.err.noTileDan");
         finalDan = own.dan;
     } else {

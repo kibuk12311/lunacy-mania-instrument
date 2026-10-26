@@ -46,7 +46,7 @@ test("the auto-marathon panel comes back with the choices saved last time", () =
     assert.equal($("mar-ranked").checked, true);
     assert.equal($("mar-custom").hidden, true);
     // no profile yet: the hint, and played maps can't be skipped
-    assert.equal($("mar-profile").textContent, "Профиль не загружен — загрузи его во вкладке «Подбор» или выбери дан вручную.");
+    assert.equal($("mar-profile").textContent, "Профиль не загружен — загрузи его во вкладке «Подбор» (или задай там свой уровень вручную) либо выбери дан ниже.");
     assert.equal($("mar-skip-played").disabled, true);
     // the list is empty: no replace / append choice, no curve
     assert.equal($("mar-mode").hidden, true);

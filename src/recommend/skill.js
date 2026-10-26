@@ -90,6 +90,8 @@ export function targetForWindow({ skill, manualDan, patternId, dan, msdOffset = 
         msdAxis: pattern.msd,
         msdRating,
         msdTarget: msdRating === null || offset === null ? null : round2(msdRating + offset),
+        // a profile set by hand (src/recommend/manualProfile.js) rather than read from mania-tracker
+        ...(skill?.manual && source !== "manual" ? { handSet: true } : {}),
     };
 }
 

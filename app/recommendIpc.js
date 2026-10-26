@@ -6,6 +6,7 @@ import { SEARCH_PAGE_SIZE } from "../src/recommend/rank.js";
 import { cleanSeed, similarParams, pickSimilar, SIMILAR_PAGES } from "../src/recommend/similar.js";
 import { createPlanner, PLAN_SIZES } from "../src/recommend/plan.js";
 import { CUSTOM_GOAL } from "../src/recommend/skill.js";
+import { normalizeManualProfile, manualSkill } from "../src/recommend/manualProfile.js";
 import { t, getLang } from "../src/i18n/i18n.js";
 import { MIN_DAN, MAX_DAN, positiveId, danOf } from "./validate.js";
 import { createRecStore } from "./recStore.js";
@@ -101,6 +102,13 @@ export function createRecommendHandlers({
         return { ok: false, message: t("app.rec.notLoggedIn") };
     }
 
+    // Manual mode's hand-set profile (Speed / Jack / Stamina / Tech) as a skill: undefined when none was sent,
+    // null when what was sent is not a profile the editor can make.
+    function handSetSkill(r) {
+        if (!r?.manual || r.manualProfile === undefined || r.manualProfile === null) return undefined;
+        return manualSkill(normalizeManualProfile(r.manualProfile));
+    }
+
     // Renderer request → the exact shape the recommender expects, or a reason in the current language.
     // A custom range ("custom" goal) brings { from, to } instead of using the manual dan: both inside the picker's ends.
     const inPicker = (dan) => dan !== null && dan >= MIN_DAN && dan <= MAX_DAN;
@@ -120,10 +128,12 @@ export function createRecommendHandlers({
             if (!inPicker(from) || !inPicker(to)) return t("recommend.err.badRange");
             range = { from: Math.min(from, to), to: Math.max(from, to) };
         }
-        const manualDan = manual && !custom ? danOf(r.manualDan) : null;
-        if (manual && !custom && !inPicker(manualDan)) return t("app.rec.chooseDan");
+        const skill = handSetSkill(r);
+        if (skill === null) return t("recommend.err.badManualProfile");
+        const manualDan = manual && !custom && !skill ? danOf(r.manualDan) : null;
+        if (manual && !custom && !skill && !inPicker(manualDan)) return t("app.rec.chooseDan");
         return {
-            manual, manualDan, patternId: pattern.id, goalId: goal.id, ...(range ? { range } : {}), lengthId: length.id,
+            manual, manualDan, ...(skill ? { manualSkill: skill } : {}), patternId: pattern.id, goalId: goal.id, ...(range ? { range } : {}), lengthId: length.id,
             rankedOnly: Boolean(r.rankedOnly), hidePlayed: Boolean(r.hidePlayed),
         };
     }
@@ -136,7 +146,7 @@ export function createRecommendHandlers({
                 const out = await recommender.start(req);
                 const target = out.target;
                 const partial = Boolean(out.playedPartial);
-                log(`rec start ${req.patternId} ${req.goalId} ${target?.lo}..${target?.hi}${req.manual ? " (manual)" : ""} → ${out.cards.length} cards, server ${out.total}${partial ? ", plays partial" : ""}`);
+                log(`rec start ${req.patternId} ${req.goalId} ${target?.lo}..${target?.hi}${req.manual ? (req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${out.cards.length} cards, server ${out.total}${partial ? ", plays partial" : ""}`);
                 rememberCards(out.cards);
                 return { ok: true, target, cards: out.cards, more: Boolean(out.more), total: out.total, playedPartial: partial };
             } catch (error) {
@@ -272,9 +282,11 @@ export function createRecommendHandlers({
         const length = lengthById(r.lengthId);
         if (!length) return t("app.rec.chooseLength");
         const manual = Boolean(r.manual);
-        const manualDan = manual ? danOf(r.manualDan) : null;
-        if (manual && !(manualDan >= MIN_DAN && manualDan <= MAX_DAN)) return t("app.rec.chooseDan");
-        return { size: r.size, patternIds: unique, lengthId: length.id, rankedOnly: Boolean(r.rankedOnly), manual, manualDan };
+        const skill = handSetSkill(r);
+        if (skill === null) return t("recommend.err.badManualProfile");
+        const manualDan = manual && !skill ? danOf(r.manualDan) : null;
+        if (manual && !skill && !(manualDan >= MIN_DAN && manualDan <= MAX_DAN)) return t("app.rec.chooseDan");
+        return { size: r.size, patternIds: unique, lengthId: length.id, rankedOnly: Boolean(r.rankedOnly), manual, manualDan, ...(skill ? { manualSkill: skill } : {}) };
     }
 
     function plan(request) {
@@ -285,7 +297,7 @@ export function createRecommendHandlers({
                 const out = await planner.build(req);
                 const cards = out.slots.map((s) => s.card).filter(Boolean);
                 rememberCards(cards);
-                log(`rec plan ${req.size} ${req.patternIds.join("+")}${req.manual ? " (manual)" : ""} → ${cards.length}/${out.slots.length} cards, ${Math.round(out.totalSec)} s${out.playedPartial ? ", plays partial" : ""}`);
+                log(`rec plan ${req.size} ${req.patternIds.join("+")}${req.manual ? (req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${cards.length}/${out.slots.length} cards, ${Math.round(out.totalSec)} s${out.playedPartial ? ", plays partial" : ""}`);
                 return { ok: true, header: out.header, slots: out.slots, totalSec: out.totalSec, playedPartial: Boolean(out.playedPartial) };
             } catch (error) {
                 log(`rec plan failed: ${error?.message}`);

@@ -4,7 +4,7 @@ import { createProfileClient } from "../app/renderer/profile.js";
 import { fakeDom } from "./helpers/fakeDom.js";
 
 const SKILL = { overall: 13.4, overallLabel: "Gamma mid/high", tiles: { stamina: 13.26 } };
-const PLAYER = { id: 777, username: "Luna", avatarUrl: null };
+const PLAYER = { id: 777, username: "TestPlayer", avatarUrl: null };
 
 // danApi fake: profileEnsure answers `answer` (a value, or a function of the query), records its calls
 function fakeApi(answer = { ok: true, player: PLAYER, skill: SKILL }) {
@@ -31,7 +31,7 @@ function client(api, { settings, clock = { now: 0 } } = {}) {
 
 test("starts idle; ensure loads the profile once and tells the subscribers", async () => {
     const api = fakeApi();
-    const c = client(api, { settings: { source: "tracker", query: "Luna" } });
+    const c = client(api, { settings: { source: "tracker", query: "TestPlayer" } });
     const states = [];
     c.onProfile((s) => states.push(s.state));
     assert.deepEqual(c.getProfile(), { state: "idle" });
@@ -39,7 +39,7 @@ test("starts idle; ensure loads the profile once and tells the subscribers", asy
     assert.deepEqual(r, { state: "ready", player: PLAYER, skill: SKILL });
     assert.deepEqual(c.getProfile(), r);
     assert.deepEqual(states, ["loading", "ready"]);
-    assert.deepEqual(api.calls, ["Luna"]);
+    assert.deepEqual(api.calls, ["TestPlayer"]);
 });
 
 test("the nick from the picks settings is a hint only in tracker mode", async () => {
@@ -47,8 +47,12 @@ test("the nick from the picks settings is a hint only in tracker mode", async ()
     await client(tracker, { settings: { source: "tracker", query: " TestPlayer " } }).ensureProfile();
     assert.deepEqual(tracker.calls, ["TestPlayer"]);
 
+    // manual mode: the hand-set profile is the one in use, main is not asked; mania-tracker's own load takes no hint
     const manual = fakeApi();
-    await client(manual, { settings: { source: "manual", query: "TestPlayer" } }).ensureProfile();
+    const m = client(manual, { settings: { source: "manual", query: "TestPlayer" } });
+    assert.equal((await m.ensureProfile()).manual, true);
+    assert.deepEqual(manual.calls, []);
+    await m.ensureTrackerProfile();
     assert.deepEqual(manual.calls, [undefined]);
 
     const none = fakeApi();
@@ -109,7 +113,7 @@ test("profile-changed from main makes it ready and tells the subscribers; unsubs
     off();
     api.changed({ player: { ...PLAYER, username: "Other" }, skill: SKILL });
     assert.equal(c.getProfile().player.username, "Other");
-    assert.equal(seen.at(-1).player.username, "Luna");
+    assert.equal(seen.at(-1).player.username, "TestPlayer");
 });
 
 test("a subscriber that throws does not stop the others", async () => {
@@ -130,12 +134,12 @@ test("a danApi without the profile methods (an old fake) gives none, no exceptio
 
 test("the module's own client reads window.danApi and localStorage", async () => {
     const api = fakeApi();
-    fakeDom(api, { storage: { "rec-settings": JSON.stringify({ source: "tracker", query: "Luna" }) } });
+    fakeDom(api, { storage: { "rec-settings": JSON.stringify({ source: "tracker", query: "TestPlayer" }) } });
     const { getProfile, onProfile, ensureProfile } = await import("../app/renderer/profile.js");
     const seen = [];
     onProfile((s) => seen.push(s.state));
     assert.equal(getProfile().state, "idle");
     assert.equal((await ensureProfile()).state, "ready");
-    assert.deepEqual(api.calls, ["Luna"]);
+    assert.deepEqual(api.calls, ["TestPlayer"]);
     assert.deepEqual(seen, ["loading", "ready"]);
 });

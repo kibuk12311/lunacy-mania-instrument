@@ -50,7 +50,9 @@ function markPlayed(cards, playedCharts) {
 // their window's middle): the cards rank by pattern purity and popularity. Only the ranking sees this copy.
 const rankTargetOf = (target) => (target.goalId === CUSTOM_GOAL ? { ...target, halfWidth: Infinity } : target);
 
-export function createRecommender({ api, pageBatch = 4, pageSize = 20 }) {
+// extraPlayed() → Map beatmapId → play of plays made elsewhere (Interlude's scores, app/interludeLibrary.js): added to
+// the player's own, which win where both have a map; a failure there leaves the player's plays as they are.
+export function createRecommender({ api, pageBatch = 4, pageSize = 20, extraPlayed = async () => new Map() }) {
     let player = null;
     let playerLoads = 0;
     let session = null;
@@ -79,6 +81,14 @@ export function createRecommender({ api, pageBatch = 4, pageSize = 20 }) {
 
     // Plays over every axis → { played, partial }. Each axis is asked once; one that failed is asked again on the
     // next start, the rest are kept. Only when no axis arrived is it an error.
+    async function withExtra(plays) {
+        const extra = await Promise.resolve().then(extraPlayed).catch(() => null);
+        if (!(extra instanceof Map) || !extra.size) return plays;
+        const played = new Map(extra);
+        for (const [id, play] of plays.played) played.set(id, play);
+        return { ...plays, played };
+    }
+
     async function playedFor(who) {
         if (!playedCache.has(who.id)) playedCache.set(who.id, new Map());
         const axes = playedCache.get(who.id);
@@ -154,8 +164,10 @@ export function createRecommender({ api, pageBatch = 4, pageSize = 20 }) {
         let target;
         let plays = { played: new Map(), partial: false };
         if (r.manual) {
-            if (!custom && !Number.isFinite(r.manualDan)) throw new Error(t("core.rec.needManualDan"));
-            target = targetOf(null, r.manualDan);
+            // a hand-set profile (manualProfile.js manualSkill) is used like a tracker one; else the one manual dan
+            const handSet = r.manualSkill?.manual ? r.manualSkill : null;
+            if (!custom && !handSet && !Number.isFinite(r.manualDan)) throw new Error(t("core.rec.needManualDan"));
+            target = handSet ? targetOf(handSet, null) : targetOf(null, r.manualDan);
             // With a loaded profile its plays still get marked, and hidden when asked; only hiding needs them.
             if (player) {
                 plays = await playedFor(player).catch((error) => {
@@ -168,6 +180,7 @@ export function createRecommender({ api, pageBatch = 4, pageSize = 20 }) {
             target = targetOf(player.skill, null);
             plays = await playedFor(player);
         }
+        plays = await withExtra(plays);
         const s = {
             target,
             rankTarget: rankTargetOf(target),
@@ -200,11 +213,12 @@ export function createRecommender({ api, pageBatch = 4, pageSize = 20 }) {
     // The loaded player for other tabs (the profile service): { id, username, avatarUrl, skill } or null.
     const currentPlayer = () => (player ? { id: player.id, username: player.username, avatarUrl: player.avatarUrl, skill: player.skill } : null);
 
-    // The current player's plays over every axis, shared with the picks' own cache; no player → nothing played.
+    // The current player's plays over every axis, shared with the picks' own cache, and those made elsewhere
+    // (extraPlayed); no player → only those.
     // Throws only when no axis arrived at all.
     async function playedMaps() {
-        if (!player) return { played: new Map(), partial: false };
-        return playedFor(player);
+        if (!player) return withExtra({ played: new Map(), partial: false });
+        return withExtra(await playedFor(player));
     }
 
     return { loadPlayer, start, more, currentPlayer, playedMaps };

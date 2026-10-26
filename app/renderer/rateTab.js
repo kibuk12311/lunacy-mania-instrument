@@ -2,11 +2,13 @@
 // This module holds the tab's state and its main controls; the rate for a dan (rateTarget.js), several rates at once
 // (rateBatch.js) and presets (ratePresets.js) get what they need through one context object.
 import { t } from "../../src/i18n/i18n.js";
+import { labelBeside } from "../../src/core/labels.js";
 // the analyser's main pattern in the General / Detailed mode shared by every tab (redrawn when it changes)
 import { patternLabel, onPatternMode } from "./patternMode.js";
 import { initRateTarget, targetPreviewed, targetProgress, resetTarget, syncTarget } from "./rateTarget.js";
 import { initRateBatch, batchProgress, clearBatch, markBatchRate, syncBatch } from "./rateBatch.js";
 import { initRatePresets } from "./ratePresets.js";
+import { sendButtons } from "./interlude.js";
 
 const $ = (id) => document.getElementById(id);
 const QUICK_RATES = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
@@ -68,7 +70,7 @@ export function applyOptions(p) {
 // The preview's text for an analysis result (also used for a search whose ×1.0 had no dan).
 function describe(r, { rate, noLn }) {
     if (r?.kind === "ok") {
-        return t("rate.preview.ok", { rate, label: r.label, numeric: r.numeric.toFixed(1), primary: patternLabel(r.primary) ?? "", tech: r.tech ? " · Tech" : "" });
+        return t("rate.preview.ok", { rate, label: labelBeside(r.numeric, r.label), numeric: r.numeric.toFixed(1), primary: patternLabel(r.primary) ?? "", tech: r.tech ? " · Tech" : "" });
     }
     if (r?.kind === "not-rice") {
         if (r.reason === "mode") return t("rate.preview.notMania");
@@ -141,8 +143,9 @@ async function refresh() {
         resetTarget({ keepPick: false });
         mapKey = key;
     }
-    // osu! lazer: no Songs folder, the copies go in as an .osz (the note says so)
+    // osu! lazer: no Songs folder, the copies go in as an .osz (the note says so); an Interlude chart: likewise
     $("rate-lazer-note").hidden = !(r.ok && r.client === "lazer");
+    $("rate-interlude-note").hidden = !(r.ok && r.client === "interlude");
     if (!r.ok) {
         info = null;
         $("rate-map").textContent = t("rate.noMap", { message: r.message });
@@ -169,11 +172,15 @@ async function create() {
     const { rate, pitch, od, hp, mirror, noLn } = getOptions();
     $("rate-create").disabled = true;
     $("rate-status").textContent = t("rate.creating");
+    $("rate-interlude").replaceChildren();
     try {
         const r = await window.danApi.rateCreate({ rate, pitch, od, hp, mirror, noLn });
         $("rate-status").textContent = !r.ok ? t("rate.error", { message: r.message })
             : r.client === "lazer" ? t(r.opened ? "rate.doneLazer" : "rate.doneLazerNotOpened", { version: r.version, file: r.file })
-                : t("rate.done", { version: r.version });
+                : r.client === "interlude" ? `${t("rate.doneInterlude", { version: r.version })} ${r.sendMessage ?? ""}`.trim()
+                    : t("rate.done", { version: r.version });
+        // a copy made in osu!'s Songs folder can go to Interlude too, as an .osz
+        if (r.ok && !r.client && r.file) $("rate-interlude").replaceChildren(...sendButtons([r.file]));
     } finally {
         $("rate-create").disabled = false;
     }

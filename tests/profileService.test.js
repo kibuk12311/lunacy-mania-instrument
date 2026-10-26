@@ -51,9 +51,9 @@ test("current: nothing before a player is loaded, the player after", async () =>
 
 test("remember saves the query and the player and tells the window", async () => {
     const { store, sent, profile } = setup();
-    await profile.remember("  Luna ", { id: 777, username: "Luna", avatarUrl: "https://a.ppy.sh/777", skill: SKILL, extra: 1 });
-    assert.deepEqual(store.value, { query: "Luna", id: 777, username: "Luna" });
-    assert.deepEqual(sent, [["profile-changed", { player: { id: 777, username: "Luna", avatarUrl: "https://a.ppy.sh/777" }, skill: SKILL }]]);
+    await profile.remember("  TestPlayer ", { id: 777, username: "TestPlayer", avatarUrl: "https://a.ppy.sh/777", skill: SKILL, extra: 1 });
+    assert.deepEqual(store.value, { query: "TestPlayer", id: 777, username: "TestPlayer" });
+    assert.deepEqual(sent, [["profile-changed", { player: { id: 777, username: "TestPlayer", avatarUrl: "https://a.ppy.sh/777" }, skill: SKILL }]]);
 });
 
 test("ensure with a player already loaded loads nothing", async () => {
@@ -77,10 +77,10 @@ test("ensure loads the saved player by its exact id first", async () => {
 
 test("ensure with only a hint searches it; with nothing it answers none", async () => {
     const hinted = setup();
-    const r = await hinted.profile.ensure({ query: " Luna " });
-    assert.deepEqual(hinted.recommender.loads, [["Luna", null]]);
+    const r = await hinted.profile.ensure({ query: " TestPlayer " });
+    assert.deepEqual(hinted.recommender.loads, [["TestPlayer", null]]);
     assert.equal(r.ok, true);
-    assert.deepEqual(hinted.store.value, { query: "Luna", id: 777, username: "Luna" });
+    assert.deepEqual(hinted.store.value, { query: "TestPlayer", id: 777, username: "TestPlayer" });
 
     const none = setup();
     assert.deepEqual(await none.profile.ensure(), { ok: false, reason: "none" });
@@ -104,18 +104,18 @@ test("a failed load is answered again for 60 s without a request, then tried ane
 test("a successful load elsewhere clears a remembered failure", async () => {
     const { recommender, profile } = setup({ bad: ["ghost"] });
     await profile.ensure({ query: "ghost" });
-    await profile.remember("Luna", { id: 777, username: "Luna", avatarUrl: null, skill: SKILL });
+    await profile.remember("TestPlayer", { id: 777, username: "TestPlayer", avatarUrl: null, skill: SKILL });
     recommender.player = null; // say the recommender lost it: the saved record loads again at once
     assert.equal((await profile.ensure({ query: "ghost" })).ok, true);
-    assert.deepEqual(recommender.loads.at(-1), ["Luna", { id: 777, name: "Luna" }]);
+    assert.deepEqual(recommender.loads.at(-1), ["TestPlayer", { id: 777, name: "TestPlayer" }]);
 });
 
 test("two ensures at once share one load", async () => {
     const { recommender, profile } = setup();
     let open;
     recommender.gate = new Promise((r) => { open = r; });
-    const a = profile.ensure({ query: "Luna" });
-    const b = profile.ensure({ query: "Luna" });
+    const a = profile.ensure({ query: "TestPlayer" });
+    const b = profile.ensure({ query: "TestPlayer" });
     await flush();
     open();
     const [ra, rb] = await Promise.all([a, b]);
@@ -164,8 +164,8 @@ test("registerProfileIpc answers profile-get and profile-ensure and never throws
     registerProfileIpc({ ipcMain, profile, log: () => {} });
     assert.deepEqual([...handlers.keys()], ["profile-get", "profile-ensure"]);
     assert.deepEqual(await handlers.get("profile-get")({}), { ok: false });
-    const r = await handlers.get("profile-ensure")({}, { query: "Luna", junk: 1 });
-    assert.deepEqual(calls, [{ query: "Luna" }]);
+    const r = await handlers.get("profile-ensure")({}, { query: "TestPlayer", junk: 1 });
+    assert.deepEqual(calls, [{ query: "TestPlayer" }]);
     assert.deepEqual(r, { ok: false, reason: "failed", message: "boom" });
     assert.deepEqual(await handlers.get("profile-ensure")({}, undefined).then(() => calls.at(-1)), { query: undefined });
 });

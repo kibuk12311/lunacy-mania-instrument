@@ -28,6 +28,7 @@ export default {
         en: "Did osu! lazer update? tosu downloads what it needs for each new lazer version by itself — wait a couple of minutes and restart the app; if that doesn't help, you need a new version of the app",
     },
     "analysis.waiting": { ru: "Ждём osu! (stable или lazer)…", en: "Waiting for osu! (stable or lazer)…" },
+    "analysis.waitingInterlude": { ru: "Или выбери карту в Interlude — карточка следит и за ним (кнопка IL внизу).", en: "Or select a chart in Interlude — the card follows it too (the IL button below)." },
     // the badge in the footer: which osu! tosu is reading
     "analysis.client.stable": { ru: "stable", en: "stable" },
     "analysis.client.lazer": { ru: "lazer", en: "lazer" },
@@ -55,7 +56,10 @@ export default {
     "analysis.fit.band.hard": { ru: "пока вряд ли — попробуй рейт пониже", en: "probably not yet — try a lower rate" },
     "analysis.fit.msd": { ru: "MSD {axis}: {map} против твоих {player} ({d})", en: "MSD {axis}: {map} vs your {player} ({d})" },
     "analysis.fit.noDan": { ru: "На трекере пока нет твоего дана", en: "The tracker has no dan for you yet" },
-    "analysis.fit.noProfile": { ru: "Сравнить с твоим скиллом — укажи ник во вкладке «Подбор»", en: "Compare with your skill — set your nick in the Picks tab" },
+    "analysis.fit.noProfile": {
+        ru: "Сравнить с твоим скиллом — укажи ник во вкладке «Подбор» (нет mania-tracker? там же можно задать уровень вручную)",
+        en: "Compare with your skill — set your nick in the Picks tab (no mania-tracker? you can set your level by hand there)",
+    },
     "analysis.fit.loading": { ru: "Загружаем профиль…", en: "Loading profile…" },
 
     // the dan of the same chart at other rates

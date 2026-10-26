@@ -6,6 +6,8 @@
 import { pickPreviewMs } from "../../src/gen/previewPoint.js";
 import { rateText } from "../../src/rate/rateMap.js";
 import { t } from "../../src/i18n/i18n.js";
+import { labelBeside } from "../../src/core/labels.js";
+import { sendButton } from "./interlude.js";
 
 export const RATE_CHOICES = [1.1, 1.2];
 const LISTEN_SEC = 10;
@@ -190,7 +192,8 @@ export function initExportPanel({ root, metaRoot, player = null, getSelection = 
     openButton.addEventListener("click", () => open());
     const showButton = make("button", { id: "exp-show", className: "small", text: t("create.save.show") });
     showButton.addEventListener("click", () => { if (state.last) window.danApi.showMap(state.last.file); });
-    links.append(openButton, showButton);
+    // Interlude: the saved .osz to drop onto it
+    links.append(openButton, showButton, sendButton(() => (state.last ? [state.last.file] : [])));
     result.append(lines, links);
     saveBox.append(ratesRow, saveButton, rulesNote, statusLine, result);
     root?.append(saveBox);
@@ -259,7 +262,7 @@ export function initExportPanel({ root, metaRoot, player = null, getSelection = 
             if (e.rate === 1) continue;
             rows.push(make("div", {
                 className: "muted",
-                text: t("create.save.rateRow", { rate: rateText(e.rate), label: e.label ?? "—", numeric: Number.isFinite(e.numeric) ? e.numeric.toFixed(1) : "—" }),
+                text: t("create.save.rateRow", { rate: rateText(e.rate), label: labelBeside(e.numeric, e.label ?? "—"), numeric: Number.isFinite(e.numeric) ? e.numeric.toFixed(1) : "—" }),
             }));
         }
         lines.replaceChildren(...rows);

@@ -88,7 +88,7 @@ function makeSet(i, dan, patternId = "jumpstream", playCount = 100000 - i) {
     return { ...diff, diffs: [diff], pattern: patternId };
 }
 
-function fakeRecommender({ player = { id: 7, username: "Luna", skill: SKILL }, played = new Map(), partial = false } = {}) {
+function fakeRecommender({ player = { id: 7, username: "TestPlayer", skill: SKILL }, played = new Map(), partial = false } = {}) {
     const calls = { playedMaps: 0 };
     return {
         calls,

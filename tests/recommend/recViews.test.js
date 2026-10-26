@@ -36,8 +36,13 @@ test("plan helpers: pattern chips in turn, the request, the header", () => {
     assert.deepEqual(togglePattern(["stream"], "nope"), ["stream"]);
 
     const settings = { source: "manual", lengthId: "short", rankedOnly: 1 };
-    assert.deepEqual(planRequest({ planSize: 6, planPatterns: ["tech"] }, settings, 13.2), { size: 6, patternIds: ["tech"], lengthId: "short", rankedOnly: true, manual: true, manualDan: 13.2 });
-    assert.equal(planRequest({ planSize: 5, planPatterns: ["tech"] }, { ...settings, source: "tracker" }, 13.2).manualDan, null);
+    const mine = { name: "", speed: 14, jack: 12.6, stamina: 13.2, tech: 13 };
+    assert.deepEqual(planRequest({ planSize: 6, planPatterns: ["tech"] }, settings, mine), {
+        size: 6, patternIds: ["tech"], lengthId: "short", rankedOnly: true, manual: true, manualDan: null, manualProfile: mine,
+    });
+    const tracker = planRequest({ planSize: 5, planPatterns: ["tech"] }, { ...settings, source: "tracker" }, mine);
+    assert.equal(tracker.manualDan, null);
+    assert.equal("manualProfile" in tracker, false, "the tracker source sends no hand-set profile");
 
     const header = { playerDan: 13.26, label: "Gamma mid/high", tile: "Stamina" };
     assert.equal(planHeaderText(header, 5, 1040), "План: Stamina Gamma mid/high (13.26) · 5 карт · ≈ 17:20");
@@ -130,9 +135,9 @@ function makeApi() {
     let exportProgress = null;
     const api = {
         onRecDownloadProgress: () => {},
-        onProfileChanged: () => {},
+        onProfileChanged: (cb) => { calls.profileChanged = cb; },
         onRecFavExportProgress: (cb) => { exportProgress = cb; return () => {}; },
-        recPlayer: async () => ({ ok: true, player: { id: 7, username: "Luna" }, skill: { overall: 13, tiles: {}, analyzedPlays: 1 } }),
+        recPlayer: async () => ({ ok: true, player: { id: 7, username: "TestPlayer" }, skill: { overall: 13, tiles: {}, analyzedPlays: 1 } }),
         recPlan: async (req) => {
             calls.plan.push(req);
             return {
@@ -188,7 +193,7 @@ test("modes, the plan with a swap, the ☆ marks with the favourites count, the 
     await onRecommendTabShown();
     await settle();
     const modes = $("rec-mode").children;
-    assert.deepEqual(modes.map((c) => c.textContent), ["Подбор", "План", "Избранное (0)", "Прогресс"]);
+    assert.deepEqual(modes.map((c) => c.textContent), ["Подбор", "План", "Избранное (0)", "Прогресс", "Сессия"]);
     assert.equal($("rec-picks-pane").hidden, false);
     assert.equal($("rec-plan-pane").hidden, true);
 
@@ -198,7 +203,8 @@ test("modes, the plan with a swap, the ☆ marks with the favourites count, the 
     assert.deepEqual($("rec-plan-size").children.map((c) => c.textContent), ["5", "6"]);
     await fire($("rec-plan-size").children[1]);
     await fire($("rec-plan-go"));
-    assert.deepEqual(calls.plan, [{ size: 6, patternIds: ["jumpstream"], lengthId: "any", rankedOnly: false, manual: true, manualDan: 13 }]);
+    assert.deepEqual(calls.plan, [{ size: 6, patternIds: ["jumpstream"], lengthId: "any", rankedOnly: false, manual: true, manualDan: null,
+        manualProfile: { name: "", speed: 13, jack: 13, stamina: 13, tech: 13 } }], "a profile from 0.9.1's one manual dan: that dan on every axis");
     assert.equal($("rec-plan-head").textContent, "План: Gamma mid (13.00) · 1 карта · ≈ 1:40");
     assert.equal($("rec-plan-list").children.length, 2);
     const [first, empty] = $("rec-plan-list").children;
@@ -246,6 +252,14 @@ test("modes, the plan with a swap, the ☆ marks with the favourites count, the 
     assert.equal($("rec-fav-status").textContent, "Пока пусто — отмечай карты кнопкой ☆");
     assert.equal(modes[2].textContent, "Избранное (0)");
 
+    // progress with the hand-set profile and no mania-tracker one: main is not asked, the tab says what it needs
+    await fire(modes[3]);
+    await settle();
+    assert.deepEqual(calls.progress, []);
+    assert.equal($("rec-progress-status").textContent, "Прогресс считает mania-tracker по твоим играм — у ручного профиля его нет. Загрузи ник в «С mania-tracker», чтобы его увидеть.");
+    // main loads a tracker profile (another tab asked): progress comes from it
+    calls.profileChanged({ player: { id: 7, username: "TestPlayer" }, skill: { overall: 13, tiles: {}, analyzedPlays: 1 } });
+    await fire(modes[0]);
     // progress: the period chips, the lines, the change and the chart
     await fire(modes[3]);
     await settle();

@@ -2,6 +2,8 @@
 // and how the player's dan and MinaCalc ratings moved (its skill history), as points for a small chart.
 const GREEK = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"];
 const STEP = { "--": -0.4, "-": -0.2, "": 0, "+": 0.2, "++": 0.4 };
+const KAPPA_HIGH = 20.4;
+const ABOVE_KAPPA = 20.5; // src/core/labels.js: from here on a dan reads "above Kappa"
 // the rating axes the history keeps (the tracker's "pattern:ln" is left out)
 export const HISTORY_AXES = ["Overall", "Stream", "Jumpstream", "Handstream", "Stamina", "JackSpeed", "Chordjack", "Technical"];
 export const DAY_MS = 86_400_000;
@@ -66,13 +68,19 @@ export function readHistory(json) {
     for (const row of Array.isArray(json?.items) ? json.items : []) {
         const at = Date.parse(row?.recordedAt);
         if (!Number.isFinite(at)) continue;
-        const label = typeof row.snapshot?.dan?.rc?.label === "string" ? row.snapshot.dan.rc.label : null;
+        const rc = row.snapshot?.dan?.rc;
+        const label = typeof rc?.label === "string" ? rc.label : null;
+        const raw = finite(rc?.rawDan);
+        const parsed = trackerLabelToDan(label);
         const ratings = {};
         for (const axis of HISTORY_AXES) {
             const v = finite(row.snapshot?.ratings?.[axis]);
             if (v !== null) ratings[axis] = v;
         }
-        items.push({ at, label, dan: trackerLabelToDan(label), ratings });
+        // past the top of the tracker's table (its last label, kappa++, is Kappa high): our "above Kappa"; the dan keeps
+        // its number (the raw one when the tracker gives it), so deltas and the chart still work
+        const above = (raw !== null && raw >= ABOVE_KAPPA) || (rc?.beyondTable === true && (parsed === null || parsed >= KAPPA_HIGH));
+        items.push({ at, label, dan: raw ?? parsed, ...(above ? { above } : {}), ratings });
     }
     const next = Number(json?.nextBefore);
     return { items, nextBefore: Number.isSafeInteger(next) && next > 0 ? next : null };
@@ -85,11 +93,13 @@ export function dailyPoints(items, sinceMs) {
     const before = sorted.filter((i) => i.at < sinceMs).at(-1);
     const byDay = new Map();
     for (const i of sorted) if (i.at >= sinceMs) byDay.set(dayOf(i.at), i);
-    const point = (i, at = i.at) => ({ at, label: i.label, dan: i.dan, ratings: { ...i.ratings } });
+    const point = (i, at = i.at) => ({ at, label: i.label, dan: i.dan, ...(i.above ? { above: true } : {}), ratings: { ...i.ratings } });
     const points = [...byDay.values()].map((i) => point(i));
     if (before) points.unshift(point(before, sinceMs));
     return points;
 }
+
+const end = (p) => ({ label: p.label, dan: p.dan, ...(p.above ? { above: true } : {}) });
 
 // First → last point: the dan and every rating axis, biggest gain first; null without points.
 export function skillChange(points) {
@@ -102,8 +112,8 @@ export function skillChange(points) {
         .sort((a, b) => b.delta - a.delta);
     const danDelta = finite(first.dan) !== null && finite(last.dan) !== null ? round2(last.dan - first.dan) : null;
     return {
-        danFrom: { label: first.label, dan: first.dan },
-        danTo: { label: last.label, dan: last.dan },
+        danFrom: end(first),
+        danTo: end(last),
         danDelta,
         axes,
     };

@@ -18,6 +18,10 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
     let missingSince = null;
     let lastView = null;
     let failure = null; // { at, attempts } after a transient error (tosu fetch, worker timeout) for `current`
+    // a map shown from somewhere else than osu! (an Interlude chart): { checksum, rate, text, osuKey, onEnd } — kept
+    // until osu!'s own selection is another one than when it was shown (osuKey)
+    let external = null;
+    let lastOsuKey = null;
     // deterministic analysis errors: not cached on disk, but never recomputed this session (per language: they hold text)
     const errorMemo = new Map();
 
@@ -42,7 +46,7 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
         let key = null;
         let text = null;
         try {
-            const fetched = await fetchOsu();
+            const fetched = external && external.checksum === checksum ? external.text : await fetchOsu();
             if (id !== requestId) return;
             if (typeof fetched !== "string" || !fetched) throw new Error(t("app.select.noFile"));
             text = fetched;
@@ -71,8 +75,37 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
     }
 
     return {
+        // An outside map on the card: { id, text, rate }; onEnd() when osu!'s selection takes the card back.
+        showExternal({ id, text, rate = 1, onEnd = () => {} }) {
+            external = { checksum: `external:${id}`, rate, text, osuKey: lastOsuKey, onEnd };
+            run(external.checksum, rate);
+        },
+        // An outside map that can't be analysed here (an Interlude chart not in the linked library): what is known of it
+        // on the card, { id, rate, title, artist, diff, note }, kept like showExternal's until osu! takes the card back.
+        showInfo({ id, rate = 1, title = "", artist = "", diff = "", note = "", onEnd = () => {} }) {
+            external = { checksum: `external:${id}`, rate, text: null, osuKey: lastOsuKey, onEnd };
+            requestId += 1; // an analysis still running for the card is no longer wanted
+            current = null;
+            currentResult = null;
+            currentKey = null;
+            failure = null;
+            show({ screen: "external-info", info: { title, artist, diff, rate, note } });
+        },
+        external: () => (external ? { checksum: external.checksum, rate: external.rate } : null),
         onFrame(frame) {
             sawFrame = true;
+            const osuKey = frame.checksum === null ? null : `${frame.checksum} ${frame.rate}`;
+            if (osuKey !== null) lastOsuKey = osuKey;
+            if (external) {
+                if (osuKey === null || frame.state === "playing" || osuKey === external.osuKey) return;
+                const ended = external;
+                external = null;
+                try {
+                    ended.onEnd();
+                } catch {
+                    // the listener's problem
+                }
+            }
             if (frame.checksum === null && frame.state !== "menu") {
                 missingSince ??= now();
             } else {
@@ -95,9 +128,10 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
         onTosuStatus(status) {
             tosuStatus = status;
             if (status !== "connected") missingSince = null;
-            if (status === "down" && (!sawFrame || !lastView)) show({ screen: "waiting-osu" });
+            if (status === "down" && !external && (!sawFrame || !lastView)) show({ screen: "waiting-osu" });
         },
         onTosuFailed(reason) {
+            if (external) return; // an Interlude chart on the card needs no osu!
             show({ screen: "tosu-failed", reason });
         },
         tick() {

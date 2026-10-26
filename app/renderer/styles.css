@@ -101,6 +101,50 @@ body.compact .ov-button, body.compact .overlay-panel { display: none; }
 .overlay-panel button.ov-move.on { color: var(--gold); border-color: var(--gold); }
 .overlay-panel a.ov-more { color: var(--muted); font-size: 11px; cursor: pointer; text-decoration: underline; }
 
+/* Interlude: the IL button's panel (folder, library search) and the "→ Interlude" buttons of the tabs */
+.osu-client.interlude { color: var(--blue); }
+footer button.il-toggle.live { color: var(--blue); opacity: 0.9; }
+footer button.il-toggle.on { border-color: var(--blue); }
+body.compact .il-toggle, body.compact .interlude-panel { display: none; }
+.interlude-panel { width: 300px; }
+.interlude-panel h4 { color: var(--blue); }
+.interlude-panel .il-folder { font-size: 10px; word-break: break-all; margin: 2px 0; }
+.interlude-panel .il-actions button {
+    background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
+    font-size: 11px; padding: 2px 6px; cursor: pointer;
+}
+.interlude-panel .il-answer { margin: 4px 0; font-size: 11px; }
+.interlude-panel .il-search {
+    width: 100%; margin: 6px 0 4px; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; font-size: 12px; padding: 3px 6px; user-select: text;
+}
+.interlude-panel .il-results { max-height: 220px; overflow-y: auto; }
+.interlude-panel .il-count { font-size: 10px; margin-bottom: 2px; }
+.interlude-panel button.il-row {
+    display: block; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line);
+    color: var(--text); padding: 3px 2px; cursor: pointer; font-size: 11px;
+}
+.interlude-panel button.il-row:hover { background: var(--accent-bg); }
+.interlude-panel .il-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interlude-panel .il-meta { display: block; font-size: 10px; }
+.interlude-panel .il-note { font-size: 10px; margin-top: 6px; line-height: 1.35; }
+.interlude-panel .il-live-box { margin: 6px 0; padding: 4px 0; border-top: 1px solid var(--line, #2a2638); border-bottom: 1px solid var(--line, #2a2638); }
+.interlude-panel .il-check { display: flex; gap: 6px; align-items: center; font-size: 11px; margin: 2px 0; cursor: pointer; }
+.interlude-panel .il-live { font-size: 10px; margin: 2px 0 4px 20px; line-height: 1.35; }
+.interlude-panel .il-live.ok { color: var(--green); }
+footer button.il-toggle.attached { color: var(--green); }
+footer button.il-toggle.warn { color: var(--gold); }
+.osu-client.interlude.live { color: var(--green); }
+.message.external-info .ext-name { font-weight: 700; margin-bottom: 6px; }
+.message.external-info .ext-note { font-size: 11px; line-height: 1.4; }
+
+.il-send { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.il-send[hidden] { display: none; }
+.il-send button.il-button { color: var(--blue); border-color: var(--blue); }
+.il-send .il-answer { font-size: 11px; }
+.il-answer.ok, .il-status.ok { color: var(--green); }
+.il-answer.bad, .interlude-panel .bad { color: var(--red); }
+
 .calc-tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; }
 .versus { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .stars { font-size: 12px; color: #cccccc; margin-top: 3px; }

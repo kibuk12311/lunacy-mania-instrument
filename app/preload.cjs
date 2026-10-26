@@ -108,7 +108,46 @@ contextBridge.exposeInMainWorld("danApi", {
         return () => ipcRenderer.removeListener("rec-fav-export-progress", listener);
     },
     recProgress: (days) => ipcRenderer.invoke("rec-progress", { days }),
+    // the session page: the player's own library, a session built from it, saved sessions and their export
+    sessionLibraryStatus: () => ipcRenderer.invoke("session-library-status"),
+    sessionLibraryScan: () => ipcRenderer.invoke("session-library-scan"),
+    sessionLibraryPause: () => ipcRenderer.invoke("session-library-pause"),
+    sessionLibraryResume: () => ipcRenderer.invoke("session-library-resume"),
+    sessionLibraryPick: () => ipcRenderer.invoke("session-library-pick"),
+    // { phase, paused, songsDir, interlude, counts, … } on every step of the scan
+    onSessionLibrary: (cb) => ipcRenderer.on("session-library", (_e, status) => cb(status)),
+    // { job, phase, i, n } while a session is built or exported
+    onSessionProgress: (cb) => ipcRenderer.on("session-progress", (_e, p) => cb(p)),
+    sessionBuild: (request) => ipcRenderer.invoke("session-build", request),
+    sessionReroll: (index) => ipcRenderer.invoke("session-reroll", { index }),
+    sessionSave: (name) => ipcRenderer.invoke("session-save", { name }),
+    sessionList: () => ipcRenderer.invoke("session-list"),
+    sessionOpen: (id) => ipcRenderer.invoke("session-open", { id }),
+    sessionRemove: (id) => ipcRenderer.invoke("session-remove", { id }),
+    sessionExportCollection: (name) => ipcRenderer.invoke("session-export-collection", { name }),
+    sessionExportMarathon: (name) => ipcRenderer.invoke("session-export-marathon", { name }),
+    sessionCopy: (text) => ipcRenderer.invoke("session-copy", { text }),
     // <<< picks
+    // >>> interlude
+    // Interlude (app/interludeIpc.js): its folder, a chart of its library on the card, maps and playlists sent to it
+    interludeStatus: () => ipcRenderer.invoke("interlude-status"),
+    interludePickFolder: () => ipcRenderer.invoke("interlude-pick-folder"),
+    interludeDetect: () => ipcRenderer.invoke("interlude-detect"),
+    interludeUnlink: () => ipcRenderer.invoke("interlude-unlink"),
+    interludeSearch: (query) => ipcRenderer.invoke("interlude-search", { query }),
+    interludeSelect: (hash) => ipcRenderer.invoke("interlude-select", { hash }),
+    // files: one .osz the app made, or .osu files of one folder
+    interludeSend: (files) => ipcRenderer.invoke("interlude-send", { files }),
+    // { kind: "playlist" | "folder", name, items: [{ beatmapId?, md5?, path?, rate?, label }] }
+    interludeExport: (request) => ipcRenderer.invoke("interlude-export", request),
+    // { linked, folder, size, selected, message } on every change
+    onInterludeState: (cb) => ipcRenderer.on("interlude-state", (_e, state) => cb(state)),
+    // following the running game: { settings: { live, allowDownload, follow }, state: { status, code, … }, text }
+    interludeLiveGet: () => ipcRenderer.invoke("interlude-live-get"),
+    interludeLiveSet: (patch) => ipcRenderer.invoke("interlude-live-set", patch),
+    onInterludeLive: (cb) => ipcRenderer.on("interlude-live", (_e, info) => cb(info)),
+
+    // <<< interlude
     // >>> overlay
     // the in-game overlay's own channels (app/overlay/overlayManager.js), the same ones its settings window uses
     overlayGet: () => ipcRenderer.invoke("overlay-get"),

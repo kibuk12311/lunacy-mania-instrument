@@ -1,4 +1,11 @@
-// Run with: npx electron tests/smoke/electron-overlay.mjs <out dir> [--lazer] — the in-game overlay against a fake tosu.
+// Run with: npx electron tests/smoke/electron-overlay.mjs <out dir> [--lazer | --interlude] — the in-game overlay against a fake tosu.
+// --interlude: the play comes from Interlude instead, as the app gets it: the fake Interlude (native/interlude-reader/
+// out/fake, an F# program with Interlude's shapes, never the real game; it hits a note every 50 ms of song time) is
+// read by the real interlude-reader.exe through the app's reader manager, and its state lines go to the overlay
+// (overlay.onInterlude) at 1.25×, with the chart's notes from a stand-in library. The tosu stays in song select.
+// Every mode ends with a keep-up step in each language: widgets in the edit mode really put on the screen for a
+// moment, one minimized and one hidden behind the app's back, the app's own window minimized and restored — they
+// must all be back up, top-most.
 // The fake tosu (HTTP + WebSocket on a free port, never 24077) serves a made-up 4K map and plays it: song select
 // (with a stray play and results frame in it), then a play with judgements every 100 ms and a precise feed whose
 // key counters never move (as in mania). --lazer: the fake tosu reads osu! lazer instead, as tosu v4.26.3 sends it:
@@ -10,7 +17,7 @@
 // Exits 1 when a check fails.
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { createServer } from "node:http";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { setLang, t } from "../../src/i18n/i18n.js";
@@ -19,9 +26,13 @@ import { STYLES, WIDGETS } from "../../src/overlay/settings.js";
 
 const outDir = path.resolve(process.argv.slice(2).find((a) => !a.startsWith("-") && !a.endsWith(".mjs")) ?? "overlay-smoke");
 const lazer = process.argv.includes("--lazer");
-const RATE = lazer ? 1.2 : 1; // map ms per real ms
-const prefix = lazer ? "lazer-" : ""; // names this run's screenshots
+const interludeMode = process.argv.includes("--interlude");
+const RATE = lazer ? 1.2 : interludeMode ? 1.25 : 1; // map ms per real ms
+const prefix = lazer ? "lazer-" : interludeMode ? "interlude-" : ""; // names this run's screenshots
+// notes a second of the map at 1×: the made-up osu! map below, or the fake Interlude's chart
+const NPS_BASE = interludeMode ? 20 : 11.1;
 mkdirSync(outDir, { recursive: true });
+rmSync(path.join(outDir, `${prefix}user-data`), { recursive: true, force: true }); // a rerun starts from the default settings
 app.setPath("userData", path.join(outDir, `${prefix}user-data`));
 let lang = "ru";
 let failed = false;
@@ -139,6 +150,85 @@ async function capture(win, file, { background = true } = {}) {
     console.log("shot", file);
 }
 
+// --interlude: the fake Interlude and the real reader feeding the overlay; → { play(), stop() }
+async function startInterlude(overlay) {
+    const { spawn } = await import("node:child_process");
+    const { existsSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { createReaderProcess, readerPath } = await import("../../app/interludeReader.js");
+    const READER = readerPath({ packaged: false, appDir: path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "app") });
+    const FAKE = path.join(path.dirname(READER), "..", "fake", "FakeInterlude.exe");
+    if (!existsSync(READER) || !existsSync(FAKE)) throw new Error(`build native/interlude-reader first (${READER})`);
+    const fake = spawn(FAKE, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    fake.stdout.on("data", (d) => { out += d; });
+    const cmd = async (c) => {
+        const at = out.length;
+        fake.stdin.write(`${c}\n`);
+        for (let w = 0; w < 5000 && !out.slice(at).includes(`ok ${c}`); w += 20) await sleep(20);
+    };
+    for (let w = 0; w < 15000 && !out.includes("ready"); w += 50) await sleep(50);
+    let attached = false;
+    const reader = createReaderProcess({
+        exe: () => READER, args: () => ["--name", "FakeInterlude"], // the fake only, never a real Interlude
+        onMessage: (m) => {
+            if (m.status === "attached") attached = true;
+            if (m.status === "waiting") overlay.onInterlude(null);
+            else if (!m.status && m.client === "interlude") overlay.onInterlude(m);
+        },
+        log: (l) => console.log("log", l),
+    });
+    reader.start();
+    for (let w = 0; w < 20000 && !attached; w += 50) await sleep(50);
+    await cmd("screen levelselect");
+    await cmd("select hashB|Blue Zenith|xi|4K Insane|Mapper Two|4|100000|200|5.25");
+    await cmd(`rate ${RATE}`);
+    await sleep(500);
+    return {
+        play: () => cmd("play"),
+        leave: () => cmd("screen levelselect"),
+        async stop() {
+            await reader.stop();
+            fake.kill();
+        },
+    };
+}
+// the fake Interlude's chart: 2000 notes, one every 50 ms round the columns, on the reader's clock (0 at the first)
+const interludeNotes = async () => ({ keys: 4, notes: Array.from({ length: 2000 }, (_, i) => ({ t: i * 50, col: i % 4, end: null })) });
+
+// The widgets kept up: an overlay of its own (not headless) in the edit mode, so they are on the screen; one minimized,
+// one hidden, the app's window (a stand-in) minimized and restored → all back, visible, top-most.
+async function keepUpStep(l) {
+    const userData = path.join(outDir, `${prefix}keepup-${l}`);
+    const main = new BrowserWindow({ width: 300, height: 200, show: false });
+    const overlay = createOverlay({
+        electron: { BrowserWindow, ipcMain: { handle: () => {}, on: () => {} }, globalShortcut: { register: () => true, unregister: () => {} }, screen },
+        userData, port: 1, t, log: (x) => console.log("log", x), mainWindow: () => main,
+    });
+    try {
+        overlay.apply({ enabled: true });
+        overlay.setEdit(true);
+        await sleep(800);
+        const win = (w) => overlay.windowFor(w);
+        check(WIDGETS.every((w) => win(w)?.isVisible()), `${l}: keep-up: the edit mode puts every widget on screen`);
+        win("kps").minimize();
+        await sleep(400);
+        check(!win("kps").isMinimized() && win("kps").isVisible(), `${l}: keep-up: a minimized widget comes back`);
+        win("nps").hide();
+        await sleep(400);
+        check(win("nps").isVisible(), `${l}: keep-up: a widget hidden behind our back comes back`);
+        main.emit("minimize");
+        main.emit("restore");
+        await sleep(400);
+        check(WIDGETS.every((w) => win(w)?.isVisible() && !win(w).isMinimized() && win(w).isAlwaysOnTop()),
+            `${l}: keep-up: the app's window minimized and restored, every widget still up and top-most`);
+        await capture(win("kps"), `${prefix}${l}-keepup-kps.png`);
+    } finally {
+        overlay.dispose();
+        main.destroy();
+    }
+}
+
 app.whenReady().then(async () => {
     ipcMain.on("get-lang", (event) => { event.returnValue = lang; });
     const tosu = await startFakeTosu();
@@ -147,8 +237,11 @@ app.whenReady().then(async () => {
     const overlay = createOverlay({
         electron: { BrowserWindow, ipcMain, globalShortcut, screen },
         userData: app.getPath("userData"), port: tosu.port, t, log: (l) => console.log("log", l), headless: true,
+        interludeNotes,
     });
+    let il = null;
     try {
+        if (interludeMode) il = await startInterlude(overlay);
         overlay.apply({ enabled: true });
         await sleep(600);
         check(WIDGETS.every((w) => !overlay.isShown(w)), "song select: no widget shown");
@@ -157,7 +250,8 @@ app.whenReady().then(async () => {
         tosu.blip(7);
         await sleep(700);
         check(WIDGETS.every((w) => !overlay.isShown(w)), "song select with a stray play and results frame: still none shown");
-        tosu.startPlay();
+        if (il) await il.play();
+        else tosu.startPlay();
         for (let i = 0; i < 50 && !WIDGETS.every((w) => overlay.isShown(w)); i += 1) await sleep(100);
         check(WIDGETS.every((w) => overlay.isShown(w)), "playing: every widget shown");
         const win = (w) => overlay.windowFor(w);
@@ -176,19 +270,21 @@ app.whenReady().then(async () => {
         check(afterBlip && afterBlip.counts.reduce((a, b) => a + b, 0) >= beforeBlip.counts.reduce((a, b) => a + b, 0), "and the lane counts");
         check(WIDGETS.every((w) => overlay.isShown(w)), "and the widgets stay");
         if (lazer) check(beforeBlip?.source === "keys", `lazer: the key lines come from lazer's key counters (${beforeBlip?.source})`);
+        if (interludeMode) check(beforeBlip?.source === "keys", `interlude: the key lines come from Interlude's own presses (${beforeBlip?.source})`);
 
         const state = await win("judgements").webContents.executeJavaScript(`({
             text: document.getElementById("widget").innerText,
             cls: document.getElementById("widget").className })`);
         console.log("judgements", JSON.stringify(state));
         check(/\d+\.\d\d:1/.test(state.text), "judgements show the MAX:300 ratio");
+        if (interludeMode) check(/MARV/.test(state.text) && /PERF/.test(state.text) && /MARV:PERF/.test(state.text), "interlude: the ruleset's own judgement names (SC: MARV, PERF …)");
         check(/\d+\.\d\d%/.test(state.text), "judgements show the accuracy");
         const keys = await win("keys").webContents.executeJavaScript(
             `[...document.querySelectorAll(".l-count")].map((n) => Number(n.textContent))`);
         console.log("key counts", JSON.stringify(keys));
-        check(keys.length === 4 && keys.every((n) => n > 0), `the key lines count presses in all four lanes (from the ${lazer ? "keys" : "map"})`);
+        check(keys.length === 4 && keys.every((n) => n > 0), `the key lines count presses in all four lanes (from the ${lazer || interludeMode ? "keys" : "map"})`);
         const kpsNow = await win("kps").webContents.executeJavaScript(`Number(document.querySelector(".k-now-value").textContent)`);
-        check(kpsNow >= 8 * RATE && kpsNow <= 14 * RATE, `KPS now is about ${Math.round(11 * RATE)} (${kpsNow})`);
+        check(kpsNow >= 0.72 * NPS_BASE * RATE && kpsNow <= 1.27 * NPS_BASE * RATE, `KPS now is about ${Math.round(NPS_BASE * RATE)} (${kpsNow})`);
 
         // a steady 11 notes a second: the KPS number and the graph should hold still. The snapshots the window gets
         // are recorded for 2.4 s (the shown number, the graph's top); a few frames of the graph are captured on the way.
@@ -206,7 +302,15 @@ app.whenReady().then(async () => {
         const tops = [...new Set(snaps.map((s) => Math.round(s.top * 10) / 10))];
         console.log("kps steadiness", JSON.stringify({ snapshots: snaps.length, shownValues, flips, tops: tops.slice(0, 12) }));
         writeFileSync(path.join(outDir, `${prefix}kps-steadiness.json`), JSON.stringify({ shownValues, flips, tops, snaps }, null, 1));
-        check(snaps.length > 40 && shownValues.length <= 2 && flips <= 2, `a steady stream: the KPS number holds (${shownValues.join("/")}, ${flips} changes)`);
+        if (interludeMode) {
+            // the fake Interlude misses every 25th note on purpose (no press) and jitters its hits by ±37 ms: the number
+            // moves a little, but stays near the 25 presses a second it really gets
+            const values = shownValues.map(Number);
+            check(snaps.length > 40 && values.every((v) => v >= 0.8 * NPS_BASE * RATE && v <= 1.1 * NPS_BASE * RATE),
+                `a steady stream with real misses: the KPS number stays near ${NPS_BASE * RATE} (${shownValues.join("/")}, ${flips} changes)`);
+        } else {
+            check(snaps.length > 40 && shownValues.length <= 2 && flips <= 2, `a steady stream: the KPS number holds (${shownValues.join("/")}, ${flips} changes)`);
+        }
 
         // the map's NPS: the made-up map is a note every 90 ms, 11.1 a second, from start to end
         const nps = await win("nps").webContents.executeJavaScript(`({
@@ -215,7 +319,8 @@ app.whenReady().then(async () => {
             text: document.getElementById("widget").innerText,
             graph: (() => { const c = document.querySelector(".n-graph"); return c ? [c.width, c.height] : null; })() })`);
         console.log("nps", JSON.stringify(nps));
-        check(nps.now >= 10 * RATE && nps.now <= 12 * RATE && nps.peak >= 10 * RATE && nps.peak <= 13 * RATE, `NPS now ${nps.now}, peak ${nps.peak} (about ${Math.round(11.1 * RATE)})`);
+        check(nps.now >= 0.9 * NPS_BASE * RATE && nps.now <= 1.08 * NPS_BASE * RATE && nps.peak >= 0.9 * NPS_BASE * RATE && nps.peak <= 1.17 * NPS_BASE * RATE,
+            `NPS now ${nps.now}, peak ${nps.peak} (about ${Math.round(NPS_BASE * RATE)})`);
         check(Array.isArray(nps.graph) && nps.graph[0] > 50, "NPS draws the map's graph");
         check(nps.text.includes("NPS") && nps.text.includes(lang === "ru" ? "пик" : "peak"), `NPS labels (${nps.text.replace(/\s+/g, " ")})`);
 
@@ -254,6 +359,7 @@ app.whenReady().then(async () => {
             const title = await sw.webContents.executeJavaScript("document.querySelector('h1').textContent");
             check(title === (l === "ru" ? "Оверлей в игре" : "In-game overlay"), `${l}: settings heading "${title}"`);
             sw.destroy();
+            await keepUpStep(l);
         }
         // the corner resize path: a bigger scale gives a bigger window
         const before = win("kps").getBounds();
@@ -261,12 +367,20 @@ app.whenReady().then(async () => {
         await sleep(200);
         const after = win("kps").getBounds();
         check(after.width > before.width && after.height > before.height, `scale 1.5 resizes the window (${before.width}×${before.height} → ${after.width}×${after.height})`);
+        if (il) {
+            // Interlude back in level select: the play is over, the widgets go
+            await il.leave();
+            for (let i = 0; i < 30 && WIDGETS.some((w) => overlay.isShown(w)); i += 1) await sleep(100);
+            check(WIDGETS.every((w) => !overlay.isShown(w)), "interlude: back in level select, no widget shown");
+        }
     } catch (error) {
         console.error(error);
         failed = true;
     } finally {
+        await il?.stop();
         overlay.dispose();
         tosu.close();
+
         app.exit(failed ? 1 : 0);
     }
 });

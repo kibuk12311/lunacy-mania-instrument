@@ -1,6 +1,7 @@
 // "Several rates" on the rate tab: a range of rates, their dans counted in main one by one (rows fill as progress
 // comes in), a click on a row puts that rate on the slider, and the checked rows become copies in one go.
 import { t, plural } from "../../src/i18n/i18n.js";
+import { sendButtons } from "./interlude.js";
 // the analyser's main pattern in the General / Detailed mode shared by every tab (the rows follow it)
 import { patternLabel, onPatternMode } from "./patternMode.js";
 import { rateSteps } from "../../src/rate/rateSteps.js";
@@ -150,8 +151,12 @@ async function createChecked() {
         if (made) {
             parts.push(r.client === "lazer"
                 ? t(r.opened ? "rate.batch.lazerOpened" : "rate.batch.lazerNotOpened", { n: made, file: r.osz ?? "" })
-                : t(plural(made, DONE), { n: made }));
+                : r.client === "interlude" ? `${t(plural(made, DONE), { n: made })} ${r.sendMessage ?? ""}`.trim()
+                    : t(plural(made, DONE), { n: made }));
         }
+        // copies made in osu!'s Songs folder can go to Interlude too, all in one .osz
+        const files = r.client ? [] : (r.made ?? []).map((m) => m.file).filter(Boolean);
+        $("rate-batch-interlude").replaceChildren(...(files.length ? sendButtons(files) : []));
         for (const f of r.failed ?? []) parts.push(t("rate.batch.failed", { rate: f.rate, message: f.message }));
         if (r.cancelled) parts.push(t("rate.batch.stopped"));
         status(parts.join(" "));

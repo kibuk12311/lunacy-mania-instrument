@@ -4,6 +4,7 @@ import { t } from "../../src/i18n/i18n.js";
 import { numericToLabel } from "../../src/core/labels.js";
 import { drawCurve } from "./marathonCurveView.js";
 import { initMarathonAuto } from "./marathonAuto.js";
+import { sendButtons, exportButton } from "./interlude.js";
 
 const $ = (id) => document.getElementById(id);
 const entries = []; // { path, name, rate, dan, numeric, cutMs, targetDan }
@@ -183,6 +184,8 @@ async function create() {
                 links.append(b);
             }
             box.append(links);
+            // Interlude: the marathon as an .osz to drop onto it
+            links.append(...sendButtons([r.file]));
         }
     } finally {
         $("mar-create").disabled = entries.length === 0;
@@ -198,5 +201,10 @@ export function initMarathonTab() {
     $("mar-create").addEventListener("click", create);
     for (const type of ["input", "change"]) $("mar-gap").addEventListener(type, redrawCurve);
     initMarathonAuto({ setEntries, onListChange, setPlan });
+    // Interlude plays a course as a playlist: the same maps, in order, each at its rate, no joined file needed
+    $("mar-interlude").replaceChildren(exportButton(() => ({
+        name: $("mar-title").value.trim() || t("marathon.defaultTitle"),
+        items: entries.map((e) => ({ path: e.path, rate: e.rate, label: String(e.name ?? e.path) })),
+    })));
     render();
 }

@@ -15,7 +15,6 @@ export default {
     "html.rec.load": { ru: "Загрузить", en: "Load" },
     "html.rec.me": { ru: "из osu!", en: "from osu!" },
     "html.rec.meTitle": { ru: "Взять ник из запущенной osu!", en: "Use the name from the running osu!" },
-    "html.rec.dan": { ru: "дан", en: "dan" },
     "html.rec.pattern": { ru: "Паттерн", en: "Pattern" },
     "html.rec.goal": { ru: "Цель", en: "Goal" },
     "html.rec.filters": { ru: "Фильтры", en: "Filters" },

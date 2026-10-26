@@ -79,7 +79,10 @@ export default {
     "marathon.html.manual": { ru: "вручную", en: "manual" },
     "marathon.html.patterns": { ru: "Паттерны (1–3)", en: "Patterns (1–3)" },
     "marathon.html.skipPlayed": { ru: "не брать сыгранные", en: "skip maps I've played" },
-    "marathon.html.skipPlayedTitle": { ru: "Нужен профиль, загруженный в «Подборе»", en: "Needs a profile loaded on the Picks tab" },
+    "marathon.html.skipPlayedTitle": {
+        ru: "Нужен профиль mania-tracker, загруженный в «Подборе», или — для ручного профиля — привязанная папка Interlude",
+        en: "Needs a mania-tracker profile loaded on the Picks tab or, for a hand-set profile, a linked Interlude folder",
+    },
     "marathon.html.rankedOnly": { ru: "только ranked / loved", en: "ranked / loved only" },
     "marathon.html.replace": { ru: "Заменить список", en: "Replace list" },
     "marathon.html.append": { ru: "Добавить в конец", en: "Append" },
@@ -100,8 +103,8 @@ export default {
     "marathon.err.badCount": { ru: "карт — от 3 до 6", en: "the number of maps must be from 3 to 6" },
     "marathon.err.badStep": { ru: "шаг — от 0.1 до 0.4 дана", en: "the step must be from 0.1 to 0.4 dan" },
     "marathon.err.noProfile": {
-        ru: "Профиль не загружен — загрузи его во вкладке «Подбор» или выбери дан вручную.",
-        en: "No profile loaded — load one on the Picks tab or pick a dan by hand.",
+        ru: "Профиль не загружен — загрузи его во вкладке «Подбор» (или задай там свой уровень вручную) либо выбери дан ниже.",
+        en: "No profile loaded — load one on the Picks tab (or set your level by hand there) or pick a dan below.",
     },
     "marathon.err.noTileDan": { ru: "в профиле нет дана для этого паттерна — выбери дан вручную", en: "the profile has no dan for this pattern — pick a dan by hand" },
 };

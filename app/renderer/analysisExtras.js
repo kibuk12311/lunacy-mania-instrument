@@ -2,7 +2,7 @@
 // strip from the details job, "for you" against the player's mania-tracker dan, and the dan at other rates.
 // Everything that comes from outside is escaped. Clicks are handled in analysisPanel.js through data-* attributes.
 import { t } from "../../src/i18n/i18n.js";
-import { numericToLabel } from "../../src/core/labels.js";
+import { labelBeside } from "../../src/core/labels.js";
 import { BREAK, FAMILIES, familyShares } from "../../src/analysis/families.js";
 import { fitForSkill, growthRate } from "../../src/analysis/mapFit.js";
 import { TILE_NAMES } from "../../src/recommend/catalog.js";
@@ -151,14 +151,15 @@ export function forYouLine(fit, profileState) {
         return `<div class="an-foryou"><button type="button" class="an-link" data-go="recommend">${escape(t("analysis.fit.noProfile"))}</button></div>`;
     }
     if (state !== "ready") return "";
-    // the nick keeps its own letter case under the upper-case heading
-    const name = `<span class="an-name">${escape(profileState.player?.username ?? "")}</span>`;
+    // the nick keeps its own letter case under the upper-case heading; a hand-set profile says so
+    const nick = profileState.player?.username ?? "";
+    const name = `<span class="an-name">${escape(profileState.manual ? `${nick} · ${t("recommend.manual.tag")}` : nick)}</span>`;
     const head = `<div class="an-title">${escape(t("analysis.fit.title", { name: NAME_SLOT })).replace(NAME_SLOT, name)}</div>`;
     if (!fit) return `<div class="an-foryou">${head}<div class="an-muted">${escape(t("analysis.fit.noDan"))}</div></div>`;
     const who = fit.source === "tile" ? t("analysis.fit.tile", { tile: TILE_NAMES[fit.tile] ?? fit.tile }) : t("analysis.fit.overall");
     const line = t("analysis.fit.line", {
         who,
-        label: numericToLabel(fit.playerDan).text,
+        label: labelBeside(fit.playerDan),
         dan: fit.playerDan.toFixed(1),
         delta: signed(fit.delta),
         band: t(BAND_KEYS[fit.band]),
@@ -180,7 +181,7 @@ export function ladderRows(rows, { currentRate = null, growthRate: growth = null
         const now = currentRate !== null && rate === rateKey(currentRate);
         const grows = growth !== null && rate === rateKey(growth);
         const ok = row.state === "ok" && Number.isFinite(row.numeric);
-        const name = ok ? numericToLabel(row.numeric).text : row.state === "pending" ? t("analysis.ladder.counting") : "—";
+        const name = ok ? labelBeside(row.numeric) : row.state === "pending" ? t("analysis.ladder.counting") : "—";
         const delta = ok && base && rate !== 1 ? signed(row.numeric - base.numeric) : "";
         // the marks follow the dan's name in its own column, so the numbers stay in line
         const tags = [now ? `<em class="an-now">${escape(t("analysis.ladder.now"))}</em>` : "", grows ? `<em class="an-grow">${escape(t("analysis.ladder.growth"))}</em>` : ""].join("");

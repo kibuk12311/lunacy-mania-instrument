@@ -3,9 +3,11 @@
 import { patternById, recPatternsFor, patternIdsInMode } from "../../src/recommend/catalog.js";
 import { isDetailed, onPatternMode, createPatternModeSwitch } from "./patternMode.js";
 import { mmss } from "../../src/recommend/format.js";
+import { labelBeside } from "../../src/core/labels.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
 import { el, call, failText, fix2, cardElement, isFavourite, addFavourite } from "./recCard.js";
 import { toggleSimilar } from "./recSimilar.js";
+import { exportButton } from "./interlude.js";
 
 export const PLAN_SIZES = [5, 6];
 export const MAX_PLAN_PATTERNS = 3;
@@ -25,7 +27,8 @@ export function togglePattern(list, id, max = MAX_PLAN_PATTERNS) {
 
 // The view's plan settings and the picks' filters → the rec-plan request; in the General mode (patternMode.js) a
 // remembered kind (quadstream …) asks for its parent.
-export function planRequest(view, settings, manualDan, { detailed = isDetailed() } = {}) {
+// manualProfile: the hand-set profile (src/recommend/manualProfile.js) the manual source plans for.
+export function planRequest(view, settings, manualProfile, { detailed = isDetailed() } = {}) {
     const manual = settings.source === "manual";
     return {
         size: view.planSize,
@@ -33,20 +36,25 @@ export function planRequest(view, settings, manualDan, { detailed = isDetailed()
         lengthId: settings.lengthId,
         rankedOnly: Boolean(settings.rankedOnly),
         manual,
-        manualDan: manual ? manualDan : null,
+        manualDan: null,
+        ...(manual ? { manualProfile } : {}),
     };
 }
 
 // "План: Stamina Gamma mid/high (13.26) · 5 карт · ≈ 17:20"
 export function planHeaderText(header, count, totalSec) {
-    const who = header.tile ? `${header.tile} ${header.label}` : header.label;
+    // the dan's number follows in brackets, so "above Kappa" does not repeat it
+    const label = labelBeside(header.playerDan, header.label);
+    const own = header.tile ? `${header.tile} ${label}` : label;
+    // a hand-set profile says so
+    const who = header.handSet ? `${own} (${t("recommend.manual.tag")})` : own;
     return t("recommend.plan.header", { who, dan: fix2(header.playerDan), n: count, maps: mapsWord(count), time: mmss(totalSec) });
 }
 
 export const roleText = (role) => t(ROLE_KEYS[role] ?? "recommend.plan.role.growth");
 
 const $ = (id) => document.getElementById(id);
-let shared = null; // { settings(), view(), saveView(patch), ensurePlayer(), manualDan(), similarOptions() }
+let shared = null; // { settings(), view(), saveView(patch), ensurePlayer(), manualProfile(), similarOptions() }
 let plan = null; // the last rec-plan answer, with swapped cards put in
 let nodes = []; // the slot elements, in slot order
 let token = 0;
@@ -139,7 +147,7 @@ async function build() {
     $("rec-plan-head").hidden = true;
     $("rec-plan-actions").hidden = true;
     plan = null;
-    const r = await call(() => window.danApi.recPlan(planRequest(shared.view(), settings, shared.manualDan())));
+    const r = await call(() => window.danApi.recPlan(planRequest(shared.view(), settings, shared.manualProfile())));
     lock(false);
     if (run !== token) return;
     if (!r?.ok) return status(failText(r));
@@ -217,4 +225,9 @@ export function initPlan(s) {
     $("rec-plan-download").addEventListener("click", downloadAll);
     $("rec-plan-fav").addEventListener("click", allToFavourites);
     $("rec-plan-rates").addEventListener("click", ratesForPlan);
+    // the plan as a playlist in Interlude, in its order (maps it has in its library)
+    $("rec-plan-interlude").replaceChildren(exportButton(() => ({
+        name: t("interlude.export.planName"),
+        items: cards().map((c) => ({ beatmapId: c.beatmapId, label: `${c.artist} - ${c.title} [${c.version}]` })),
+    })));
 }

@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "test": "node --test \"tests/**/*.test.js\"",
     "start": "electron .",
     "dist": "electron-builder --win --publish never",
+    "build:reader": "powershell -NoProfile -ExecutionPolicy Bypass -File native/interlude-reader/build.ps1 -SkipFake",
     "extract": "node tools/extract-features.mjs",
     "train": ".venv/Scripts/python -I tools/train.py --dump-parity tests/fixtures/model-parity.json"
   },
@@ -62,6 +63,14 @@
           "ffmpeg.exe",
           "ffmpeg.exe.LICENSE",
           "ffmpeg.exe.README"
+        ]
+      },
+      {
+        "from": "native/interlude-reader/out/reader",
+        "to": "interlude-reader",
+        "filter": [
+          "interlude-reader.exe",
+          "dac/**"
         ]
       }
     ],

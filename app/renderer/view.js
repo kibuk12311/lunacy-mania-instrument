@@ -1,5 +1,5 @@
 // View object (from the selection controller) → HTML for the card. Pure, so it can be tested in Node.
-import { numericToLabel, confidenceLevelFor, confidenceWord } from "../../src/core/labels.js";
+import { labelBeside, confidenceLevelFor, confidenceWord } from "../../src/core/labels.js";
 import { t } from "../../src/i18n/i18n.js";
 import { isDetailed, patternLabel, patternsInMode } from "./patternMode.js";
 
@@ -23,15 +23,16 @@ const MSD_NAMES = {
 };
 
 // A result can come from the cache or from before a language switch, so its words are rebuilt from its numbers:
-// our label from the rounded numeric (as analyze.js does), the confidence word from its level or half width.
-const ownLabel = (r) => (Number.isFinite(r.numeric) ? numericToLabel(r.numeric).text : r.label);
+// our label from the rounded numeric (as analyze.js does), the confidence word from its level or half width. Every
+// label here sits beside its number, so "above Kappa" does not repeat it.
+const ownLabel = (r) => (Number.isFinite(r.numeric) ? labelBeside(r.numeric) : r.label);
 const confidenceOf = (r) => confidenceWord(r.confidenceLevel ?? confidenceLevelFor(r.halfWidth));
 
 // { label, numeric } of a calculator, or null when it has no estimate for this chart.
 function danOf(r, calc) {
     if (calc === "ours") return { label: ownLabel(r), numeric: r.numeric };
     const value = r.calcs?.[calc];
-    return Number.isFinite(value) ? { label: numericToLabel(value).text, numeric: value } : null;
+    return Number.isFinite(value) ? { label: labelBeside(value), numeric: value } : null;
 }
 
 function danHead(dan, tag) {
@@ -69,6 +70,15 @@ export function formatDuration(sec) {
 }
 
 const message = (text) => `<div class="message">${escape(text)}</div>`;
+
+// A chart from Interlude the app has no file of (not in the linked library): its names as Interlude gave them, the rate
+// and why there is no dan.
+function externalInfo(info = {}) {
+    const name = [info.artist, info.title].filter(Boolean).join(" - ") || "?";
+    const rate = Number.isFinite(info.rate) && Math.abs(info.rate - 1) > 1e-6 ? ` · ${info.rate.toFixed(2).replace(/0$/, "")}×` : "";
+    return `<div class="message external-info"><div class="ext-name">${escape(name)}${info.diff ? ` <span class="muted">[${escape(info.diff)}]</span>` : ""}${escape(rate)}</div>`
+        + `<div class="ext-note muted">${escape(info.note ?? "")}</div></div>`;
+}
 
 function resultCard(r, compact, calc) {
     const lead = calc === "all" ? "ours" : calc;
@@ -109,14 +119,16 @@ function resultView(r, compact, calc) {
     }
 }
 
-// client: the osu! tosu reads ("stable" | "lazer" | null); lazer's "updated?" hint is its own
-export function renderView(view, { compact, calc = "ours", client = null }) {
+// client: the osu! tosu reads ("stable" | "lazer" | null); lazer's "updated?" hint is its own;
+// interlude: an Interlude folder is linked, so the waiting card says a chart can be picked from it
+export function renderView(view, { compact, calc = "ours", client = null, interlude = false }) {
     const chosen = CALCS.some((c) => c.id === calc) ? calc : "ours";
     switch (view?.screen) {
         case "loading": return message(t("analysis.loading"));
         case "result": return resultView(view.result, compact, chosen);
         case "tosu-failed": return message(t("analysis.tosuFailed", { reason: view.reason }));
+        case "external-info": return externalInfo(view.info);
         case "osu-updated": return message(t(client === "lazer" ? "analysis.lazerUpdated" : "analysis.osuUpdated"));
-        default: return message(t("analysis.waiting"));
+        default: return message(interlude ? `${t("analysis.waiting")} ${t("analysis.waitingInterlude")}` : t("analysis.waiting"));
     }
 }

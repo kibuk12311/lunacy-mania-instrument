@@ -14,7 +14,7 @@
 
 | Tab | What you get |
 |---|---|
-| **Analysis** | The dan of the selected map (Alpha…Omega and the numbered dans below), how sure it is, the main patterns, MSD and Sunny ★. Pick the calculator: our combined one, Mixed, Daniel, Azusa, Roxy, Companella, or all of them side by side. A difficulty line along the map, patterns by part, "for you" (how the map compares with your skill) and a dan-by-rate ladder. DT and HT are taken into account. |
+| **Analysis** | The dan of the selected map (Alpha…Kappa and the numbered dans below; past Kappa high it reads "above Kappa · 21.3"), how sure it is, the main patterns, MSD and Sunny ★. Pick the calculator: our combined one, Mixed, Daniel, Azusa, Roxy, Companella, or all of them side by side. A difficulty line along the map, patterns by part, "for you" (how the map compares with your skill) and a dan-by-rate ladder. DT and HT are taken into account. |
 | **Rate** | Makes rate versions of a map next to the original (audio included, pitch kept or not). Finds the rate that puts a map at a target dan, does several rates at once, mirrors a chart or strips its LNs, and remembers presets. |
 | **Marathon** | Joins maps into one marathon or dan course `.osz`, with breaks you choose. Course templates, an automatic marathon built from your skill profile, and a difficulty curve of the whole course. |
 | **Picks** | Maps worth playing for your skill, by pattern and goal (comfort, growth, challenge) or your own dan range. Your skill comes from [mania-tracker](https://mania-tracker.com). One-click download, a training plan, similar maps, favourites exported as an osu! collection, and progress over time. |
@@ -31,7 +31,18 @@ Get it from the [latest release](https://github.com/kibuk12311/lunacy-mania-inst
 
 The app isn't code-signed, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
 
-**Needs:** Windows 10 or 11 (64-bit) and **osu! stable or osu! lazer**. The app reads the selected map through [tosu](https://github.com/tosuapp/tosu), which comes bundled and starts by itself (the footer shows which one it is connected to). Picks, downloads and update checks need the internet; everything else works offline.
+**Needs:** Windows 10 or 11 (64-bit) and **osu! stable or osu! lazer** — or **[Interlude](https://github.com/YAVSRG/YAVSRG)** (portable, from 0.9.2; see below). The app reads the selected map through [tosu](https://github.com/tosuapp/tosu), which comes bundled and starts by itself (the footer shows which one it is connected to). Picks, downloads and update checks need the internet; everything else works offline.
+
+**With Interlude** (0.9.2) — Interlude has no API that says what is selected or played in it, so the app works with its folder, and a small bundled helper, `interlude-reader.exe`, reads the running game the way tosu reads osu!:
+- **Link the folder:** the **IL** button in the card's footer → «Pick folder…» (the folder with Interlude.exe, Songs and Data) or «Find». The app only reads Interlude's `Songs\charts.db` and `Data\scores.db`, from copies it makes in its own folder; nothing is ever written into `Songs`.
+- **Analyse a chart:** search Interlude's library in the same panel (artist, title, difficulty) and click a chart: the card shows its dan, patterns, MSD and rates, and the Rate tab works on it (a copy with its audio goes to Documents\Lunacy mania\interlude).
+- **Send maps to Interlude:** rate copies, marathons, generated maps, remaps and downloads get a «→ Interlude» button. Interlude can't be told to import a file from outside, so the app packs an .osz, shows it in Explorer and brings Interlude to the front (or starts it) — drag the .osz onto Interlude's window.
+- **Playlists:** «Playlist in Interlude» adds a marathon list (each map at its rate), the Picks plan or your favourites to Interlude's `Data\collections.json` as a playlist. Interlude must be closed (it rewrites that file when it exits); the old file is kept as `collections.json.bak-<date>`, and maps not in your Interlude library yet are listed — import them first.
+- **Played maps:** with the folder linked, Picks' «hide played» also hides osu! maps you played in Interlude.
+- **Live card:** with «Follow Interlude live» on (the default once the folder is linked; the IL panel), the card shows the chart you select in Interlude at its rate, like osu!'s selection, and the footer reads **«Interlude · live»**. With osu! running too, whichever selection changed last has the card. A chart that isn't in the linked library yet (just imported) is shown by its name with a note.
+- **Overlay:** the in-game overlay shows plays in Interlude: the judgements under the ruleset's own names (SC, Wife3, osu!mania…) with Interlude's accuracy, KPS and key lines from your real presses, UR from the hit deltas, the chart's NPS; a retry starts over, the score screen counts as the results.
+- **How the reader works:** it only *reads* Interlude's memory (like dotnet-dump; no writing, no injection, no network). It needs a .NET helper file (`mscordaccore.dll`) matching Interlude's runtime; one ships with the app. If none fits, the panel says so — tick «Download .NET's helper file if it's missing» and it is fetched once from Microsoft's symbol server and kept. **Antivirus:** reading another program's memory can make a heuristic antivirus flag the unsigned `interlude-reader.exe`; it's in `resources\interlude-reader\` — add that folder to the exclusions if it gets removed (the panel then says the helper is missing). Run Interlude normally, not as administrator (the panel tells you if it can't open the process).
+- **«Did Interlude update? The scanner didn't find …»:** a new Interlude version renamed something the reader looks for. The rest keeps working (pick charts in the IL panel as before); a new version of the app fixes it — report it with the line from the panel.
 
 **On osu! lazer** a few things work differently, because lazer keeps its maps in its own file store instead of a Songs folder:
 - **Rate**, **remap** and **«+ selected in osu!»** in Marathon work on a copy of the map in Documents\Lunacy mania\lazer; nothing is ever written into lazer's folder. Rate copies and remaps are packed into an .osz (in Documents\Lunacy mania\карты) and opened, so lazer imports them as a **separate beatmap set** (no F5 needed; if lazer doesn't open it, drag the .osz into its window).
@@ -52,7 +63,7 @@ Maps from the Create map tab are made by a trained model, so they are **for prac
 
 ## Privacy
 
-No account and no telemetry. The app only talks to: mania-tracker (your skill and played maps, when you load a profile), the beatmap mirrors osu.direct, Sayobot and BeatConnect (downloads), osu.ppy.sh (map pages and `.osu` files) and GitHub (update checks). Your settings stay on your PC.
+No account and no telemetry. The app only talks to: mania-tracker (your skill and played maps, when you load a profile), the beatmap mirrors osu.direct, Sayobot and BeatConnect (downloads), osu.ppy.sh (map pages and `.osu` files) and GitHub (update checks) — plus, only if you turn on «Download .NET's helper file if it's missing», Microsoft's symbol server once for the Interlude reader. Your settings stay on your PC.
 
 ## Building from source
 
@@ -72,7 +83,9 @@ npm start
 - For development, set `LUNACY_MODEL_DIR` to folders to read models from before `models/` (joined by `;`), for example `set LUNACY_MODEL_DIR=A:\SneezeyTrain\candidates;A:\SneezeyTrain\critic` before `npm start`. Nothing is copied; unset it to go back to the shipped models.
 - With a WebGPU adapter, the neural models' encoder runs on the GPU in a hidden window (`app/gpuWorker*`, `src/gen/nn/webgpu/`); the decoder and the sampling stay on the CPU, and without a GPU, or when the GPU fails its parity probe, everything runs on the CPU. `npx electron tests/smoke/electron-webgpu.mjs` checks the GPU kernels against PyTorch and the JS path, `npx electron tests/smoke/electron-gpu-link.mjs` checks the worker-to-GPU link, and `npx electron tools/bench-gpu.mjs` times both paths (numbers in `docs/2026-10-26-webgpu-stream-w.md`).
 - `npm test` runs the tests (Node's built-in test runner).
+- `npm run build:reader` builds the Interlude reader (`native/interlude-reader`, C# with [ClrMD](https://github.com/microsoft/clrmd); needs the .NET 8 SDK) into `native/interlude-reader/out/reader/`: `interlude-reader.exe` and a bundled .NET DAC. `npm start` runs it from there, the release build ships it as `resources\interlude-reader\`. Build it before `npm run dist` (the build refuses to pack without it). Its own tests: `powershell -File native/interlude-reader/build.ps1` (with the fake Interlude) and `node native/interlude-reader/test.mjs`; `node tools/record-interlude-lines.mjs` records its lines into `tests/fixtures/` for the app's tests, and `npx electron tests/smoke/electron-interlude.mjs <out> --live` / `npx electron tests/smoke/electron-overlay.mjs <out> --interlude` run the app against the fake game.
 - `npm run dist` builds the installer, the portable exe and `latest.yml` into `dist/`.
+
 
 ### Project layout
 
@@ -94,7 +107,8 @@ The learned mapper is trained on community 4K charts (ranked and loved osu! maps
 
 - Dan estimators, pattern finder and Sunny star rating: [ManiaMapAnalyser](https://github.com/LeoBlackMT/osumania_map_analyser) by Leo_Black (MIT).
 - MSD: MinaCalc from [Etterna](https://github.com/etternagame/etterna).
-- Reading osu!: [tosu](https://github.com/tosuapp/tosu).
+- Reading osu!: [tosu](https://github.com/tosuapp/tosu). Reading Interlude: [ClrMD](https://github.com/microsoft/clrmd) (MIT) and the .NET runtime's DAC (MIT).
+- Interlude formats: read from [Prelude](https://github.com/YAVSRG/YAVSRG) by Percyqaz (MIT), re-implemented.
 - Player skill and map dans: [mania-tracker](https://mania-tracker.com).
 - Audio: [FFmpeg](https://ffmpeg.org).
 

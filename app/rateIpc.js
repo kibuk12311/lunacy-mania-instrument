@@ -4,6 +4,8 @@
 // path from tosu once, at its start, and is cancelled by a flag looked at between its steps.
 // osu! lazer has no Songs folder (its maps are hashed files nothing may be written next to), so there the copies are
 // made from a copy of the map in Documents\<app>\lazer and handed to lazer as one .osz it imports (lazerMaps.js).
+// A chart picked from Interlude's library is a copy in Documents\<app>\interlude as well: the copies are made next to
+// it and go to Interlude as one .osz (sendInterlude, app/interludeClient.js), which is dropped onto its window.
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createRateMap, mapInfo } from "./rateCreate.js";
@@ -38,7 +40,7 @@ function batchRow(rate, bpm, result) {
 // lazerRates(args) → createLazerRates() with its folders filled in; openPath(file) → "" or why it could not be opened.
 export function createRateHandlers({
     beatmapPath, beatmap = null, readText, stat: statFile, analysis, createRateMap: makeCopy, ffmpegPath, presets, progress, log,
-    rateForDan: findRate, lazerRates = null, openPath = async () => "",
+    rateForDan: findRate, lazerRates = null, openPath = async () => "", sendInterlude = null,
 }) {
     let current = null; // the running job: { cancelled }
     const selected = async () => (beatmap ? await beatmap() : { client: "stable", path: await beatmapPath() });
@@ -136,6 +138,10 @@ export function createRateHandlers({
                 try {
                     const out = await makeCopy({ ffmpeg: await ffmpegPath(), beatmapPath: file, rate, pitch: Boolean(req.pitch), od, hp, ...options(req), osuText: text });
                     log(`rate map ${out.osuPath}${out.reusedAudio ? " (audio reused)" : ""}`);
+                    if (source.client === "interlude" && sendInterlude) {
+                        const sent = await sendInterlude([out.osuPath]);
+                        return { ok: true, version: out.version, file: sent.osz ?? out.osuPath, client: "interlude", sent: sent.ok, sendMessage: sent.message };
+                    }
                     return { ok: true, version: out.version, file: out.osuPath };
                 } catch (error) {
                     log(`rate map failed: ${message(error)}`);
@@ -237,6 +243,12 @@ export function createRateHandlers({
                     }
                 }
                 cancelled ||= isCancelled() && made.length + failed.length < rates.length;
+                if (source.client === "interlude" && sendInterlude && made.length) {
+                    const sent = await sendInterlude(made.map((m) => m.file));
+                    log(`rate batch create (interlude) made ${made.length}, failed ${failed.length} of ${rates.length}`);
+                    const answer = { ok: true, key, made, failed, client: "interlude", osz: sent.osz ?? null, sent: sent.ok, sendMessage: sent.message };
+                    return cancelled ? { ...answer, cancelled: true } : answer;
+                }
                 log(`rate batch create made ${made.length}, failed ${failed.length} of ${rates.length}${cancelled ? " cancelled" : ""}, ${Date.now() - started} ms`);
                 return cancelled ? { ok: true, key, made, failed, cancelled: true } : { ok: true, key, made, failed };
             });
@@ -264,7 +276,7 @@ export function createRateHandlers({
     };
 }
 
-export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, paths, send, log }) {
+export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, paths, send, log, interlude = null }) {
     // made on first use: registering touches nothing on disk
     let store = null;
     const presetStore = () => (store ??= createJsonStore({ file: path.join(paths.userData, "rate-presets.json"), normalize: normalizePresets, fallback: [] }));
@@ -273,6 +285,7 @@ export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, pa
         beatmap: tosu.beatmap ? () => tosu.beatmap() : null,
         lazerRates: (args) => createLazerRates({ ...args, lazerDir: lazerDirOf(paths.docsDir), outDir: paths.mapsDir, makeCopy: createRateMap }),
         openPath: async (file) => (shell ? shell.openPath(file) : ""),
+        sendInterlude: interlude ? (files) => interlude.send(files) : null,
         readText: (file) => readFile(file, "utf8"),
         stat: (file) => stat(file),
         analysis,

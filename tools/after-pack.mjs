@@ -3,6 +3,7 @@
 // macOS symlinks fail to unpack here; without it the exe kept Electron's icon. This runs the npm rcedit instead, on
 // win-unpacked before the NSIS and portable targets pack it, so the installer, its shortcuts and the portable exe
 // all carry the icon.
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,9 +27,27 @@ export function exeResources(appInfo, icon = path.join(root, "build", "icon.ico"
     };
 }
 
+// The Interlude reader must be in the build (extraResources from native/interlude-reader/out/reader): a build made
+// before `npm run build:reader` would ship without it and the live card / overlay would never start. → the missing
+// part's description, or null
+export function readerMissing(appOutDir, { exists = existsSync, list = (d) => readdirSync(d) } = {}) {
+    const dir = path.join(appOutDir, "resources", "interlude-reader");
+    if (!exists(path.join(dir, "interlude-reader.exe"))) return `${path.join(dir, "interlude-reader.exe")} (run npm run build:reader first)`;
+    let dacs = [];
+    try {
+        dacs = list(path.join(dir, "dac")).filter((v) => exists(path.join(dir, "dac", v, "mscordaccore.dll")));
+    } catch {
+        // no dac folder
+    }
+    return dacs.length ? null : `${path.join(dir, "dac", "<version>", "mscordaccore.dll")} (run npm run build:reader first)`;
+}
+
 export default async function afterPack(context) {
     if (context.electronPlatformName !== "win32") return;
+    const missing = readerMissing(context.appOutDir);
+    if (missing) throw new Error(`afterPack: the Interlude reader is missing: ${missing}`);
     const { appInfo } = context.packager;
+
     const exe = path.join(context.appOutDir, `${appInfo.productFilename}.exe`);
     const { rcedit } = await import("rcedit");
     await rcedit(exe, exeResources(appInfo));

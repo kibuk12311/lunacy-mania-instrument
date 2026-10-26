@@ -9,6 +9,7 @@ import { playerDanFor } from "../../src/recommend/skill.js";
 import { numericToLabel } from "../../src/core/labels.js";
 import { fillDanSelects, readDanSelects } from "./danSelect.js";
 import { getProfile, onProfile, ensureProfile } from "./profile.js";
+import { interludeLinked, onInterludeState } from "./interlude.js";
 import { mapsText } from "./marathonCurveView.js";
 
 const $ = (id) => document.getElementById(id);
@@ -79,6 +80,9 @@ function el(tag, className, text) {
     return node;
 }
 
+// The profile's name; a hand-set one (the picks tab's manual source) says so.
+const profileName = (p) => (p.manual ? `${p.player?.username ?? ""} (${t("recommend.manual.tag")})` : p.player?.username ?? "");
+
 function renderProfile() {
     const p = getProfile();
     const box = $("mar-profile");
@@ -86,9 +90,10 @@ function renderProfile() {
     if (p.state === "ready") {
         const own = playerDanFor(p.skill, settings.patternIds[0]);
         const tile = TILE_NAMES[patternById(settings.patternIds[0])?.tile] ?? "";
+        const name = profileName(p);
         text = own
-            ? t("marathon.auto.profile", { name: p.player?.username ?? "", tile: TILE_NAMES[own.tile] ?? tile, dan: numericToLabel(own.dan).text })
-            : t("marathon.auto.profileNoTile", { name: p.player?.username ?? "", tile });
+            ? t("marathon.auto.profile", { name, tile: TILE_NAMES[own.tile] ?? tile, dan: numericToLabel(own.dan).text })
+            : t("marathon.auto.profileNoTile", { name, tile });
     } else if (p.state === "loading") {
         text = t("marathon.auto.profileLoading");
     } else if (p.state === "failed") {
@@ -97,9 +102,10 @@ function renderProfile() {
         text = t("marathon.err.noProfile");
     }
     box.textContent = text;
-    // only a loaded profile knows what was played
+    // a profile loaded from mania-tracker knows what was played; a hand-set one only with a linked Interlude folder
+    // (its scores, main's recommender.playedMaps)
     const skip = $("mar-skip-played");
-    skip.disabled = p.state !== "ready";
+    skip.disabled = p.state !== "ready" || (Boolean(p.manual) && !interludeLinked());
     skip.checked = !skip.disabled && settings.skipPlayed;
 }
 
@@ -215,10 +221,13 @@ async function pick() {
     $("mar-auto-result").replaceChildren();
     status(t("marathon.auto.starting"));
     let r;
+    // "by profile" with the hand-set profile: main has no copy of it, so it goes with the request
+    const p = getProfile();
+    const handSet = settings.source === "profile" && p.manual ? { manualProfile: p.profile } : {};
     try {
         r = await api.marathonAuto({
             templateId: settings.templateId, count: settings.count, step: settings.step,
-            source: settings.source, manualDan: settings.source === "manual" ? settings.manualDan : null,
+            source: settings.source, manualDan: settings.source === "manual" ? settings.manualDan : null, ...handSet,
             patternIds: chosenIds(), skipPlayed: settings.skipPlayed && !$("mar-skip-played").disabled, rankedOnly: settings.rankedOnly,
         });
     } catch (error) {
@@ -314,6 +323,8 @@ export function initMarathonAuto(api) {
         renderProfile();
         refreshPlan();
     });
+    // a linked Interlude knows played maps for a hand-set profile too
+    onInterludeState(() => renderProfile());
     try {
         window.danApi?.onMarathonAutoProgress?.((event) => {
             const text = running ? progressText(event) : "";

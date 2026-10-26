@@ -29,12 +29,25 @@ function labelParts(n) {
 // Two dans carry the same label exactly when their keys match; compare these, not the shown text.
 export const labelKey = (n) => labelParts(n).key;
 
-export function numericToLabel(n) {
+// Past Kappa high there are no more dans, so "above Kappa" carries its number ("above Kappa · 21.3") to tell how far
+// above; { number: false } leaves it out where the number is shown right beside the label anyway.
+export function numericToLabel(n, { number = true } = {}) {
     const { key, level, step } = labelParts(n);
     if (key === "none") return { text: "—", level, step };
     if (key === "below") return { text: t("core.label.belowFirst"), level, step };
-    if (key === "above") return { text: t("core.label.aboveKappa"), level, step };
+    if (key === "above") {
+        const text = t("core.label.aboveKappa");
+        return { text: number ? `${text} · ${n.toFixed(1)}` : text, level, step };
+    }
     return { text: key, level, step };
+}
+
+// The label for a place that shows the dan's number next to it (the card, the ladder, "{label} ({dan})"): past
+// Kappa high "above Kappa" without repeating the number; otherwise `label` as given (a result's own), and without
+// one the label of `n`.
+export function labelBeside(n, label) {
+    if (labelKey(n) === "above") return numericToLabel(n, { number: false }).text;
+    return label ?? numericToLabel(n).text;
 }
 
 // Confidence level of a dan estimate from its half width (the ± spread); stored with the result, worded at display time.

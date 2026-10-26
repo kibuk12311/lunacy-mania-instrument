@@ -3,8 +3,9 @@
 import { HISTORY_AXES, chartPath, DAY_MS } from "../../src/recommend/progress.js";
 import { signed } from "../../src/recommend/format.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
+import { numericToLabel, labelKey } from "../../src/core/labels.js";
 import { el, button, call, failText, rateText } from "./recCard.js";
-import { ensureProfile } from "./profile.js";
+import { ensureTrackerProfile } from "./profile.js";
 
 export const PROGRESS_DAYS = [7, 30, 90];
 // the chart's axes: the dan, then the ratings
@@ -31,7 +32,7 @@ export function playLine(pick, now) {
     if (!play) return { text: t("recommend.progress.notPlayed"), cls: "muted", played: false };
     const tries = Number(pick.tries) > 1 ? ` · ${pick.tries} ${triesWord(pick.tries)}` : "";
     if (play.passed === false) return { text: `${t("recommend.progress.failed")}${tries}`, cls: "bad", played: true };
-    const acc = Number(play.accuracy);
+    const acc = play.accuracy === null || play.accuracy === undefined ? NaN : Number(play.accuracy);
     const parts = [Number.isFinite(acc) ? `✓ ${(acc <= 1 ? acc * 100 : acc).toFixed(1)}%` : "✓"];
     if (Number.isFinite(play.rate) && Math.abs(play.rate - 1) > 1e-6) parts.push(rateText(play.rate));
     if (Number.isFinite(play.at)) parts.push(agoText(play.at, now));
@@ -40,11 +41,18 @@ export function playLine(pick, now) {
 
 export const summaryText = (r) => t("recommend.progress.summary", { played: Number(r?.played) || 0, total: Number(r?.total) || 0 });
 
+// One end of the change: the tracker's own label, or past its table "above Kappa" (with the number when there is one).
+function danName(end) {
+    if (!end) return "—";
+    if (!end.above) return end.label ?? "—";
+    return labelKey(end.dan) === "above" ? numericToLabel(end.dan).text : t("core.label.aboveKappa");
+}
+
 // "Дан: gamma+ → delta-- (+0.4)"
 export function danChangeText(change) {
     if (!change) return "";
-    const from = change.danFrom?.label ?? "—";
-    const to = change.danTo?.label ?? "—";
+    const from = danName(change.danFrom);
+    const to = danName(change.danTo);
     const delta = Number.isFinite(change.danDelta) ? ` (${signed(change.danDelta)})` : "";
     return t("recommend.progress.dan", { from, to, delta });
 }
@@ -133,19 +141,29 @@ function render(r) {
     else status(r.partial ? t("recommend.progress.partial") : "");
 }
 
+function clear() {
+    $("rec-progress-summary").textContent = "";
+    $("rec-progress-list").replaceChildren();
+    $("rec-progress-change").replaceChildren();
+    $("rec-progress-chart").replaceChildren();
+}
+
 async function load() {
     const run = ++token;
     status(t("recommend.progress.loading"));
     // main answers for the loaded player: the shared profile brings in the saved one if there is none yet
-    if (!shared.hasPlayer()) await ensureProfile();
+    const tracker = shared.hasPlayer() ? { state: "ready" } : await ensureTrackerProfile();
+    if (run !== token) return;
+    // a hand-set profile has no plays: progress needs mania-tracker
+    if (tracker?.state !== "ready" && shared.settings().source === "manual") {
+        clear();
+        return status(t("recommend.progress.needTracker"));
+    }
     const days = shared.view().progressDays;
     const r = await call(() => window.danApi.recProgress?.(days) ?? Promise.resolve({ ok: false }));
     if (run !== token) return;
     if (!r?.ok) {
-        $("rec-progress-summary").textContent = "";
-        $("rec-progress-list").replaceChildren();
-        $("rec-progress-change").replaceChildren();
-        $("rec-progress-chart").replaceChildren();
+        clear();
         return status(failText(r));
     }
     last = { ...r, now: Date.now() };

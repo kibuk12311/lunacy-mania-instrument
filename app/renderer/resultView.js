@@ -7,7 +7,7 @@
 // (ratingBar.js) on every card, and under the cards the ratings line («Учитываю твои оценки: n» once the personal
 // model is active) with «Выгрузить мои оценки».
 import { t } from "../../src/i18n/i18n.js";
-import { confidenceWord } from "../../src/core/labels.js";
+import { confidenceWord, labelBeside } from "../../src/core/labels.js";
 import { clockText } from "./snapColors.js";
 import { rangeText } from "./timeline.js";
 import { isDetailed, patternsInMode } from "./patternMode.js";
@@ -128,7 +128,7 @@ export function cardLines(answer, range, { detailed = isDetailed() } = {}) {
     const add = (text, cls = "muted") => lines.push({ text, cls });
     const r = answer.result ?? {};
     const shownRange = answer.range ?? range;
-    const found = { label: r.label ?? "—", numeric: Number.isFinite(r.numeric) ? r.numeric.toFixed(1) : "—", range: rangeText(shownRange) };
+    const found = { label: labelBeside(r.numeric, r.label ?? "—"), numeric: Number.isFinite(r.numeric) ? r.numeric.toFixed(1) : "—", range: rangeText(shownRange) };
     if (answer.reachable) add(`✓ ${t("create.result.done", found)}`, "ok");
     else add(`≈ ${t("create.result.closest", found)}`, "warn");
     if (detailed && Number.isFinite(answer.flavourScore)) add(t("create.result.flavourMatch", { pct: Math.round(Math.min(1, answer.flavourScore) * 100) }));

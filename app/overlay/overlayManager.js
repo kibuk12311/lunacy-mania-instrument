@@ -5,12 +5,18 @@
 // and the clock, /websocket/v2/precise for the key counters. Settings live in userData\overlay.json.
 // Showing and hiding go through a gate with hysteresis (src/overlay/visibility.js): one stray frame of another state
 // (song select, a score opened from the leaderboard, a reconnect) never flashes the windows.
+// Interlude's plays come from the main process (onInterlude(), the lines of app/interludeReader.js) into a session of
+// their own; the widgets show whichever game is playing.
+// Kept up: a widget meant to be on screen that Windows minimized or hid (Win+D, minimizing the game or the app's own
+// window) is put back at once, and while any is shown a light watchdog re-asserts the top-most level every
+// KEEP_UP_MS (a borderless game taking focus can push itself above top-most windows).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { connectTosu } from "../tosuClient.js";
 import { readPlayFrame, readPreciseFrame } from "../../src/overlay/tosuData.js";
-import { createOverlaySession } from "../../src/overlay/session.js";
+import { readInterludeFrame } from "../../src/overlay/interludeData.js";
+import { createOverlaySession, LEAVE_MS } from "../../src/overlay/session.js";
 import { parseManiaNotes } from "../../src/overlay/maniaNotes.js";
 import { createVisibilityGate } from "../../src/overlay/visibility.js";
 import {
@@ -20,6 +26,7 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUSH_MS = 33; // snapshots to the widget windows, about 30 a second while any is shown
 const SAVE_DELAY_MS = 400;
+export const KEEP_UP_MS = 1500;
 
 export const OVERLAY_CHANNELS = {
     handle: ["overlay-get", "overlay-set"],
@@ -45,12 +52,20 @@ export function saveOverlaySettings(file, settings) {
 export function createOverlay({
     electron, userData, port, t, log = () => {}, onChange = () => {}, icon, mainWindow = () => null,
     fetchImpl = globalThis.fetch, WebSocketImpl = globalThis.WebSocket, now = () => performance.now(), headless = false,
+    interludeNotes = async () => null, setInterval: every = setInterval, clearInterval: stopEvery = clearInterval,
 }) {
-    const { BrowserWindow, ipcMain, globalShortcut, screen } = electron;
+    const { BrowserWindow, ipcMain, globalShortcut, screen, powerMonitor } = electron;
     const file = path.join(userData, "overlay.json");
     let settings = loadOverlaySettings(file);
     let edit = false;
     let session = createOverlaySession();
+    let ilSession = createOverlaySession(); // Interlude's plays
+    let ilMapLoading = null;
+    let ilLeaveTimer = null;
+    let keepUpTimer = null;
+    const watched = new WeakSet(); // the main windows whose minimize / restore are listened to
+    // the session the widgets show: osu!'s while it plays, else Interlude's while it has a play or its results
+    const active = () => (session.phase() === "playing" || ilSession.phase() === "idle" ? session : ilSession);
     const gate = createVisibilityGate();
     let gateTimer = null;
     const windows = new Map(); // widget → BrowserWindow
@@ -132,6 +147,47 @@ export function createOverlay({
         for (const s of sockets) s.close();
         sockets = [];
         session = createOverlaySession();
+        ilSession = createOverlaySession();
+    }
+
+    // ---- Interlude (the reader's state lines, from main) ----
+
+    function loadInterludeMap(checksum, hash) {
+        if (ilMapLoading === checksum) return;
+        ilMapLoading = checksum;
+        Promise.resolve().then(() => interludeNotes(hash))
+            .then((parsed) => ilSession.setMap(checksum, parsed?.notes?.length ? parsed : null))
+            .catch((error) => {
+                log(`overlay: no Interlude notes (${error?.message})`);
+                ilSession.setMap(checksum, null);
+            })
+            .finally(() => { if (ilMapLoading === checksum) ilMapLoading = null; });
+    }
+
+    // msg: a state line of the reader; null: the reader lost Interlude (it closed, or following it was turned off)
+    function onInterlude(msg) {
+        if (disposed) return;
+        if (!msg || !settings.enabled) {
+            if (ilSession.phase() !== "idle") ilSession = createOverlaySession();
+            updateVisibility();
+            return;
+        }
+        const frame = readInterludeFrame(msg);
+        const { mapWanted } = ilSession.onFrame(frame, now());
+        if (mapWanted && frame.hash) loadInterludeMap(mapWanted, frame.hash);
+        // outside a play the reader writes a line only on a change: the same frame again once it has lasted, so the
+        // play ends (a single odd frame in the middle of a play must last LEAVE_MS to end it)
+        clearTimeout(ilLeaveTimer);
+        ilLeaveTimer = null;
+        if (frame.state !== "playing" && ilSession.phase() === "playing") {
+            ilLeaveTimer = setTimeout(() => {
+                ilLeaveTimer = null;
+                if (disposed) return;
+                ilSession.onFrame(frame, now());
+                updateVisibility();
+            }, LEAVE_MS + 20);
+        }
+        updateVisibility();
     }
 
     // ---- windows ----
@@ -152,7 +208,7 @@ export function createOverlay({
         win.loadFile(path.join(here, "widget.html"), { query: { w: widget } });
         win.webContents.on("did-finish-load", () => {
             win.webContents.send("overlay-config", configFor(widget));
-            win.webContents.send("overlay-state", session.snapshot(now()));
+            win.webContents.send("overlay-state", active().snapshot(now()));
         });
         win.on("moved", () => {
             const [x, y] = win.getPosition();
@@ -163,13 +219,44 @@ export function createOverlay({
             windows.delete(widget);
             shown.delete(widget);
         });
+        // Windows minimized or hid it (Win+D, the game or the app's window minimized) while it is meant to be up
+        const putBack = () => setImmediate(() => keepUp(widget));
+        win.on("minimize", putBack);
+        win.on("hide", putBack);
+        win.on("restore", putBack);
         windows.set(widget, win);
         shown.set(widget, false);
         return win;
     }
 
+    // A widget meant to be on screen is put back if Windows took it away, and over the game again.
+    function keepUp(only = null) {
+        if (disposed || headless) return;
+        for (const [widget, win] of windows) {
+            if (only && widget !== only) continue;
+            if (!shown.get(widget) || !alive(win)) continue;
+            try {
+                if (win.isMinimized?.()) win.restore();
+                if (win.isVisible && !win.isVisible()) win.showInactive();
+                win.setAlwaysOnTop(true, "screen-saver");
+                win.moveTop?.();
+            } catch (error) {
+                log(`overlay: keep-up failed (${error?.message})`);
+            }
+        }
+    }
+
+    // the app's own window (pinned or not) minimized, restored or shown again: the widgets stay up, over it
+    function watchMain() {
+        const main = mainWindow();
+        if (!alive(main) || watched.has(main)) return;
+        watched.add(main);
+        for (const event of ["minimize", "restore", "show", "focus"]) main.on(event, () => setImmediate(() => keepUp()));
+    }
+
     // the play side, through the gate: "playing" that lasts and moves, or the results screen if asked
     function playOn() {
+        const session = active();
         const phase = session.phase();
         const want = phase === "playing" || (phase === "results" && settings.showOnResults);
         const at = now();
@@ -200,8 +287,11 @@ export function createOverlay({
             if (headless) continue;
             if (want) {
                 // the page gets the play of now before it is shown, so the last play's frame never flashes up
-                win.webContents.send("overlay-state", session.snapshot(now()));
+                win.webContents.send("overlay-state", active().snapshot(now()));
+                if (win.isMinimized?.()) win.restore();
                 win.showInactive();
+                win.setAlwaysOnTop(true, "screen-saver");
+                win.moveTop?.();
             } else {
                 win.hide();
             }
@@ -212,10 +302,18 @@ export function createOverlay({
             clearInterval(pushTimer);
             pushTimer = null;
         }
+        if (anyShown && !keepUpTimer && !headless) {
+            watchMain();
+            keepUpTimer = every(() => keepUp(), KEEP_UP_MS);
+        }
+        if (!anyShown && keepUpTimer) {
+            stopEvery(keepUpTimer);
+            keepUpTimer = null;
+        }
     }
 
     function push() {
-        const snap = session.snapshot(now());
+        const snap = active().snapshot(now());
         for (const [widget, win] of windows) if (shown.get(widget) && alive(win)) win.webContents.send("overlay-state", snap);
     }
 
@@ -308,6 +406,10 @@ export function createOverlay({
 
     if (settings.enabled) connect();
     syncHotkey();
+    // waking from sleep or a display change can drop the top-most level of the widgets
+    powerMonitor?.on?.("resume", () => keepUp());
+    screen?.on?.("display-metrics-changed", () => keepUp());
+    screen?.on?.("display-added", () => keepUp());
 
     return {
         trayItems: () => [{
@@ -325,6 +427,8 @@ export function createOverlay({
             ],
         }],
         openSettings,
+        onInterlude,
+        keepUp: () => keepUp(),
         setEdit,
         apply,
         settings: () => settings,
@@ -345,6 +449,10 @@ export function createOverlay({
             clearTimeout(gateTimer);
             clearInterval(pushTimer);
             pushTimer = null;
+            clearTimeout(ilLeaveTimer);
+            if (keepUpTimer) stopEvery(keepUpTimer);
+
+            keepUpTimer = null;
             if (saveTimer) {
                 clearTimeout(saveTimer);
                 try { saveOverlaySettings(file, settings); } catch { /* quitting anyway */ }

@@ -1,6 +1,7 @@
 // Cards of the picks tab: the full card (picks, plan) and the compact one (similar maps, favourites), their text helpers,
 // and the favourites the ☆ buttons follow. recommendTab.js re-exports the text helpers it always had.
 import { mmss, signed, shortNumber } from "../../src/recommend/format.js";
+import { sendButtons } from "./interlude.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
 // the analyser's main pattern in the General / Detailed mode shared by every tab (redrawOurs follows it)
 import { patternLabel } from "./patternMode.js";
@@ -47,7 +48,8 @@ export function compactParts(card, extra = null) {
 }
 
 function playedText(played) {
-    const acc = Number(played.accuracy);
+    // a play known only from Interlude has no accuracy here
+    const acc = played.accuracy === null || played.accuracy === undefined ? NaN : Number(played.accuracy);
     if (!Number.isFinite(acc)) return t("recommend.played");
     const pct = (acc <= 1 ? acc * 100 : acc).toFixed(1);
     const rate = Number(played.rate);
@@ -235,7 +237,7 @@ function downloadButton(card, line) {
         node.textContent = t(r?.ok ? "recommend.download.done" : "recommend.download.button");
         const result = downloadLine(r);
         line.replaceChildren(el("div", result.cls, result.text));
-        if (r?.ok && r.file) line.append(button(t("recommend.download.show"), t("recommend.download.showTitle"), () => window.danApi.recShow(r.file)));
+        if (r?.ok && r.file) line.append(button(t("recommend.download.show"), t("recommend.download.showTitle"), () => window.danApi.recShow(r.file)), ...sendButtons([r.file]));
         line.hidden = false;
         return r;
     };

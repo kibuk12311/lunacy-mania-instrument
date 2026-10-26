@@ -47,8 +47,8 @@ The scale used by Lunacy mania, LeoBlack's benchmark and (via labels) mania-trac
 | 14 | Delta | 20 | Kappa |
 | 15 | Epsilon | | |
 
-- Values `< 0.5` are "below dan 1"; values `>= 20.5` are "above Kappa".
-- **There is no Omega level.** Some READMEs say "Alpha...Omega", but the code, tests and tracker-label parser stop at Kappa (20); "omega" is explicitly rejected.
+- Values `< 0.5` are "below dan 1"; values `>= 20.5` are "above Kappa". Since 0.9.2 the app shows "above Kappa" with the number ("выше Kappa · 21.3" / "above Kappa · 21.3"); where the number already stands beside the label (the card, the rate ladder, "{label} ({dan})") the label is just "above Kappa". Values are never clamped for display; only the pickers and targets stop at Kappa high (20.4). mania-tracker's history marks a snapshot past its table with `beyondTable: true` (its last label is `kappa++`); that reads "above Kappa" too, the dan keeping its number.
+- **There is no Omega level.** The READMEs once said "Alpha...Omega" (fixed in 0.9.2), but the code, tests and tracker-label parser stop at Kappa (20); "omega" is explicitly rejected.
 - A value like 12.8 means "Gamma (13) minus 0.2".
 
 ### 2.2 Step labels
@@ -427,7 +427,7 @@ Rules for any training project: ship only model weights (never charts or audio);
 
 ## 12. Gotchas
 
-1. No Omega: the scale ends at Kappa (20); anything higher is "above Kappa".
+1. No Omega: the scale ends at Kappa (20); anything higher is "above Kappa", shown with its number ("above Kappa · 21.3").
 2. "low/mid" vs "mid/low" vs `-`: compare dan labels numerically.
 3. Step boundaries belong to the lower step, but an exact .5 differs between tools: mania-tracker 13.5 = `gamma++`, Lunacy mania 13.5 = Delta low.
 4. LeoBlack's 4K RC table stops at CloverWisp Theta high (Sunny ~11.1); no star bands for Iota/Kappa.

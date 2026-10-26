@@ -41,6 +41,7 @@ export function fakeSnapshot(clockMs = 0) {
         ratio: formatRatio(hits.max, hits.n300),
         accuracy: maniaAccuracy(hits),
         ur: 98.42,
+        judgeNames: null,
         kps: { now: kpsAt(t), max: 14, history: { values, shift: (t - last) / 100 } },
         nps: { ready: true, now: npsNow, peak: PEAK, profile: PROFILE, progress },
         lanes: {

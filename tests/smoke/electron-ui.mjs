@@ -5,7 +5,8 @@
 // (the in-game overlay on, KPS off, as if set in the tray); exits 1 when it is missing or spills out of the window.
 // [client=lazer|stable]: main says which osu! tosu reads; the footer must name it (exits 1 otherwise).
 // [updated]: the "osu! updated?" screen instead of the card (with client=lazer, lazer's own hint).
-// User data goes next to <out.png>.
+// [above]: every dan of the sample 8.5 higher (the card at 21.3, the ladder and the profile past Kappa high), so
+// the card, "for you" and the ladder show «выше Kappa». User data goes next to <out.png>.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { writeFileSync } from "node:fs";
@@ -27,6 +28,8 @@ const overlayPanel = process.argv.includes("overlay");
 const client = process.argv.find((a) => a.startsWith("client="))?.slice(7) ?? null;
 const updated = process.argv.includes("updated");
 const SMOKE_KEY = "smoke@1.500";
+const LIFT = process.argv.includes("above") ? 8.5 : 0;
+const lift = (x) => Math.round((x + LIFT) * 100) / 100;
 const strain = Array.from({ length: 120 }, (_, i) => Math.round((0.35 + 0.25 * Math.sin(i / 9) + (i > 70 && i < 84 ? 0.4 : 0)) * 1000) / 1000);
 const peak = Math.max(...strain);
 const familyAt = (i) => (i < 4 ? "-" : i < 50 ? "jumpstream" : i < 58 ? "-" : i < 85 ? "handstream" : i < 100 ? "tech" : "jumpstream");
@@ -39,17 +42,17 @@ const sampleDetails = {
     flavourBins: Array.from({ length: 120 }, (_, i) => flavourAt(i)),
 };
 const player = { id: 1, username: "TestPlayer", avatarUrl: "" };
-const skill = { overall: 12.4, overallLabel: "Gamma low", tiles: { speed: 12.9, stamina: 12.5, tech: 11.8, jack: null },
+const skill = { overall: lift(12.4), overallLabel: LIFT ? "" : "Gamma low", tiles: { speed: lift(12.9), stamina: lift(12.5), tech: lift(11.8), jack: null },
     msd: { Overall: 25, Stream: 24.6, Jumpstream: 24.3, Handstream: 22.1, Stamina: 23.9, Chordjack: 20.4, JackSpeed: 18.2, Technical: 24.8 } };
 // <<< analysis v2
 // [detailed]: the finder's sub-types, so the two modes differ (General: their families; Detailed: the kinds' names)
 const view = { screen: "result", result: {
-    kind: "ok", label: "Gamma low/mid", numeric: 12.8, halfWidth: 0.34, confidence: "высокая", primary: detailedMode ? "Jumptrill" : "Jumpstream",
+    kind: "ok", label: LIFT ? "" : "Gamma low/mid", numeric: lift(12.8), halfWidth: 0.34, confidence: "высокая", primary: detailedMode ? "Jumptrill" : "Jumpstream",
     top3: detailedMode
         ? [{ name: "Jumptrill", share: 0.46 }, { name: "Handstream", share: 0.22 }, { name: "Minijacks", share: 0.15 }]
         : [{ name: "Jumpstream", share: 0.46 }, { name: "Handstream", share: 0.22 }, { name: "Chordjacks", share: 0.15 }],
     tech: true, bpm: 200, durationSec: 161, rate: 1.5,
-    calcs: { mixed: 13.2, daniel: 12.7, azusa: 13, roxy: 12.9, companella: 11.6 }, sunny: 6.34,
+    calcs: { mixed: lift(13.2), daniel: lift(12.7), azusa: lift(13), roxy: lift(12.9), companella: lift(11.6) }, sunny: 6.34,
     msd: { overall: 26.2, stream: 24.11, jumpstream: 25.94, handstream: 16.98, stamina: 23.98, jackspeed: 17.14, chordjack: 18.02, technical: 25.27 } } };
 
 app.whenReady().then(async () => {
@@ -60,7 +63,7 @@ app.whenReady().then(async () => {
         ipcMain.handle("profile-ensure", () => ({ ok: true, player, skill }));
         ipcMain.handle("analysis-rate", async (_e, { key, rate }) => {
             await new Promise((r) => setTimeout(r, 60));
-            const numeric = Math.round((12.8 - (1.5 - rate) * 3.4) * 10) / 10;
+            const numeric = Math.round((12.8 + LIFT - (1.5 - rate) * 3.4) * 10) / 10;
             return key === SMOKE_KEY ? { ok: true, rate, kind: "ok", label: "", numeric, primary: "Jumpstream" } : { ok: false, stale: true };
         });
     }
@@ -158,6 +161,14 @@ app.whenReady().then(async () => {
         win.setSize(w, h);
     }
     await new Promise((r) => setTimeout(r, 400));
+    if (!details && !client) {
+        // a hidden window does not paint by itself: a 1 px resize makes it draw the card
+        const [w, h] = win.getSize();
+        win.setSize(w + 1, h);
+        await new Promise((r) => setTimeout(r, 150));
+        win.setSize(w, h);
+        await new Promise((r) => setTimeout(r, 150));
+    }
     writeFileSync(outPng, (await win.webContents.capturePage()).toPNG());
     app.exit(process.exitCode ?? 0);
 });

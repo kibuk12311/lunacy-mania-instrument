@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Library</OutputType></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Audio.fs" />
+  </ItemGroup>
+  <ItemGroup><ProjectReference Include="..\Percyqaz.Common\Percyqaz.Common.fsproj" /></ItemGroup>
+</Project>

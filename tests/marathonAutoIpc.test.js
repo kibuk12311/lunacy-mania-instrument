@@ -86,10 +86,10 @@ test("bad templates, patterns, dans and sources are refused before anything runs
 test("from the profile without a loaded player: told where to load one", async () => {
     const { handlers } = setup({ player: false });
     const r = await handlers.start(good({ source: "profile" }));
-    assert.deepEqual(r, { ok: false, message: "Профиль не загружен — загрузи его во вкладке «Подбор» или выбери дан вручную." });
+    assert.deepEqual(r, { ok: false, message: "Профиль не загружен — загрузи его во вкладке «Подбор» (или задай там свой уровень вручную) либо выбери дан ниже." });
     setLang("en");
     try {
-        assert.equal((await handlers.start(good({ source: "profile" }))).message, "No profile loaded — load one on the Picks tab or pick a dan by hand.");
+        assert.equal((await handlers.start(good({ source: "profile" }))).message, "No profile loaded — load one on the Picks tab (or set your level by hand there) or pick a dan below.");
     } finally {
         setLang("ru");
     }

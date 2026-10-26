@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import afterPack, { exeResources } from "../tools/after-pack.mjs";
+import afterPack, { exeResources, readerMissing } from "../tools/after-pack.mjs";
+import { readerPath, READER_EXE } from "../app/interludeReader.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
@@ -44,4 +45,23 @@ test("build config: the hook runs, both Windows targets, updates published to ou
     const ffmpeg = b.extraResources.find((r) => r.to === "ffmpeg");
     assert.deepEqual(ffmpeg.filter, ["ffmpeg.exe", "ffmpeg.exe.LICENSE", "ffmpeg.exe.README"]);
     assert.deepEqual(b.extraFiles, ["LICENSE", "THIRD_PARTY_NOTICES.md"]);
+});
+
+test("the Interlude reader ships as an extra resource where the app looks for it, from where a dev run finds it", () => {
+    const reader = pkg.build.extraResources.find((r) => r.to === "interlude-reader");
+    assert.equal(reader.from, "native/interlude-reader/out/reader");
+    assert.deepEqual(reader.filter, ["interlude-reader.exe", "dac/**"]);
+    // packaged: resources\interlude-reader\interlude-reader.exe; dev: the same folder electron-builder copies from
+    assert.equal(readerPath({ packaged: true, resourcesPath: "R:\app\resources", appDir: "x" }), path.join("R:\app\resources", "interlude-reader", READER_EXE));
+    assert.equal(path.resolve(readerPath({ packaged: false, appDir: path.join(root, "app") })), path.resolve(root, reader.from, READER_EXE));
+    assert.match(pkg.scripts["build:reader"], /native\/interlude-reader\/build\.ps1/);
+});
+
+test("afterPack refuses a build without the reader or its DAC", () => {
+    const out = "W:\win-unpacked";
+    const dir = path.join(out, "resources", "interlude-reader");
+    const have = (files) => ({ exists: (f) => files.includes(f), list: () => ["9.0.22"] });
+    assert.match(readerMissing(out, have([])), /interlude-reader\.exe.*build:reader/);
+    assert.match(readerMissing(out, have([path.join(dir, "interlude-reader.exe")])), /mscordaccore\.dll/);
+    assert.equal(readerMissing(out, have([path.join(dir, "interlude-reader.exe"), path.join(dir, "dac", "9.0.22", "mscordaccore.dll")])), null);
 });

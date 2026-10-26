@@ -1,0 +1,14 @@
+<Project>
+  <!-- Fake Interlude test fixture: mirrors the real project settings that matter for the reader
+       (F#, Optimize, Tailcalls, trimmed single-file self-contained publish). net8 because only the .NET 8 SDK is installed. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Optimize>True</Optimize>
+    <Tailcalls>True</Tailcalls>
+    <DebugType>embedded</DebugType>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <WarningLevel>3</WarningLevel>
+    <NoWarn>$(NoWarn);FS0064;FS1182;FS3370</NoWarn>
+  </PropertyGroup>
+</Project>

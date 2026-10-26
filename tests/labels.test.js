@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { numericToLabel, labelKey, confidenceWord, confidenceLevelFor } from "../src/core/labels.js";
+import { numericToLabel, labelKey, labelBeside, confidenceWord, confidenceLevelFor } from "../src/core/labels.js";
 import { setLang } from "../src/i18n/i18n.js";
 
 test("confidence level from the half width: ≤0.35 high, ≤0.7 medium, else low", () => {
@@ -18,7 +18,10 @@ const CASES = [
     [10.4, "10 high"],
     [10.6, "Alpha low"],
     [20.2, "Kappa mid/high"],
-    [20.6, "выше Kappa"],
+    [20.4, "Kappa high"],
+    [20.5, "выше Kappa · 20.5"],
+    [20.6, "выше Kappa · 20.6"],
+    [23.25, "выше Kappa · 23.3"],
     [0.4, "ниже 1 дана"],
     [0.6, "1 low"],
 ];
@@ -41,7 +44,8 @@ test("in English the ends of the scale are worded in English; the rest stays the
     setLang("en");
     try {
         assert.equal(numericToLabel(0.4).text, "below dan 1");
-        assert.equal(numericToLabel(20.6).text, "above Kappa");
+        assert.equal(numericToLabel(20.6).text, "above Kappa · 20.6");
+        assert.equal(numericToLabel(21.3, { number: false }).text, "above Kappa");
         assert.equal(numericToLabel(12.8).text, "Gamma low/mid");
         assert.deepEqual(numericToLabel(0.4), { text: "below dan 1", level: null, step: null });
         assert.deepEqual(["high", "medium", "low", undefined].map(confidenceWord), ["high", "medium", "low", "low"]);
@@ -62,4 +66,18 @@ test("labelKey is the same in both languages, so labels compare across a languag
     }
     assert.deepEqual(ru, ["below", "above", "Gamma low/mid", "none"]);
     assert.equal(labelKey(13.1), labelKey(12.95));
+});
+
+test("past Kappa high the label keeps its number; { number: false } and labelBeside leave it out beside the number", () => {
+    assert.deepEqual(numericToLabel(21.3), { text: "выше Kappa · 21.3", level: null, step: null });
+    assert.equal(numericToLabel(21.3, { number: false }).text, "выше Kappa");
+    assert.equal(numericToLabel(13, { number: false }).text, "Gamma mid");
+    // above Kappa: rebuilt from the number, whatever the given label says (an old one had no number)
+    assert.equal(labelBeside(21.3, "выше Kappa · 21.3"), "выше Kappa");
+    assert.equal(labelBeside(21.3, "above Kappa"), "выше Kappa");
+    // otherwise the given label stays, and without one it is the number's
+    assert.equal(labelBeside(14.1, "Delta low/mid"), "Delta low/mid");
+    assert.equal(labelBeside(13), "Gamma mid");
+    assert.equal(labelBeside(NaN, "—"), "—");
+    assert.equal(labelBeside(undefined), "—");
 });

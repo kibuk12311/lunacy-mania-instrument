@@ -35,7 +35,7 @@ function fakeApi({ sets = 250, danOf = spread, skills = skillsJson, titleOf, len
     const api = {
         async findUser(q) {
             calls.findUser.push(q);
-            return q.toLowerCase() === "luna" ? { id: 777, username: "Luna", avatarUrl: "https://a.ppy.sh/777" } : null;
+            return q.toLowerCase() === "testplayer" ? { id: 777, username: "TestPlayer", avatarUrl: "https://a.ppy.sh/777" } : null;
         },
         async skills(id) {
             calls.skills.push(id);
@@ -63,9 +63,9 @@ const EACH_AXIS = ALL_AXES.map((axis) => [777, [axis]]);
 test("loadPlayer finds the player and reads the skill", async () => {
     const { api, calls } = fakeApi();
     const rec = createRecommender({ api });
-    const p = await rec.loadPlayer("Luna");
+    const p = await rec.loadPlayer("TestPlayer");
     assert.equal(p.id, 777);
-    assert.equal(p.username, "Luna");
+    assert.equal(p.username, "TestPlayer");
     assert.equal(p.avatarUrl, "https://a.ppy.sh/777");
     assert.equal(p.skill.ready, true);
     assert.equal(p.skill.tiles.stamina, 13.26);
@@ -86,7 +86,7 @@ test("the osu! account from tosu loads by its exact id, without a name search", 
 test("a failed reload keeps the loaded player", async () => {
     const { api } = fakeApi({ sets: 30 });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     await assert.rejects(rec.loadPlayer("nobody"), /не найден/);
     const r = await rec.start(REQ);
     assert.equal(r.target.playerDan, 13.26);
@@ -98,7 +98,7 @@ test("a failed reload keeps the loaded player", async () => {
 test("a player without a ready skill is refused and not kept", async () => {
     const { api } = fakeApi({ skills: { status: "pending", modes: [], tracked: false } });
     const rec = createRecommender({ api });
-    await assert.rejects(rec.loadPlayer("luna"), /mania-tracker/);
+    await assert.rejects(rec.loadPlayer("testplayer"), /mania-tracker/);
     await assert.rejects(rec.start(REQ), { message: "сначала загрузи профиль с mania-tracker" });
 });
 
@@ -113,7 +113,7 @@ test("start needs a player unless the dan is manual", async () => {
 test("pages through the pool and fetches more search pages only when it runs out", async () => {
     const { api, calls } = fakeApi({ sets: 250 });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const first = await rec.start(REQ);
     assert.equal(first.target.playerDan, 13.26);
     assert.equal(first.target.lo, 13.26);
@@ -159,7 +159,7 @@ test("pages through the pool and fetches more search pages only when it runs out
 test("keeps fetching while the first pool has too few cards", async () => {
     const { api, calls } = fakeApi({ sets: 250, danOf: (i) => (i < 192 ? 10 : 13.5) });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const r = await rec.start(REQ);
     assert.equal(r.cards.length, 20);
     assert.equal(calls.searchMaps.length, 6);
@@ -171,7 +171,7 @@ test("a failed search page during «Ещё» is fetched again, so no set is skip
     for (const sets of [600, 380]) {
         const { api } = fakeApi({ sets, failPages: [5] });
         const rec = createRecommender({ api });
-        await rec.loadPlayer("luna");
+        await rec.loadPlayer("testplayer");
         const first = await rec.start(REQ);
         const seen = new Set(first.cards.map((c) => c.beatmapsetId));
         let failures = 0;
@@ -198,7 +198,7 @@ test("re-uploads of the same chart in other sets show once", async () => {
         sets: 200, danOf: (i) => spread(i % 196), titleOf: (i) => `Song ${i % 196}`, lengthOf: (i) => (i === 199 ? 300 : 143),
     });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     let r = await rec.start(REQ);
     const cards = [...r.cards];
     while (r.more) {
@@ -212,7 +212,7 @@ test("re-uploads of the same chart in other sets show once", async () => {
 test("played maps are hidden or marked, and fetched once per player load", async () => {
     const { api, calls } = fakeApi({ sets: 30 });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
 
     const hidden = await rec.start({ ...REQ, hidePlayed: true });
     assert.equal(hidden.cards.length, 20);
@@ -234,7 +234,7 @@ test("played maps are hidden or marked, and fetched once per player load", async
     assert.equal(calls.playedMaps.length, 8);
 
     // a reload brings in plays made since
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     await rec.start(REQ);
     assert.equal(calls.playedMaps.length, 16);
 });
@@ -242,7 +242,7 @@ test("played maps are hidden or marked, and fetched once per player load", async
 test("a failed fetch of played maps is not cached", async () => {
     const { api, calls } = fakeApi({ sets: 30, failAxes: ALL_AXES });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     await assert.rejects(rec.start(REQ), { message: "mania-tracker ответил 502" });
     const r = await rec.start(REQ);
     assert.equal(r.cards.length, 20);
@@ -253,7 +253,7 @@ test("a failed fetch of played maps is not cached", async () => {
 test("one failed axis of played maps still recommends, and only that axis is asked again", async () => {
     const { api, calls } = fakeApi({ sets: 30, failAxes: ["Technical"] });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const first = await rec.start({ ...REQ, hidePlayed: true });
     assert.equal(first.cards.length, 20);
     assert.equal(first.playedPartial, true);
@@ -272,12 +272,12 @@ test("manual mode with a loaded profile: hiding played maps needs them, marking 
     const MANUAL = { ...REQ, manual: true, manualDan: 13.5, goalId: "comfort" };
     const { api } = fakeApi({ sets: 30, failAxes: ALL_AXES });
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     await assert.rejects(rec.start({ ...MANUAL, hidePlayed: true }), { message: "mania-tracker ответил 502" });
 
     const { api: api2 } = fakeApi({ sets: 30, failAxes: ALL_AXES });
     const rec2 = createRecommender({ api: api2 });
-    await rec2.loadPlayer("luna");
+    await rec2.loadPlayer("testplayer");
     const r = await rec2.start({ ...MANUAL, hidePlayed: false });
     assert.ok(r.cards.length > 0);
     assert.equal(r.playedPartial, true);
@@ -288,7 +288,7 @@ test("a played chart re-uploaded in another set keeps its mark, or is hidden wit
     const opts = { sets: 30, titleOf: (i) => `Song ${i === 6 ? 5 : i}`, danOf: (i) => spread(i === 6 ? 5 : i) };
     const { api } = fakeApi(opts);
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const shown = await rec.start({ ...REQ, hidePlayed: false });
     const pool = [...shown.cards, ...(await rec.more()).cards];
     const song5 = pool.filter((c) => c.title === "Song 5");
@@ -304,9 +304,9 @@ test("a played chart re-uploaded in another set keeps its mark, or is hidden wit
 test("a player mania-tracker does not track is told so, not that they have no 4K plays", async () => {
     const { api } = fakeApi({ skills: { status: "ready", totalPlays: 0, modes: [], tracked: false } });
     const rec = createRecommender({ api });
-    await assert.rejects(rec.loadPlayer("luna"), /mania-tracker ещё не отслеживает Luna/);
+    await assert.rejects(rec.loadPlayer("testplayer"), /mania-tracker ещё не отслеживает TestPlayer/);
     const { api: tracked } = fakeApi({ skills: { ...skillsJson, modes: [] } });
-    await assert.rejects(createRecommender({ api: tracked }).loadPlayer("luna"), /у Luna нет 4K игр/);
+    await assert.rejects(createRecommender({ api: tracked }).loadPlayer("testplayer"), /у TestPlayer нет 4K игр/);
 });
 
 test("manual mode works without a player", async () => {
@@ -334,7 +334,7 @@ test("search errors reach the caller", async () => {
     const { api } = fakeApi();
     api.searchMaps = async () => { throw new Error("mania-tracker ответил 502"); };
     const rec = createRecommender({ api });
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     await assert.rejects(rec.start(REQ), { message: "mania-tracker ответил 502" });
 });
 
@@ -351,11 +351,11 @@ test("in English the recommender explains itself in English", async () => {
         await assert.rejects(rec.more(), { message: "find your picks first" });
         await assert.rejects(rec.start({ ...REQ, manual: true, manualDan: null }), { message: "set your dan manually" });
         await assert.rejects(rec.start({ ...REQ, patternId: "ln" }), { message: "unknown pattern" });
-        await assert.rejects(createRecommender({ api: untracked }).loadPlayer("luna"),
-            { message: "mania-tracker isn't tracking Luna yet — open their profile on mania-tracker.com and try again later" });
-        await assert.rejects(createRecommender({ api: no4k }).loadPlayer("luna"), { message: "Luna has no 4K plays on mania-tracker" });
-        await assert.rejects(createRecommender({ api: pending }).loadPlayer("luna"),
-            { message: "mania-tracker hasn't worked out Luna's skill yet — open the profile on mania-tracker.com and try again later" });
+        await assert.rejects(createRecommender({ api: untracked }).loadPlayer("testplayer"),
+            { message: "mania-tracker isn't tracking TestPlayer yet — open their profile on mania-tracker.com and try again later" });
+        await assert.rejects(createRecommender({ api: no4k }).loadPlayer("testplayer"), { message: "TestPlayer has no 4K plays on mania-tracker" });
+        await assert.rejects(createRecommender({ api: pending }).loadPlayer("testplayer"),
+            { message: "mania-tracker hasn't worked out TestPlayer's skill yet — open the profile on mania-tracker.com and try again later" });
         const { cards } = await rec.start({ ...REQ, manual: true, manualDan: 13.5 });
         assert.ok(cards.length > 0);
         assert.ok(cards.every((c) => ["pure", "mostly", "mixed"].includes(c.purityLabel)));
@@ -368,9 +368,9 @@ test("currentPlayer: null before a load, the loaded player after, kept through a
     const { api } = fakeApi({ sets: 10 });
     const rec = createRecommender({ api });
     assert.equal(rec.currentPlayer(), null);
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const p = rec.currentPlayer();
-    assert.deepEqual([p.id, p.username, p.avatarUrl], [777, "Luna", "https://a.ppy.sh/777"]);
+    assert.deepEqual([p.id, p.username, p.avatarUrl], [777, "TestPlayer", "https://a.ppy.sh/777"]);
     assert.equal(p.skill.tiles.stamina, 13.26);
     assert.deepEqual(Object.keys(p).sort(), ["avatarUrl", "id", "skill", "username"]);
     await assert.rejects(rec.loadPlayer("nobody"));
@@ -386,7 +386,7 @@ test("playedMaps: the current player's plays over every axis, none without a pla
     assert.equal(empty.partial, false);
     assert.equal(calls.playedMaps.length, 0);
 
-    await rec.loadPlayer("luna");
+    await rec.loadPlayer("testplayer");
     const r = await rec.playedMaps();
     assert.equal(r.partial, false);
     assert.ok(r.played.has(PLAYED_ID));
@@ -411,7 +411,7 @@ test("titleKey and sameChart are shared: one key per song, re-uploads within the
 test("a custom range: with a profile its plays still count, the window is the range's band and «Ещё» pages through it", async () => {
     const { api, calls } = fakeApi({ sets: 40 });
     const rec = createRecommender({ api, pageSize: 5 });
-    await rec.loadPlayer("Luna");
+    await rec.loadPlayer("TestPlayer");
     // one picked step (13.4) is the band 13.3 … 13.5
     const r = await rec.start({ ...REQ, goalId: "custom", range: { from: 13.4, to: 13.4 } });
     assert.equal(r.target.goalId, "custom");

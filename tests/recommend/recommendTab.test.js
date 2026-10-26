@@ -122,15 +122,20 @@ test("settings: defaults, bad json and unknown ids", () => {
     assert.equal(DEFAULT_SETTINGS.level, 13);
     assert.equal(DEFAULT_SETTINGS.step, "mid");
     const s = parseSettings(JSON.stringify({ query: "TestPlayer", source: "manual", patternId: "tech", goalId: "nope", lengthId: "long", rankedOnly: true, hidePlayed: false, level: 99, step: "high" }));
-    assert.deepEqual(s, { ...DEFAULT_SETTINGS, query: "TestPlayer", source: "manual", patternId: "tech", lengthId: "long", rankedOnly: true, hidePlayed: false, step: "high" });
+    // no hand-set profile saved yet: the old manual dan (Gamma high) on every axis
+    assert.deepEqual(s, {
+        ...DEFAULT_SETTINGS, query: "TestPlayer", source: "manual", patternId: "tech", lengthId: "long", rankedOnly: true, hidePlayed: false, step: "high",
+        manualProfile: { name: "", speed: 13.4, jack: 13.4, stamina: 13.4, tech: 13.4 },
+    });
 });
 
 test("request from settings", () => {
     const tracker = requestFrom({ ...DEFAULT_SETTINGS, rankedOnly: true });
     assert.deepEqual(tracker, { manual: false, manualDan: null, patternId: "jumpstream", goalId: "growth", lengthId: "any", rankedOnly: true, hidePlayed: true });
     // manual mode with a loaded profile still marks its plays, so the checkbox counts there too
-    const manual = requestFrom({ ...DEFAULT_SETTINGS, source: "manual", level: 14, step: "low/mid" });
-    assert.deepEqual(manual, { manual: true, manualDan: 13.8, patternId: "jumpstream", goalId: "growth", lengthId: "any", rankedOnly: false, hidePlayed: true });
+    const mine = { name: "TestPlayer", speed: 14.4, jack: 13, stamina: 13.2, tech: 13.6 };
+    const manual = requestFrom({ ...DEFAULT_SETTINGS, source: "manual", manualProfile: mine });
+    assert.deepEqual(manual, { manual: true, manualDan: null, manualProfile: mine, patternId: "jumpstream", goalId: "growth", lengthId: "any", rankedOnly: false, hidePlayed: true });
     assert.equal(requestFrom({ ...DEFAULT_SETTINGS, source: "manual", hidePlayed: false }).hidePlayed, false);
 });
 

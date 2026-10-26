@@ -1,20 +1,25 @@
-// "Рекомендации" tab: the player's skill from mania-tracker (or a dan picked by hand) → maps worth playing for a pattern and goal.
-// Four modes under the shared profile block: picks, a training plan, favourites (with a collection.db export) and progress.
+// "Рекомендации" tab: the player's skill from mania-tracker (or a profile set by hand: Speed / Jack / Stamina / Tech)
+// → maps worth playing for a pattern and goal.
+// Five modes under the shared profile block: picks, a training plan, favourites (with a collection.db export), progress
+// and a session built from the player's own maps (recSession.js).
 import { GOALS, LENGTHS, TILE_NAMES, patternById, goalById, lengthById, recPatternsFor, patternInMode } from "../../src/recommend/catalog.js";
 import { isDetailed, onPatternMode, createPatternModeSwitch } from "./patternMode.js";
-import { numericToLabel } from "../../src/core/labels.js";
+import { numericToLabel, labelBeside } from "../../src/core/labels.js";
 import { LEVELS, STEPS, targetNumeric } from "../../src/gen/request.js";
 import { CUSTOM_GOAL } from "../../src/recommend/skill.js";
+import { MANUAL_AXES, MANUAL_NAME_MAX, manualProfileOf, manualSkill, profileFromSkill, uniformProfile } from "../../src/recommend/manualProfile.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
-import { getProfile, onProfile, ensureProfile } from "./profile.js";
+import { getTrackerProfile, onProfile, ensureTrackerProfile, manualChanged } from "./profile.js";
 import { nearestLevelStep, fillDanSelects, readDanSelects } from "./danSelect.js";
 import {
     el, call, failText, fix2, cardElement, onDownloadProgress, favourites, onFavourites, loadFavourites, redrawOurs,
 } from "./recCard.js";
 import { toggleSimilar } from "./recSimilar.js";
+import { interludeLinked, onInterludeState } from "./interlude.js";
 import { initPlan, MAX_PLAN_PATTERNS, PLAN_SIZES } from "./recPlan.js";
 import { initFavourites, showFavourites, DEFAULT_COLLECTION_NAME } from "./recFavourites.js";
 import { initProgress, showProgress, PROGRESS_DAYS, CHART_AXES } from "./recProgress.js";
+import { initSession, showSession } from "./recSession.js";
 
 // the card helpers moved to recCard.js; they are still read from here
 export { plural, metaParts, whyText, oursLines, oursDone, rateText, progressText, downloadLine } from "./recCard.js";
@@ -32,22 +37,27 @@ export const GOAL_CHIPS = [
     ...GOALS,
     { id: CUSTOM_GOAL, get name() { return t("recommend.goal.custom"); }, get hint() { return t("recommend.goal.customHint"); } },
 ];
-export const MODES = ["picks", "plan", "fav", "progress"];
+export const MODES = ["picks", "plan", "fav", "progress", "session"];
 // each mode's own parts of the tab; the profile block above them is shared
 const MODE_PARTS = {
     picks: ["rec-picks-pane", "rec-filters", "rec-picks-run"],
     plan: ["rec-plan-pane", "rec-filters", "rec-plan-run"],
     fav: ["rec-fav-pane"],
     progress: ["rec-progress-pane"],
+    session: ["rec-session-pane"],
 };
 const ALL_PARTS = [...new Set(Object.values(MODE_PARTS).flat())];
-const MODE_STATUS = { picks: "rec-status", plan: "rec-plan-status", fav: "rec-fav-status", progress: "rec-progress-status" };
+const MODE_STATUS = { picks: "rec-status", plan: "rec-plan-status", fav: "rec-fav-status", progress: "rec-progress-status", session: "ses-status" };
 
 export const DEFAULT_SETTINGS = {
     query: "", source: "tracker", patternId: "jumpstream", goalId: "growth", lengthId: "any",
-    rankedOnly: false, hidePlayed: true, level: 13, step: "mid",
+    rankedOnly: false, hidePlayed: true,
+    // the single manual dan of 0.9.1 and before: now only what a hand-set profile starts from when none is saved
+    level: 13, step: "mid",
     // the custom range's ends, as dans of the picker (Beta mid … Gamma mid)
     rangeFrom: 12, rangeTo: 13,
+    // the profile set by hand (manual source), a dan of the picker per axis; other tabs read it too (profile.js)
+    manualProfile: uniformProfile(13),
 };
 
 export const DEFAULT_VIEW = {
@@ -60,14 +70,14 @@ const playsWord = (n) => pluralOf(n, {
     en: [t("recommend.play.one"), t("recommend.play.many")],
 });
 
-// [main line, tiles line] of the loaded profile.
+// [main line, tiles line] of the loaded profile; a hand-set one (skill.manual) says so instead of its plays.
 export function skillLines(username, skill) {
     const parts = [username];
     if (Number.isFinite(skill.overall)) {
-        parts.push(t("recommend.skill.overall", { label: skill.overallLabel ?? numericToLabel(skill.overall).text, dan: fix2(skill.overall) }));
+        parts.push(t("recommend.skill.overall", { label: labelBeside(skill.overall, skill.overallLabel), dan: fix2(skill.overall) }));
     }
     const plays = Number(skill.analyzedPlays) || 0;
-    parts.push(`${plays} ${playsWord(plays)}`);
+    parts.push(skill.manual ? t("recommend.manual.tag") : `${plays} ${playsWord(plays)}`);
     const tiles = Object.entries(TILE_NAMES)
         .filter(([tile]) => Number.isFinite(skill.tiles?.[tile]))
         .map(([tile, name]) => `${name} ${numericToLabel(skill.tiles[tile]).text}`);
@@ -82,15 +92,19 @@ function rangeLabel(from, to) {
 }
 
 export function targetText(target, patternName) {
-    const dan = target.source === "overall" ? t("recommend.target.overall", { dan: fix2(target.playerDan) }) : fix2(target.playerDan);
+    // the player's dan follows in brackets, so "above Kappa" does not repeat it
+    const label = labelBeside(target.playerDan, target.playerDanLabel);
+    // a hand-set profile reads like a tracker one, with "set by hand" after its dan
+    const own = target.source === "overall" ? t("recommend.target.overall", { dan: fix2(target.playerDan) }) : fix2(target.playerDan);
+    const dan = target.handSet ? `${own}, ${t("recommend.manual.tag")}` : own;
     if (target.goalId === CUSTOM_GOAL) {
         const params = { pattern: patternName, range: rangeLabel(target.rangeFrom, target.rangeTo), lo: fix2(target.lo), hi: fix2(target.hi) };
         // a range without the player's dan (manual mode) has nothing else to tell
         if (target.source === "range") return t("recommend.target.range", params);
-        return t("recommend.target.yoursRange", { ...params, label: target.playerDanLabel, dan });
+        return t("recommend.target.yoursRange", { ...params, label, dan });
     }
     const key = target.source === "manual" ? "recommend.target.manual" : "recommend.target.yours";
-    let text = t(key, { pattern: patternName, label: target.playerDanLabel, dan, lo: fix2(target.lo), hi: fix2(target.hi) });
+    let text = t(key, { pattern: patternName, label, dan, lo: fix2(target.lo), hi: fix2(target.hi) });
     if (Number.isFinite(target.msdTarget)) text += ` · MSD ${target.msdAxis} ~${target.msdTarget.toFixed(1)}`;
     return text;
 }
@@ -127,6 +141,8 @@ export function parseSettings(raw) {
     if (STEPS.some((x) => x.id === data.step)) s.step = data.step;
     s.rangeFrom = pickerDan(data.rangeFrom) ?? s.rangeFrom;
     s.rangeTo = pickerDan(data.rangeTo) ?? s.rangeTo;
+    // settings from before the hand-set profile: the one manual dan on every axis
+    s.manualProfile = manualProfileOf({ ...data, level: s.level, step: s.step });
     return s;
 }
 
@@ -152,14 +168,15 @@ export function requestFrom(s, { detailed = isDetailed() } = {}) {
     const custom = s.goalId === CUSTOM_GOAL;
     return {
         manual,
-        // a custom range is the whole window: the manual dan isn't needed for it
-        manualDan: manual && !custom ? targetNumeric(s.level, s.step) : null,
+        // the hand-set profile stands in for the tracker's (a custom range takes its dan as the reference too)
+        manualDan: null,
+        ...(manual ? { manualProfile: manualProfileOf(s) } : {}),
         patternId: patternInMode(s.patternId, detailed),
         goalId: s.goalId,
         ...(custom ? { range: { from: Math.min(s.rangeFrom, s.rangeTo), to: Math.max(s.rangeFrom, s.rangeTo) } } : {}),
         lengthId: s.lengthId,
         rankedOnly: Boolean(s.rankedOnly),
-        // in manual mode a loaded profile's plays are still known; without one the main process has none to hide
+        // in manual mode a loaded profile's plays are still known, and a linked Interlude's; without either main has none
         hidePlayed: Boolean(s.hidePlayed),
     };
 }
@@ -175,6 +192,7 @@ export function modeName(mode, favCount = 0) {
     if (mode === "plan") return t("recommend.mode.plan");
     if (mode === "fav") return t("recommend.mode.fav", { n: favCount });
     if (mode === "progress") return t("recommend.mode.progress");
+    if (mode === "session") return t("recommend.mode.session");
     return t("recommend.mode.picks");
 }
 
@@ -183,7 +201,8 @@ export function modeName(mode, favCount = 0) {
 const $ = (id) => document.getElementById(id);
 let settings = { ...DEFAULT_SETTINGS };
 let view = parseView(null);
-let player = null; // the profile the main process recommends for
+let player = null; // the mania-tracker profile the main process recommends for
+let trackerSkill = null; // its skill: where "copy from mania-tracker" starts
 let loadedQuery = null;
 let shown = null; // { target, patternName } of the list on screen
 let searchToken = 0;
@@ -243,17 +262,99 @@ function applySource() {
     const manual = settings.source === "manual";
     $("rec-tracker").hidden = manual;
     $("rec-manual").hidden = !manual;
-    // the picks with a custom range use no dan of their own; the plan still does, so only on the picks
-    const rangeOnly = manual && settings.goalId === CUSTOM_GOAL && view.mode === "picks";
-    $("rec-manual").classList.toggle("rec-manual-off", rangeOnly);
-    $("rec-level").disabled = rangeOnly;
-    $("rec-step").disabled = rangeOnly;
-    $("rec-manual-note").hidden = !rangeOnly;
-    $("rec-skill").hidden = manual || !player;
-    // manual mode without a loaded profile has no plays to hide
-    const noPlays = manual && !player;
+    if (manual) renderManualSkill();
+    else if (player && trackerSkill) renderSkill(trackerSkill);
+    $("rec-skill").hidden = !manual && !player;
+    applyHidePlayed();
+    renderCopy();
+}
+
+// Manual mode has plays to hide only from a loaded tracker profile or a linked Interlude folder (its scores, which
+// main adds to the plays: recommend.js extraPlayed); without either the checkbox is off and says why.
+function applyHidePlayed() {
+    const noPlays = settings.source === "manual" && !player && !interludeLinked();
     $("rec-hide-played").disabled = noPlays;
     $("rec-hide-played-row").classList.toggle("off", noPlays);
+    $("rec-hide-played-row").title = noPlays ? t("recommend.manual.noPlays") : "";
+}
+
+// ---- the hand-set profile ----
+
+const axisSelects = new Map(); // axis → [level select, step select]
+
+// One row per axis: its name, the dan + step picker, the patterns it stands for.
+function initManual() {
+    $("rec-axes").replaceChildren(...MANUAL_AXES.map((axis) => {
+        const row = el("div", "row rec-axis");
+        const level = document.createElement("select");
+        const step = document.createElement("select");
+        level.id = `rec-axis-${axis}-level`;
+        step.id = `rec-axis-${axis}-step`;
+        axisSelects.set(axis, [level, step]);
+        const changed = () => {
+            const dan = readDanSelects(level, step);
+            if (dan === null) return;
+            settings.manualProfile = { ...settings.manualProfile, [axis]: dan };
+            $("rec-manual-status").textContent = "";
+            saveManual();
+        };
+        level.addEventListener("change", changed);
+        step.addEventListener("change", changed);
+        // the axis as mania-tracker names it, the patterns it stands for under it
+        const head = el("div", "rec-axis-head");
+        head.append(el("span", "rec-axis-name", TILE_NAMES[axis]), el("span", "muted rec-axis-hint", t(`recommend.manual.axis.${axis}`)));
+        row.append(head, level, step);
+        return row;
+    }));
+    fillManual();
+    $("rec-manual-name").maxLength = MANUAL_NAME_MAX;
+    $("rec-manual-name").addEventListener("input", () => {
+        settings.manualProfile = { ...settings.manualProfile, name: $("rec-manual-name").value.trim().slice(0, MANUAL_NAME_MAX) };
+        saveManual();
+    });
+    $("rec-manual-copy").addEventListener("click", copyFromTracker);
+}
+
+// the editor shows the saved profile
+function fillManual() {
+    for (const axis of MANUAL_AXES) fillDanSelects(...axisSelects.get(axis), settings.manualProfile[axis]);
+    $("rec-manual-name").value = settings.manualProfile.name;
+}
+
+// saved for the next start; every tab using the profile (marathon, analysis) hears the change
+function saveManual() {
+    saveSettings();
+    renderManualSkill();
+    manualChanged();
+}
+
+function renderManualSkill() {
+    const p = settings.manualProfile;
+    const [main, tiles] = skillLines(p.name || t("recommend.manual.defaultName"), manualSkill(p));
+    $("rec-skill").replaceChildren(el("div", "rec-skill-main", main), el("div", "muted", tiles), el("div", "muted rec-axis-hint", t("recommend.manual.overallNote")));
+}
+
+// the tracker profile loaded here, else the one main holds for another tab
+function trackerSource() {
+    if (player && trackerSkill) return { name: player.username, skill: trackerSkill };
+    const p = getTrackerProfile();
+    return p.state === "ready" && p.skill ? { name: p.player?.username ?? "", skill: p.skill } : null;
+}
+
+function renderCopy() {
+    const source = trackerSource();
+    const b = $("rec-manual-copy");
+    b.disabled = !source;
+    b.title = source ? t("recommend.manual.copyTitle") : t("recommend.manual.copyNone");
+}
+
+function copyFromTracker() {
+    const source = trackerSource();
+    if (!source) return;
+    settings.manualProfile = profileFromSkill(source.skill, settings.manualProfile.name || source.name);
+    fillManual();
+    saveManual();
+    $("rec-manual-status").textContent = t("recommend.manual.copied", { name: source.name });
 }
 
 function applyGoal() {
@@ -281,11 +382,15 @@ function initRange() {
 }
 
 function renderSkill(skill) {
+    trackerSkill = skill;
+    renderCopy();
+    // in manual mode the summary is the hand-set profile's
+    if (settings.source === "manual") return;
     const [main, tiles] = skillLines(player.username, skill);
     const box = $("rec-skill");
     box.replaceChildren(el("div", "rec-skill-main", main));
     if (tiles) box.append(el("div", "muted", tiles));
-    box.hidden = settings.source === "manual";
+    box.hidden = false;
 }
 
 async function loadPlayer() {
@@ -398,6 +503,7 @@ function setMode(mode) {
     applySource();
     if (view.mode === "fav") showFavourites();
     if (view.mode === "progress") showProgress();
+    if (view.mode === "session") showSession();
 }
 
 function renderModes() {
@@ -419,16 +525,15 @@ export function initRecommendTab() {
         settings.source = id;
         saveSettings();
         applySource();
+        // the profile in use changed for every tab: the hand-set one, or mania-tracker's
+        manualChanged();
     });
     $("rec-user").value = settings.query;
     $("rec-user").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("rec-load").disabled) loadPlayer(); });
     $("rec-load").addEventListener("click", loadPlayer);
     $("rec-me").addEventListener("click", fromOsu);
 
-    $("rec-level").replaceChildren(...LEVELS.map((l) => new Option(l.name, String(l.value), false, l.value === settings.level)));
-    $("rec-step").replaceChildren(...STEPS.map((s) => new Option(s.id, s.id, false, s.id === settings.step)));
-    $("rec-level").addEventListener("change", () => { settings.level = Number($("rec-level").value); saveSettings(); });
-    $("rec-step").addEventListener("change", () => { settings.step = $("rec-step").value; saveSettings(); });
+    initManual();
 
     // General: the seven patterns; Detailed: their kinds too (one switch for every tab, patternMode.js); the cards'
     // «Наш анализ» lines follow it too
@@ -456,6 +561,8 @@ export function initRecommendTab() {
     $("rec-more").addEventListener("click", more);
     applySource();
     applyGoal();
+    // an Interlude folder linked or unlinked: its played maps can be hidden, or no longer
+    onInterludeState(() => applyHidePlayed());
 
     const shared = {
         settings: () => settings,
@@ -463,17 +570,19 @@ export function initRecommendTab() {
         saveView,
         ensurePlayer,
         hasPlayer: () => Boolean(player),
-        manualDan: () => targetNumeric(settings.level, settings.step),
+        manualProfile: () => manualProfileOf(settings),
         similarOptions,
     };
     initPlan(shared);
     initFavourites(shared);
     initProgress(shared);
+    initSession(shared);
     renderModes();
     onFavourites((items) => { modeChips.get("fav").textContent = modeName("fav", items.length); });
     // a profile main loads later (another tab asked first) shows up here too, unless another nick is typed
     onProfile((p) => {
-        if (p.state !== "ready" || !p.player || settings.source === "manual") return;
+        renderCopy();
+        if (p.state !== "ready" || !p.player || p.manual || settings.source === "manual") return;
         if (player && player.id !== p.player.id) return;
         const typed = $("rec-user").value.trim();
         if (typed && !sameAccount(p.player, typed)) return;
@@ -489,10 +598,11 @@ export async function onRecommendTabShown() {
     loadFavourites();
     if (view.mode === "fav") showFavourites();
     if (view.mode === "progress") showProgress();
+    if (view.mode === "session") showSession();
     if (settings.source !== "tracker" || !settings.query || player) return;
     // the profile another tab is loading or has loaded is the same account: take it instead of loading it again
-    let profile = getProfile();
-    if (profile.state === "loading") profile = await ensureProfile();
+    let profile = getTrackerProfile();
+    if (profile.state === "loading") profile = await ensureTrackerProfile();
     if (profile.state === "ready" && sameAccount(profile.player, settings.query)) {
         adopt(profile);
         return;

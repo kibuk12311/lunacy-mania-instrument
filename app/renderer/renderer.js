@@ -7,6 +7,8 @@ import { initMarathonTab } from "./marathonTab.js";
 import { initRecommendTab, onRecommendTabShown } from "./recommendTab.js";
 import { initAnalysisPanel, analysisPanelHtml } from "./analysisPanel.js";
 import { initOverlayPanel } from "./overlayPanel.js";
+import { initInterludeState, onInterludeState } from "./interlude.js";
+import { initInterludePanel } from "./interludePanel.js";
 
 const TABS = ["analysis", "rate", "marathon", "recommend", "create"];
 
@@ -25,6 +27,9 @@ const calcSelect = document.getElementById("calc");
 let settings = { alwaysOnTop: false, compact: false };
 let view = { screen: "waiting-osu" };
 let osuClient = null; // "stable" | "lazer" | null: which osu! tosu reads
+let interludeChart = null; // the Interlude chart on the card (its name), while it is there
+let interludeLinked = false; // an Interlude folder is linked
+let interludeLive = null; // what main says of following Interlude live: { state: { status, onCard, … }, text }
 const clientBadge = document.getElementById("osu-client");
 
 // The calculator the card leads with lives in this window only.
@@ -52,12 +57,27 @@ calcSelect.addEventListener("change", () => {
 });
 
 function draw() {
-    const opts = { ...settings, calc, client: osuClient };
+    const opts = { ...settings, calc, client: osuClient, interlude: interludeLinked };
     card.innerHTML = renderView(view, opts) + analysisPanelHtml(view, opts);
-    clientBadge.hidden = !osuClient;
-    clientBadge.className = `osu-client${osuClient === "lazer" ? " lazer" : ""}`;
-    clientBadge.textContent = !osuClient ? "" : osuClient === "lazer" ? t("analysis.client.lazer") : t("analysis.client.stable");
-    clientBadge.title = osuClient ? t("analysis.client.title", { client: osuClient }) : "";
+    // Interlude followed live and its chart on the card (or no osu! there): «Interlude · live»
+    const live = interludeLive?.state?.status === "attached";
+    if (live && (interludeLive.state.onCard || interludeChart || !osuClient)) {
+        clientBadge.hidden = false;
+        clientBadge.className = "osu-client interlude live";
+        clientBadge.textContent = t("interlude.badge.live");
+        clientBadge.title = t("interlude.badge.liveTitle", { text: interludeLive.text ?? "" });
+    } else if (interludeChart) {
+        // a chart picked from Interlude's library is on the card: its badge, not osu!'s
+        clientBadge.hidden = false;
+        clientBadge.className = "osu-client interlude";
+        clientBadge.textContent = t("interlude.badge.chart");
+        clientBadge.title = t("interlude.badge.chartTitle", { name: interludeChart });
+    } else {
+        clientBadge.hidden = !osuClient;
+        clientBadge.className = `osu-client${osuClient === "lazer" ? " lazer" : ""}`;
+        clientBadge.textContent = !osuClient ? "" : osuClient === "lazer" ? t("analysis.client.lazer") : t("analysis.client.stable");
+        clientBadge.title = osuClient ? t("analysis.client.title", { client: osuClient }) : "";
+    }
     document.body.classList.toggle("compact", settings.compact);
     pin.classList.toggle("on", settings.alwaysOnTop);
     compactButton.classList.toggle("on", settings.compact);
@@ -111,4 +131,25 @@ initMarathonTab();
 initRecommendTab();
 initAnalysisPanel({ card, redraw: draw });
 initOverlayPanel({ button: document.getElementById("overlay-toggle"), panel: document.getElementById("overlay-panel") });
+initInterludeState();
+window.danApi.onInterludeLive?.((info) => {
+    if (!info?.ok) return;
+    interludeLive = info;
+    draw();
+});
+window.danApi.interludeLiveGet?.().then((info) => { if (info?.ok) { interludeLive = info; draw(); } }, () => {});
+
+initInterludePanel({ button: document.getElementById("interlude-toggle"), panel: document.getElementById("interlude-panel") });
+onInterludeState((s) => {
+    const next = s?.selected ?? null;
+    const linked = Boolean(s?.linked);
+    if (next === interludeChart && linked === interludeLinked) return;
+    const chartChanged = next !== interludeChart;
+    interludeChart = next;
+    interludeLinked = linked;
+    draw();
+    if (!chartChanged) return;
+    // the rate tab follows the chart picked in Interlude's library as it follows osu!'s
+    if (!document.getElementById("rate-tab").hidden) onRateTabShown();
+});
 draw();

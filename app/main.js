@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, screen, shell, utilityProcess } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, powerMonitor, screen, shell, utilityProcess } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -26,6 +26,13 @@ import { loadWindowState, saveWindowState, DEFAULT_WINDOW } from "./windowState.
 import { createUpdater, isPortableRun, updateMode } from "./updater.js";
 import { createOverlay } from "./overlay/overlayManager.js";
 import { createCache } from "../src/core/cache.js";
+import { createInterludeClient } from "./interludeClient.js";
+import { registerInterludeIpc } from "./interludeIpc.js";
+import { createReaderProcess, readerArgs, readerPath } from "./interludeReader.js";
+import { createInterludeLive, liveText } from "./interludeLive.js";
+import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
+import { chartTimeNotes } from "../src/overlay/interludeData.js";
+import { registerSessionIpc } from "./sessionIpc.js";
 import { setLang, getLang, langForLocale, LANGS, LANG_NAMES, t } from "../src/i18n/i18n.js";
 import appTexts from "../src/i18n/messages/app.js";
 
@@ -52,6 +59,11 @@ let tosuFailure = null; // () → why tosu failed, in the current language (the 
 let updater = null; // app/updater.js: GitHub Releases updates (the tray's two update items)
 let overlay = null; // app/overlay/overlayManager.js: the in-game overlay widgets (the tray's «Overlay» submenu)
 let osuClient = null; // the osu! tosu reads: "stable" | "lazer" | null (none, or tosu down)
+let cardController = null; // the selection controller once made (the card), for the tabs that put a map on it
+let interludeReader = null; // app/interludeReader.js: the reader of the running Interlude, while it is followed
+let interludeLive = null; // app/interludeLive.js: what its lines do (the card, the overlay, the live state)
+let readerDownload = false; // the reader running was started with --allow-download
+let interlude = null; // app/interludeClient.js (made in main(); the overlay reads Interlude's charts through it)
 
 const stateFile = () => path.join(app.getPath("userData"), "window.json");
 
@@ -235,9 +247,14 @@ async function main() {
     });
     updater.start();
     overlay = createOverlay({
-        electron: { BrowserWindow, ipcMain, globalShortcut, screen },
+        electron: { BrowserWindow, ipcMain, globalShortcut, screen, powerMonitor },
         userData: app.getPath("userData"), port: TOSU_PORT, t, log,
         onChange: () => buildTray(), icon: path.join(here, "assets", "icon.png"), mainWindow: () => win,
+        // the notes of the Interlude chart being played (NPS, key lines), on the reader's clock
+        interludeNotes: async (hash) => {
+            const osu = await interlude?.library.osuFor(hash);
+            return osu ? chartTimeNotes(parseManiaNotes(osu.text)) : null;
+        },
     });
     tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", "icon.png")).resize({ width: 32, height: 32, quality: "best" }));
     tray.setToolTip(TITLE);
@@ -265,8 +282,23 @@ async function main() {
     // Versioned, so a new build with a retrained model never serves old dans.
     const resultCache = createCache({ dir: path.join(userData, `results-${version}`) });
     const analysis = createAnalysisService({ worker: workerClient, cache: resultCache, log });
+    // Interlude: a folder the user links, a chart picked from its library, maps sent to it (app/interludeClient.js)
+    interlude = createInterludeClient({
+        store: createJsonStore({ file: path.join(userData, "interlude.json"), fallback: { folder: null } }),
+        docsDir, mapsDir, cacheDir: path.join(userData, "interlude-cache"),
+        home: app.getPath("home"), env: process.env, log,
+        reveal: (file) => shell.showItemInFolder(file),
+        onChange: () => {
+            void interlude.status().then((s) => send("interlude-state", s), () => {});
+            void syncInterludeReader();
+        },
+    });
     const trackerApi = createTrackerApi();
-    const recommender = createRecommender({ api: trackerApi });
+    // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked
+    const recommender = createRecommender({
+        api: trackerApi,
+        extraPlayed: async () => ((await interlude.status()).linked ? interlude.library.playedBeatmaps() : new Map()),
+    });
     const downloadsDir = path.join(docsDir, "скачанные");
     const downloader = createDownloader({ dir: downloadsDir });
     const profile = createProfileService({
@@ -279,11 +311,24 @@ async function main() {
         ipcMain, shell, send, log, t,
         paths: Object.freeze({ userData, docsDir, mapsDir, downloadsDir }),
         insideMaps,
-        // beatmap(): { client: "stable" | "lazer", path, audioPath, backgroundPath }; on lazer the paths are in its file store
+        // beatmap(): { client: "stable" | "lazer" | "interlude", path, audioPath, backgroundPath }; on lazer the paths are
+        // in its file store; a chart picked from Interlude's library (shown on the card) is a copy in Documents\<app>\interlude
         tosu: Object.freeze({
-            port: TOSU_PORT, beatmapPath: () => fetchCurrentBeatmapPath(TOSU_PORT), beatmap: () => fetchCurrentBeatmap(TOSU_PORT),
-            profile: () => fetchProfile(TOSU_PORT), client: () => osuClient,
+            port: TOSU_PORT,
+            beatmapPath: async () => interlude.selection()?.path ?? fetchCurrentBeatmapPath(TOSU_PORT),
+            beatmap: async () => interlude.beatmap() ?? fetchCurrentBeatmap(TOSU_PORT),
+            profile: () => fetchProfile(TOSU_PORT), client: () => (interlude.selection() ? "interlude" : osuClient),
         }),
+        interlude,
+        // the analysis card for a map from elsewhere than osu! (an Interlude chart): showExternal({ id, text, rate, onEnd }),
+        // or only its names when there is no file of it: showInfo({ id, rate, title, artist, diff, note, onEnd })
+        card: Object.freeze({
+            showExternal: (request) => cardController?.showExternal(request),
+            showInfo: (request) => cardController?.showInfo(request),
+        }),
+        // the live reader's state, for the IL panel (app/interludeLive.js)
+        interludeLive: () => (interludeLive ? { state: interludeLive.state(), text: interludeLive.text() } : null),
+        dialog, window: () => win,
         worker: workerClient,
         analysis,
         resultCache,
@@ -303,6 +348,8 @@ async function main() {
     registerRecommendIpc(deps);
     registerCreateIpc(deps);
     registerExportIpc(deps);
+    registerInterludeIpc(deps);
+    registerSessionIpc(deps);
     // <<< tabs v2
 
     ipcMain.handle("open-map", (_e, file) => (insideMaps(file) ? shell.openPath(file) : t("app.noSuchFile")));
@@ -334,6 +381,22 @@ async function main() {
         },
     });
     setInterval(() => controller.tick(), 1000);
+    cardController = controller;
+
+    // Interlude followed live: the reader runs while a folder is linked (or the setting says so), its lines go to the
+    // card and the overlay; --allow-download only when the user allowed it (app/interludeReader.js)
+    interludeLive = createInterludeLive({
+        interlude, card: deps.card, overlay: () => overlay, log,
+        onState: (s) => void interlude.liveSettings().then((settings) => send("interlude-live", { ok: true, settings, state: s, text: liveText(s) }), () => {}),
+    });
+    interludeReader = createReaderProcess({
+        exe: () => readerPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appDir: here }),
+        args: () => readerArgs({ allowDownload: readerDownload }),
+        onMessage: (msg) => interludeLive.onMessage(msg),
+        onState: (r) => interludeLive.onReader(r),
+        log,
+    });
+    await syncInterludeReader();
 
     let everConnected = false;
     setTimeout(() => {
@@ -359,13 +422,39 @@ async function main() {
     });
 }
 
+// The reader runs while Interlude is followed (the setting, or a linked folder by default); a change of the download
+// setting starts it again with the new command line.
+async function syncInterludeReader() {
+    if (!interludeReader || quitting) return;
+    let settings;
+    try {
+        settings = await interlude.liveSettings();
+    } catch {
+        return;
+    }
+    const downloadChanged = settings.allowDownload !== readerDownload;
+    readerDownload = settings.allowDownload;
+    interludeLive.setAllowDownload(settings.allowDownload);
+    if (!settings.follow) {
+        if (interludeReader.wanted()) {
+            await interludeReader.stop();
+            interludeLive.off();
+        }
+        return;
+    }
+    if (interludeReader.wanted() && downloadChanged) await interludeReader.restart();
+    else interludeReader.start();
+}
+
 app.on("before-quit", async (event) => {
     if (quitting) return;
     quitting = true;
     event.preventDefault();
     try {
         tosuSocket?.close();
+        await interludeReader?.stop();
         overlay?.dispose();
+
         await tosu?.stop();
         workerClient?.dispose();
         generatorClient?.dispose();

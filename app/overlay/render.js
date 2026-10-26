@@ -3,6 +3,7 @@
 // paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment.
 import { t } from "../../src/i18n/i18n.js";
 import { formatAccuracy, formatCount, formatKps, formatUr } from "../../src/overlay/format.js";
+import { shortJudgement } from "../../src/overlay/interludeData.js";
 import { easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
 
 const JUDGEMENTS = [
@@ -36,21 +37,49 @@ function sizedContext(canvas, zoom) {
     return { ctx, w: canvas.clientWidth, h: canvas.clientHeight };
 }
 
+// The rows of the judgements widget: osu!'s six, or Interlude's ruleset (judgeNames of the snapshot): its six under
+// its own short names, or its own list when it has another number of judgements.
+function judgementRows(names) {
+    if (!names) return JUDGEMENTS.map((j) => ({ label: j.label(), cls: j.cls, value: (s) => s.hits[j.key] }));
+    if (names.mapped) {
+        return JUDGEMENTS.map((j, i) => ({ label: names.labels?.[i] ?? j.label(), cls: j.cls, value: (s) => s.hits[j.key] }));
+    }
+    const last = names.names.length - 1;
+    return names.names.map((name, i) => ({
+        label: shortJudgement(name),
+        cls: i === last ? "j-miss" : JUDGEMENTS[Math.min(i, 4)].cls,
+        value: (s) => s.judgeNames?.counts?.[i] ?? 0,
+    }));
+}
+const rowsKey = (names) => (names ? `${names.mapped ? "6" : "n"}|${names.names.join("|")}` : "osu");
+
 function mountJudgements(box, { style, show }) {
-    const cells = {};
-    if (show.counts) {
-        const rows = el("div", "j-rows");
-        for (const j of JUDGEMENTS) {
+    let rows = null;
+    let rowList = [];
+    let cells = [];
+    let shownKey = null;
+    function buildRows(names) {
+        shownKey = rowsKey(names);
+        rowList = judgementRows(names);
+        cells = [];
+        rows.replaceChildren(...rowList.map((j) => {
             const row = el("div", `j-row ${j.cls}`);
-            row.append(el("span", "j-label", j.label()), (cells[j.key] = el("span", "j-value", "0")));
-            rows.append(row);
-        }
+            const cell = el("span", "j-value", "0");
+            cells.push(cell);
+            row.append(el("span", "j-label", j.label), cell);
+            return row;
+        }));
+    }
+    if (show.counts) {
+        rows = el("div", "j-rows");
+        buildRows(null);
         box.append(rows);
     }
     let ratio = null;
+    let ratioLabel = null;
     if (show.ratio) {
         const line = el("div", "j-ratio");
-        line.append(el("span", "j-label", "MAX:300"), (ratio = el("b", "j-ratio-value", "—")));
+        line.append((ratioLabel = el("span", "j-label", "MAX:300")), (ratio = el("b", "j-ratio-value", "—")));
         box.append(line);
     }
     let acc = null;
@@ -72,8 +101,11 @@ function mountJudgements(box, { style, show }) {
     box.classList.toggle("j-empty", !box.children.length);
     return {
         update(s) {
-            for (const j of JUDGEMENTS) if (cells[j.key]) cells[j.key].textContent = formatCount(s.hits[j.key]);
+            const names = s.judgeNames ?? null;
+            if (rows && rowsKey(names) !== shownKey) buildRows(names);
+            rowList.forEach((j, i) => { cells[i].textContent = formatCount(j.value(s)); });
             if (ratio) ratio.textContent = s.ratio;
+            if (ratioLabel) ratioLabel.textContent = names?.mapped && names.labels ? `${names.labels[0]}:${names.labels[1]}` : "MAX:300";
             if (acc) acc.textContent = formatAccuracy(s.accuracy);
             if (ur) ur.textContent = formatUr(s.ur);
         },

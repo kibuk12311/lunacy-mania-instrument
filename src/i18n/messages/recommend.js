@@ -29,6 +29,41 @@ export default {
     "recommend.source.tracker": { ru: "С mania-tracker", en: "From mania-tracker" },
     "recommend.source.manual": { ru: "Вручную", en: "Manual" },
 
+    // the hand-set profile (manual source): no mania-tracker account needed
+    "recommend.html.manualIntro": {
+        ru: "Нет mania-tracker? Укажи свой уровень по навыкам — подбор, план, авто-марафон и «Для тебя» в анализе возьмут его как профиль.",
+        en: "No mania-tracker? Set your level per skill — Picks, the plan, the auto-marathon and “For you” in the analysis use it as your profile.",
+    },
+    "recommend.manual.axis.speed": { ru: "стрим", en: "stream" },
+    "recommend.manual.axis.jack": { ru: "джеки, чордджеки", en: "jacks, chordjacks" },
+    "recommend.manual.axis.stamina": { ru: "джампстрим, хендстрим, стамина", en: "jumpstream, handstream, stamina" },
+    "recommend.manual.axis.tech": { ru: "тех", en: "tech" },
+    "recommend.html.manualName": { ru: "имя (необязательно)", en: "name (optional)" },
+    "recommend.html.manualCopy": { ru: "Взять из mania-tracker", en: "Copy from mania-tracker" },
+    "recommend.manual.copyTitle": {
+        ru: "Подставить даны загруженного профиля mania-tracker — дальше можно поправить",
+        en: "Fill in the dans of the loaded mania-tracker profile — then adjust them",
+    },
+    "recommend.manual.copyNone": {
+        ru: "Сначала загрузи ник в «С mania-tracker» — тогда его даны можно взять за основу",
+        en: "Load your nick under “From mania-tracker” first — then its dans can be your starting point",
+    },
+    "recommend.manual.copied": { ru: "Даны взяты из профиля {name} — поправь, если нужно", en: "Took the dans from {name}'s profile — adjust them if you like" },
+    "recommend.manual.defaultName": { ru: "Мой профиль", en: "My profile" },
+    "recommend.manual.tag": { ru: "вручную", en: "set by hand" },
+    "recommend.manual.overallNote": {
+        ru: "общий дан — среднее Speed, Jack, Stamina и Tech, как у mania-tracker",
+        en: "the overall dan is the mean of Speed, Jack, Stamina and Tech, as on mania-tracker",
+    },
+    "recommend.manual.noPlays": {
+        ru: "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или привяжи папку Interlude (кнопка IL), чтобы их скрывать",
+        en: "mania-tracker and Interlude know the maps you've played — load your nick or link your Interlude folder (the IL button) to hide them",
+    },
+    "recommend.progress.needTracker": {
+        ru: "Прогресс считает mania-tracker по твоим играм — у ручного профиля его нет. Загрузи ник в «С mania-tracker», чтобы его увидеть.",
+        en: "Progress comes from your plays on mania-tracker — a hand-set profile has none. Load your nick under “From mania-tracker” to see it.",
+    },
+
     // "N plays": Russian picks one of three forms, English one of two (one → "play", few and many → "plays")
     "recommend.play.one": { ru: "игра", en: "play" },
     "recommend.play.few": { ru: "игры", en: "plays" },
@@ -109,10 +144,6 @@ export default {
     "recommend.html.planRatesTitle": { ru: "Наш анализ и рейт под каждое место плана", en: "Our analysis and a rate for each spot of the plan" },
     "recommend.html.rangeFrom": { ru: "от", en: "from" },
     "recommend.html.rangeTo": { ru: "до", en: "to" },
-    "recommend.html.manualRangeNote": {
-        ru: "Для «Своего диапазона» дан не нужен — ищу по выбранному диапазону",
-        en: "A custom range doesn't need your dan — I search the range you picked",
-    },
     "recommend.html.favName": { ru: "Имя коллекции", en: "Collection name" },
     "recommend.html.favExport": { ru: "Экспорт в collection.db", en: "Export to collection.db" },
     "recommend.html.favHint": {
@@ -199,5 +230,9 @@ export default {
     "recommend.err.favEmpty": { ru: "избранное пусто — сначала добавь карты кнопкой ☆", en: "your favourites are empty — add maps with ☆ first" },
     "recommend.err.exportNone": { ru: "ни одной карты не удалось скачать с osu.ppy.sh — проверь интернет", en: "couldn't fetch a single map from osu.ppy.sh — check your internet connection" },
     "recommend.err.badRange": { ru: "выбери диапазон данов — от 1 дана до Kappa", en: "pick a dan range — from Dan 1 to Kappa" },
+    "recommend.err.badManualProfile": {
+        ru: "ручной профиль не заполнен — выбери дан для Speed, Jack, Stamina и Tech во вкладке «Подбор»",
+        en: "the hand-set profile is incomplete — pick a dan for Speed, Jack, Stamina and Tech on the Picks tab",
+    },
     "recommend.err.badDays": { ru: "период — 7, 30 или 90 дней", en: "the period is 7, 30 or 90 days" },
 };

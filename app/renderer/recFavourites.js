@@ -3,6 +3,7 @@
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
 import { el, button, call, failText, compactCard, favourites, onFavourites, loadFavourites, removeFavourite } from "./recCard.js";
 import { toggleSimilar } from "./recSimilar.js";
+import { exportButton } from "./interlude.js";
 
 export const DEFAULT_COLLECTION_NAME = "Lunacy mania picks";
 
@@ -77,6 +78,11 @@ export function initFavourites(s) {
     $("rec-fav-name").value = s.view().favName;
     $("rec-fav-name").addEventListener("change", () => s.saveView({ favName: $("rec-fav-name").value }));
     $("rec-fav-export").addEventListener("click", exportNow);
+    // Interlude: the favourites as a playlist in its collections.json (the maps it has in its library)
+    $("rec-fav-interlude").replaceChildren(exportButton(() => ({
+        name: $("rec-fav-name").value.trim() || "Lunacy mania picks",
+        items: favourites().map((f) => ({ beatmapId: f.beatmapId, md5: f.md5, label: `${f.artist} - ${f.title} [${f.version}]` })),
+    })));
     window.danApi.onRecFavExportProgress?.((p) => { if (exporting) $("rec-fav-export").textContent = exportProgressText(p); });
     onFavourites(render);
 }

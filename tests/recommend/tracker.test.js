@@ -20,18 +20,18 @@ function fakeFetch(route) {
 
 const USERS = {
     users: [
-        { id: 1, username: "Lunatic", avatarUrl: "https://a.ppy.sh/1" },
-        { id: 2, username: "luna", avatarUrl: "https://a.ppy.sh/2" },
+        { id: 1, username: "TestPlayerFan", avatarUrl: "https://a.ppy.sh/1" },
+        { id: 2, username: "testplayer", avatarUrl: "https://a.ppy.sh/2" },
     ],
 };
 
 test("findUser prefers an exact case-insensitive name and sends json + timeout", async () => {
     const { calls, fetchImpl } = fakeFetch(() => USERS);
     const api = createTrackerApi({ fetchImpl, base: "https://mt.test" });
-    assert.deepEqual(await api.findUser("  LUNA "), { id: 2, username: "luna", avatarUrl: "https://a.ppy.sh/2" });
+    assert.deepEqual(await api.findUser("  TESTPLAYER "), { id: 2, username: "testplayer", avatarUrl: "https://a.ppy.sh/2" });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url.origin + calls[0].url.pathname, "https://mt.test/api/users/search");
-    assert.equal(calls[0].url.searchParams.get("q"), "LUNA");
+    assert.equal(calls[0].url.searchParams.get("q"), "TESTPLAYER");
     assert.equal(calls[0].init.headers.accept, "application/json");
     assert.ok(calls[0].init.signal instanceof AbortSignal);
 });

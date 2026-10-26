@@ -19,6 +19,12 @@ export default {
         en: "Done: [{version}] is in the map's folder. If osu! doesn't show it, press F5 in song select.",
     },
     // osu! lazer has no Songs folder: the copies are packed into an .osz that lazer imports as a set of its own
+    // a chart picked from Interlude's library: the copies go to Interlude as one .osz dropped onto its window
+    "rate.html.interludeNote": {
+        ru: "Interlude: карта из его библиотеки. Копии собираются в один .osz в Документы\\Lunacy mania\\карты, папка с ним открывается, а Interlude выходит вперёд — перетащи .osz в его окно.",
+        en: "Interlude: a chart from its library. The copies are packed into one .osz in the app's maps folder (Documents\\Lunacy mania), shown in Explorer, and Interlude is brought to the front — drag the .osz onto its window.",
+    },
+    "rate.doneInterlude": { ru: "Готово: [{version}].", en: "Done: [{version}]." },
     "rate.html.lazerNote": {
         ru: "osu! lazer: копии собираются в один .osz в Документы\\Lunacy mania\\карты и открываются в lazer — он импортирует их отдельным набором карт.",
         en: "osu! lazer: the copies are packed into one .osz in the app's maps folder (Documents\\Lunacy mania) and opened in lazer — it imports them as a separate beatmap set.",

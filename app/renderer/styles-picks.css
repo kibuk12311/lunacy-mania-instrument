@@ -5,12 +5,24 @@
 .rec-mode span.sel { border-color: var(--gold); color: var(--gold); background: var(--accent-bg); }
 .rec-pane { display: flex; flex-direction: column; gap: 12px; }
 
-/* custom range: from / to dan pickers under the goals; the manual dan dims while the picks don't use it */
+/* custom range: from / to dan pickers under the goals */
 .rec-range { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
 .rec-range .rec-range-word { min-width: 34px; }
 .rec-range select:first-of-type { min-width: 96px; }
-.rec-manual-off { opacity: 0.5; }
-.rec-manual-note { font-size: 12px; }
+
+/* the hand-set profile: one row per skill (name, dan + step, the patterns it stands for) */
+.rec-manual { display: flex; flex-direction: column; gap: 6px; }
+.rec-manual-intro { font-size: 12px; }
+.rec-axes { display: flex; flex-direction: column; gap: 5px; }
+.rec-axis { flex-wrap: nowrap; }
+.rec-axis-head { display: flex; flex-direction: column; width: 150px; flex: none; line-height: 1.15; }
+.rec-axis-name { font-size: 13px; font-weight: 600; }
+.rec-axis select { width: 104px; }
+.rec-axis select + select { width: 96px; }
+.rec-axis-hint { font-size: 11px; }
+.rec-manual-status { font-size: 12px; }
+.rec-manual-status:empty { display: none; }
+#rec-manual-name { max-width: 170px; }
 
 /* card extras: the star, the plan's role badge, the similar section */
 .rec-actions button.rec-star { color: var(--muted); min-width: 26px; }
@@ -64,3 +76,40 @@
 .rec-chart-mark { fill: var(--gold); stroke: var(--bg); stroke-width: 1; }
 .rec-chart-label { fill: var(--muted); font-size: 9px; }
 .rec-progress-note { opacity: 0.8; }
+
+/* the session page: the library block, the session's list, saved sessions */
+.ses-lib-status { font-size: 13px; font-weight: 600; color: var(--blue); }
+.ses-bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.ses-bar > div { height: 100%; width: 0; background: var(--blue); transition: width 0.3s; }
+.ses-note { font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
+#ses-custom { width: 64px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 13px; }
+.ses-list { display: flex; flex-direction: column; gap: 4px; }
+.ses-item {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 3px;
+}
+.ses-item-warmup { border-left-color: var(--green); }
+.ses-item-main { border-left-color: var(--blue); }
+.ses-item-push { border-left-color: var(--orange); }
+.ses-item-cooldown { border-left-color: var(--purple); }
+.ses-n { color: var(--muted); font-size: 11px; min-width: 16px; text-align: right; }
+.ses-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ses-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ses-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+.ses-version { color: var(--muted); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ses-part { flex: none; }
+.rec-role.ses-part-main { background: var(--blue); }
+.rec-role.ses-part-warmup { background: var(--green); }
+.rec-role.ses-part-push { background: var(--orange); }
+.rec-role.ses-part-cooldown { background: var(--purple); }
+.ses-rate { color: var(--gold); font-weight: 600; }
+.ses-reroll { flex: none; min-width: 28px; }
+.ses-actions .field { display: flex; align-items: center; gap: 6px; }
+.ses-actions .field input { width: 100%; }
+.ses-actions .result .ok { color: var(--green); }
+.ses-actions .result .bad { color: var(--red); }
+.ses-saved { display: flex; flex-direction: column; gap: 4px; }
+.ses-saved-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ses-saved-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ses-item .rec-meta { font-size: 12px; gap: 0 6px; }
+.ses-item .rec-meta .muted { font-size: 11px; }

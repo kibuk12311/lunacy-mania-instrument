@@ -1,5 +1,21 @@
 # Lunacy mania — how to use it
 
+## What's new in 0.9.2
+
+- **Interlude works now** too (the free VSRG client, portable). Press **IL** at the bottom of the card and pick your Interlude folder (the one with Interlude.exe, Songs and Data) or press "Find".
+- In the same panel you can **search Interlude's library** and click a chart: the card shows its dan, patterns, MSD and the dan at other rates, and the Rate tab makes rate copies of it.
+- Rate copies, marathons, generated maps, remaps and downloads get a **"→ Interlude"** button: the app makes an .osz, shows it in Explorer and brings Interlude to the front — **drag the file onto Interlude's window** (Interlude can't be told to import a file any other way).
+- **"Playlist in Interlude"** under the marathon, the Picks plan and the favourites: the maps go into an Interlude playlist in order, each at its own rate — handy for dan courses. **Close Interlude first** (it saves its playlists when it exits and would overwrite them); the old file is kept as a backup. Maps you haven't imported into Interlude yet are listed so you can import them first.
+- "Hide played" in Picks also knows the osu! maps you played in Interlude.
+- **The card follows Interlude live:** once the folder is linked, the card shows the chart you select in Interlude (at your rate), just like with osu!, and the bottom of the window says **"Interlude · live"**. If osu! is open too, the card shows whichever one you changed last. You can turn this off in the IL panel ("Follow Interlude live").
+- **The overlay works in Interlude** too: judgements under your ruleset's own names (MARV, PERF … for SC or Wife3) with Interlude's accuracy, KPS and key lines from your real presses, UR, the chart's NPS.
+- It works through a small helper that only reads Interlude's memory (it never changes anything). If the IL panel says the .NET helper file is missing, tick "Download .NET's helper file if it's missing" once. If your antivirus removes `interlude-reader.exe`, add the app's folder to its exceptions. If the panel says "Did Interlude update? The scanner didn't find …", the rest still works — tell me and a new version will fix it.
+- **The overlay no longer disappears** after you minimize osu!, Interlude or the app's window (pinned or not) and come back — it pops back up over the game.
+
+- **No mania-tracker? Set your skill by hand.** Picks → "Manual": pick your dan for **Speed, Jack, Stamina and Tech** (like a tracker profile shows them), optionally a name. The app works out your overall dan (the mean of the four, as mania-tracker does) and uses this profile for picks, the plan, the auto-marathon "from my Picks profile" and "For you" in the analysis. If you do have a tracker profile, "Copy from mania-tracker" fills the four in to start from. Hiding played maps needs mania-tracker or a linked Interlude folder (then the maps you played in Interlude are hidden); Progress still needs mania-tracker — the app says so.
+- **Picks → "Session": a practice session from your own maps**, nothing to download. The app goes through your osu! stable Songs folder (and Interlude, if linked) once, analyses every 4K map in the background and remembers it, so next time only new maps are looked at. Pick a length (20–60 min or your own), 1–3 patterns and a goal: you get warm-up → main maps at your level → a harder push → an easy cool-down, about as long as you asked. Tick "allow rates" to use maps at the rate that gives the dan you need. ↻ swaps one map, you can save a session and send it to osu! as a collection, to Interlude as a playlist or build it as one marathon. osu! lazer's maps can't be read from outside, so they aren't included.
+- Maps and players **above Kappa high** now read "above Kappa · 21.3" — the number tells how far above.
+
 ## What's new in 0.9.1
 
 - In-game overlay: a fourth window, **"Map NPS"** — the notes per second of the map itself (not of your presses) at the play position, the map's peak NPS, and a graph of the whole map with a playhead (the part already played is tinted). A hold note counts once; with DT, HT and rate copies it is in real time. Five styles, opacity, size and position like the other windows; on or off in the tray, in the overlay settings and in the new OV panel.
@@ -35,7 +51,7 @@ There are now two files on the [releases page](https://github.com/kibuk12311/lun
 
 The "Picks" tab suggests maps for your skill. Needs the internet.
 
-1. Click "from osu!" (osu! must be open) or type your nick and click "Load". Your skill comes from mania-tracker.com — if you're not there yet, open your profile on the site and wait until it's computed. You can also skip the tracker: "Manual" → pick a dan.
+1. Click "from osu!" (osu! must be open) or type your nick and click "Load". Your skill comes from mania-tracker.com — if you're not there yet, open your profile on the site and wait until it's computed. You can also skip the tracker: "Manual" → set your dan for Speed, Jack, Stamina and Tech.
 2. Pick a pattern and a goal: "Comfort" is a bit below your level, "Growth" is what's worth playing right now, "Challenge" is clearly above.
 3. "Find maps". Each card shows the map's dan and how far it is above or below yours. "osu!direct" opens the map in the game (needs supporter), "Page" opens it on the osu! site, "Our analysis" checks it with this app and suggests a rate for your goal.
 4. "Download" downloads the map and opens it in osu! right away (no supporter needed). Files go to "Documents…скачанные".

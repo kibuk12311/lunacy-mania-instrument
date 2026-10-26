@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Fake "Interlude" used only to test interlude-reader. AssemblyName must stay "Interlude" so compiled names
+       (<StartupCode$Interlude>..., module classes) match the real game. The publish output is renamed to
+       FakeInterlude.exe by build.ps1 so it can never be mistaken for the real game. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Interlude</AssemblyName>
+    <AssemblyVersion>0.7.28.7</AssemblyVersion>
+    <FileVersion>0.7.28.7</FileVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishTrimmed>True</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FakeVariant)' == 'renamed'">
+    <DefineConstants>$(DefineConstants);RENAMED</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Updates.fs" />
+    <Compile Include="Options.fs" />
+    <Compile Include="Screen.fs" />
+    <Compile Include="SelectedChart.fs" />
+    <Compile Include="PlayState.fs" />
+    <Compile Include="Shared.fs" />
+    <Compile Include="PlayScreen.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Percyqaz.Common\Percyqaz.Common.fsproj" />
+    <ProjectReference Include="..\Prelude\Prelude.fsproj" />
+    <ProjectReference Include="..\Percyqaz.Flux\Percyqaz.Flux.fsproj" />
+  </ItemGroup>
+</Project>

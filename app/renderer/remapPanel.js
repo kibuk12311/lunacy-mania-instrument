@@ -5,6 +5,8 @@
 import { fillDanSelects } from "./danSelect.js";
 import { danRange } from "../../src/gen/search.js";
 import { t } from "../../src/i18n/i18n.js";
+import { labelBeside } from "../../src/core/labels.js";
+import { sendButtons } from "./interlude.js";
 
 const CHOICES = [
     { choice: "easier", label: "create.remap.easier" },
@@ -72,7 +74,8 @@ export function initRemapPanel({ root }) {
     go.addEventListener("click", () => remap());
     const statusLine = make("div", { id: "remap-status", className: "muted" });
     const result = make("div", { id: "remap-result", className: "remap-result" });
-    root?.append(head, hint, sources, mapLine, chips, customRow, go, statusLine, result);
+    const interludeBox = make("div", { id: "remap-interlude" });
+    root?.append(head, hint, sources, mapLine, chips, customRow, go, statusLine, result, interludeBox);
 
     const usable = () => Boolean(state.map?.ok4k && state.map?.rice);
     function status(text) {
@@ -106,7 +109,7 @@ export function initRemapPanel({ root }) {
         status("");
         mapLine.className = usable() ? "remap-map" : "remap-map warn";
         mapLine.textContent = usable()
-            ? t("create.remap.now", { name: answer.name, label: answer.label ?? "—", numeric: Number.isFinite(answer.numeric) ? answer.numeric.toFixed(1) : "—" })
+            ? t("create.remap.now", { name: answer.name, label: labelBeside(answer.numeric, answer.label ?? "—"), numeric: Number.isFinite(answer.numeric) ? answer.numeric.toFixed(1) : "—" })
             : `${answer.name} · ${t("create.remap.onlyRice")}`;
         fillDanSelects(levelSel, stepSel, answer.numeric);
         refresh();
@@ -122,6 +125,7 @@ export function initRemapPanel({ root }) {
         refresh();
         status(t("create.remap.working"));
         result.textContent = "";
+        interludeBox.replaceChildren();
         try {
             const answer = await window.danApi.remapCreate({ path: state.map.path, range, seed });
             if (!answer?.ok) {
@@ -137,6 +141,8 @@ export function initRemapPanel({ root }) {
             result.textContent = answer.reachable ? t("create.remap.done", fields) : t("create.remap.closest", fields);
             // osu! lazer: the difficulty went in as an .osz, not into a Songs folder
             if (answer.client === "lazer") result.textContent += ` ${t(answer.opened ? "create.remap.lazer" : "create.remap.lazerNotOpened", { file: answer.osz ?? "" })}`;
+            // Interlude: the new difficulty as an .osz to drop onto it
+            interludeBox.replaceChildren(...sendButtons([answer.osz ?? answer.file]));
         } catch (error) {
             status(t("create.remap.failed", { message: error?.message ?? String(error) }));
         } finally {
