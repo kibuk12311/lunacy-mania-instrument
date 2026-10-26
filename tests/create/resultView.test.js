@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fakeDom, fire, textOf } from "../helpers/fakeDom.js";
 import { setLang } from "../../src/i18n/i18n.js";
-import { rankFallback, newDiff, addVariant, issueText, cardLines, createResultView, MAX_CARDS } from "../../app/renderer/resultView.js";
+import { rankFallback, newDiff, addVariant, issueText, cardLines, criticLine, createResultView, MAX_CARDS } from "../../app/renderer/resultView.js";
 
 const BASE = JSON.parse(readFileSync(new URL("../fixtures/generateResult.json", import.meta.url), "utf8"));
 const RANGE = { lo: 12.5, hi: 13.5 };
@@ -151,9 +151,100 @@ test("the view: one section per difficulty, cards with best, use, issues (5, the
         assert.ok(all(root).some((n) => n.tagName === "BUTTON" && n.textContent === "Locked"));
 
         v.render([diff], { busy: true });
-        assert.ok(all(root).filter((n) => n.tagName === "BUTTON" && n.textContent !== "Use this one").every((b) => b.disabled), "busy: nothing starts another job");
+        const jobButtons = all(root).filter((n) => n.tagName === "BUTTON" && n.textContent !== "Use this one" && !n.dataset.vote && !n.dataset.tag);
+        assert.ok(jobButtons.every((b) => b.disabled), "busy: nothing starts another job (a vote is not a job)");
         v.render([], { busy: false });
         assert.equal(root.hidden, true);
+    } finally {
+        setLang("ru");
+    }
+});
+
+// ---- wave 3 (stream U): the critic line, the size note, the rating bar and the ratings line ----
+
+test("the critic line: the heads there are, a missing one left out; nothing without a critic", () => {
+    setLang("en");
+    try {
+        const full = { kind: "critic-v1", score: 1.1, human: 0.812, fun: 0.34, play: -0.21, personal: null, style: null, picked: 3, of: 12, analysed: 3, ms: 900 };
+        assert.equal(criticLine(full), "Critic: human-like 81% · fun +0.3 · comfort −0.2 · best of 12");
+        assert.equal(criticLine({ ...full, fun: null }), "Critic: human-like 81% · comfort −0.2 · best of 12");
+        assert.equal(criticLine({ kind: "heuristic", score: 0, human: null, fun: null, play: 0, of: 8 }), "Critic: comfort 0.0 · best of 8");
+        assert.equal(criticLine({ kind: "heuristic", human: null, fun: null, play: null, of: 1 }), null);
+        assert.equal(criticLine(null), null);
+        setLang("ru");
+        assert.equal(criticLine(full), "Критик: как у человека 81% · интерес +0.3 · удобство −0.2 · лучший из 12");
+        setLang("en");
+        const lines = cardLines({ ...BASE, critic: full }, RANGE);
+        const line = lines.find((l) => l.text.startsWith("Critic:"));
+        assert.ok(line && line.title.includes("human-like"), "the line has a hint");
+        assert.ok(!cardLines(BASE, RANGE).some((l) => l.text.startsWith("Critic:")));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("nn-v2 and xgb-v3 models are named; a size that was not there is noted", () => {
+    setLang("en");
+    try {
+        const nn = cardLines({ ...BASE, modelInfo: { kind: "nn-v2", grid: "snap-v2", maps: 80000, size: "s", sizeNote: { want: "l", got: "s" } } }, RANGE).map((l) => l.text);
+        assert.ok(nn.includes("Model: neural net, trained on 80000 maps"), nn.join(" | "));
+        assert.ok(nn.includes("No “Neural net L (experimental, needs a graphics card)” model here — used “Neural net S (experimental, fast)”"), nn.join(" | "));
+        const trees = cardLines({ ...BASE, modelInfo: { kind: "xgb-v3", grid: "q4", maps: 20000, sizeNote: { want: "m", got: "xgb3" } } }, RANGE).map((l) => l.text);
+        assert.ok(trees.includes("Model: decision trees, trained on 20000 maps"));
+        assert.ok(trees.includes("No “Neural net M (experimental)” model here — used “XGBoost v3 (experimental)”"), trees.join(" | "));
+        const classic = cardLines({ ...BASE, modelInfo: { kind: "xgb-v1", grid: "q4", maps: 6326, sizeNote: { want: "xgb3", got: "auto" } } }, RANGE).map((l) => l.text);
+        assert.ok(classic.includes("No “XGBoost v3 (experimental)” model here — used “Classic”"), classic.join(" | "));
+        const rules = cardLines({ ...BASE, modelInfo: { kind: "rules", grid: "q4", maps: 0, sizeNote: { want: "m", got: null } } }, RANGE).map((l) => l.text);
+        assert.ok(rules.includes("No “Neural net M (experimental)” model here — made without it"), rules.join(" | "));
+        const auto = cardLines({ ...BASE, modelInfo: { kind: "rules", grid: "q4", maps: 0, sizeNote: { want: "auto", got: null } } }, RANGE).map((l) => l.text);
+        assert.ok(!auto.some((l) => l.startsWith("No “")), "auto never gets a note");
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("every card has the 👍/👎 bar: a vote calls onRate with the card's id and stays through a re-render", async () => {
+    setLang("en");
+    try {
+        const dom = fakeDom({});
+        const rated = [];
+        const v = createResultView({ root: dom.$("gen-result"), onRate: async (r) => { rated.push(r); return { ok: true, n: rated.length }; } });
+        const diff = newDiff(RANGE);
+        addVariant(diff, variant("card-a"), { rank: rankFallback });
+        addVariant(diff, variant("card-b", { patternScore: 0.95 }), { rank: rankFallback });
+        v.render([diff]);
+        const votes = () => all(dom.$("gen-result")).filter((n) => n.dataset?.vote === "1");
+        assert.equal(votes().length, 2, "one bar per card");
+        await fire(votes()[1]);
+        assert.deepEqual(rated, [{ id: "card-b", vote: 1, tags: [] }]);
+        v.render([diff]);
+        assert.ok(votes()[1].className.includes("sel"), "the vote is still shown");
+        assert.ok(!votes()[0].className.includes("sel"));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("under the cards: the ratings count, «Using your ratings» once active, and the export button", async () => {
+    setLang("en");
+    try {
+        const dom = fakeDom({});
+        let exported = 0;
+        const v = createResultView({ root: dom.$("gen-result"), onExport: () => { exported += 1; } });
+        const diff = newDiff(RANGE);
+        addVariant(diff, variant("a"), { rank: rankFallback });
+        v.render([diff], { ratings: { n: 0, active: false } });
+        assert.ok(!textOf(dom.$("gen-result")).includes("Export my ratings"), "nothing rated: no ratings line");
+        v.render([diff], { ratings: { n: 5, active: false } });
+        assert.ok(textOf(dom.$("gen-result")).includes("Your ratings: 5"));
+        v.render([diff], { ratings: { n: 14, active: true, note: "Saved: C:/docs/lunacy-ratings-2026-10-26.json" } });
+        const text = textOf(dom.$("gen-result"));
+        assert.ok(text.includes("Using your ratings: 14"), text);
+        assert.ok(text.includes("Saved: C:/docs/lunacy-ratings-2026-10-26.json"));
+        await fire(all(dom.$("gen-result")).find((n) => n.tagName === "BUTTON" && n.textContent === "Export my ratings"));
+        assert.equal(exported, 1);
+        v.render([], { ratings: { n: 14, active: true } });
+        assert.equal(dom.$("gen-result").hidden, true, "no cards: nothing shown");
     } finally {
         setLang("ru");
     }

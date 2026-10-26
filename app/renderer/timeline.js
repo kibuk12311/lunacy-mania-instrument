@@ -3,6 +3,9 @@
 // kind, own patterns (chips and share sliders), own dan (a level, or «Как у всей карты»; the step may be «любой»),
 // «Без нот», split at the cursor, merge with the next, reset, and the lock toggle once there is a result.
 // Edited parts carry a dot; the pure helpers return new lists and leave the ones given alone.
+// Wave 3 (stream U): the chosen variant's song structure on the curve — a thin tick at each phrase start and a
+// coloured underline under each repeated section, the same colour for sections that repeat each other — and
+// «Перегенерировать только эту часть» in the editor, which keeps every other part as it is.
 import { t } from "../../src/i18n/i18n.js";
 import { LEVELS, STEPS, normalizeShares } from "../../src/gen/request.js";
 import { danRange } from "../../src/gen/search.js";
@@ -19,6 +22,9 @@ export const KIND_KEYS = {
     break: "create.parts.kind.break", outro: "create.parts.kind.outro", part: "create.parts.kind.part",
 };
 const KIND_COLORS = { intro: "#8fd3ff", build: "#ffb36b", drop: "#ff8f8f", break: "#7be08f", outro: "#c9a2ff", part: "#8a8698" };
+const REPEAT_COLORS = ["#f5c66b", "#7be08f", "#8fd3ff", "#ff9ad5", "#c9a2ff", "#ffb36b"];
+const PHRASE_TICK = "#ffffff99";
+const SAME_SPAN = 0.5; // two sections are the same one when they overlap by this share of the shorter
 const HEIGHT = 64;
 const WIDTH = 432; // until the canvas has a CSS width
 const MIN_SPLIT_MS = 1000;
@@ -52,6 +58,30 @@ export function badgeText(report) {
     if (report.wanted && report.inRange) return { text: `✓ ${label}`, ok: true };
     if (report.wanted) return { text: t("create.parts.badgeOff", { label, wanted: rangeText(report.wanted) }), ok: false };
     return { text: `≈ ${label}`, ok: null };
+}
+
+// structure.repeats ([{ aMs, bMs, lenMs, sim }]) → groups of sections that repeat each other, each with its colour:
+// [{ color, spans: [[fromMs, toMs]…] }]. A repeat whose first section is already in a group joins that group.
+export function repeatGroups(repeats) {
+    const groups = [];
+    const same = (x, y) => {
+        const overlap = Math.min(x[1], y[1]) - Math.max(x[0], y[0]);
+        return overlap > SAME_SPAN * Math.min(x[1] - x[0], y[1] - y[0]);
+    };
+    const add = (group, span) => { if (!group.spans.some((s) => same(s, span))) group.spans.push(span); };
+    for (const r of Array.isArray(repeats) ? repeats : []) {
+        if (![r?.aMs, r?.bMs, r?.lenMs].every(Number.isFinite) || r.lenMs <= 0) continue;
+        const a = [r.aMs, r.aMs + r.lenMs];
+        const b = [r.bMs, r.bMs + r.lenMs];
+        const group = groups.find((g) => g.spans.some((s) => same(s, a) || same(s, b)));
+        if (group) {
+            add(group, a);
+            add(group, b);
+        } else {
+            groups.push({ color: REPEAT_COLORS[groups.length % REPEAT_COLORS.length], spans: [a, b] });
+        }
+    }
+    return groups;
 }
 
 // The part under ms (the last one past the end).
@@ -111,8 +141,8 @@ function option(text, value) {
 }
 
 // getCursor() → ms; onSeek(ms); onChange(parts) after an edit; onReset() asks for the parts to be found again;
-// onToggleLock(index) locks / unlocks a part of the chosen variant.
-export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, onReset, onToggleLock }) {
+// onToggleLock(index) locks / unlocks a part of the chosen variant; onOnlyThis(index) regenerates only that part.
+export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, onReset, onToggleLock, onOnlyThis }) {
     let parts = [];
     let energy = null;
     let durationMs = 0;
@@ -120,6 +150,7 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
     let reports = null;
     let locks = new Set();
     let canLock = false;
+    let structure = null; // the chosen variant's { phrases, repeats }
     let width = WIDTH;
     let dragging = false;
 
@@ -151,6 +182,15 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
             ctx.lineTo?.(w, HEIGHT - 4);
             ctx.closePath?.();
             ctx.fill?.();
+        }
+        // phrase starts: thin ticks at the foot of the curve; repeated sections: underlines, one colour per group
+        ctx.fillStyle = PHRASE_TICK;
+        for (const p of structure?.phrases ?? []) {
+            if (Number.isFinite(p?.startMs) && p.startMs > 0 && p.startMs < durationMs) ctx.fillRect(Math.round(xOf(p.startMs)), HEIGHT - 14, 1, 10);
+        }
+        for (const group of repeatGroups(structure?.repeats)) {
+            ctx.fillStyle = group.color;
+            for (const [from, to] of group.spans) ctx.fillRect(xOf(from), HEIGHT - 3, Math.max(1, xOf(Math.min(to, durationMs)) - xOf(from)), 2);
         }
         ctx.font = "10px Segoe UI, sans-serif";
         parts.forEach((p, i) => {
@@ -341,6 +381,11 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
                 const lock = el("button", locks.has(i) ? "small cr-locked" : "small", locks.has(i) ? t("create.part.locked") : t("create.part.lock"));
                 lock.addEventListener("click", () => onToggleLock?.(i));
                 buttons.append(lock);
+                if (parts.length > 1) {
+                    const only = el("button", "small ml-only", t("create.ml.onlyThisPart"));
+                    only.addEventListener("click", () => onOnlyThis?.(i));
+                    buttons.append(only);
+                }
             }
             kids.push(head, patternEditor(i), danEditor(i), emptyRow, buttons);
         }
@@ -357,6 +402,7 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
             reports = null;
             locks = new Set();
             canLock = false;
+            structure = null;
             renderEditor();
             draw();
         },
@@ -367,11 +413,13 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
             renderEditor();
             draw();
         },
-        // the chosen variant: its PartReport[] for the badges, its locked part indexes, and whether locking applies
-        setResult({ reports: nextReports = null, locks: nextLocks = new Set(), canLock: lockable = false } = {}) {
+        // the chosen variant: its PartReport[] for the badges, its locked part indexes, whether locking applies, and
+        // its song structure ({ phrases, repeats } or null)
+        setResult({ reports: nextReports = null, locks: nextLocks = new Set(), canLock: lockable = false, structure: nextStructure = null } = {}) {
             reports = nextReports;
             locks = new Set(nextLocks);
             canLock = lockable;
+            structure = nextStructure && typeof nextStructure === "object" ? nextStructure : null;
             renderEditor();
             draw();
         },

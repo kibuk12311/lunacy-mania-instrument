@@ -107,3 +107,75 @@ test("sourceFor picks the XGB source for tree models", async () => {
     assert.equal(await sourceFor({}), xgbMarkovSource);
     assert.equal(await sourceFor({ kind: "xgb-v2" }), xgbMarkovSource);
 });
+
+// ---- G4: mapper style for the XGB path (stylePattern blended into the Markov counts, styleBias on the note odds) ----
+
+const fiveEverywhere = (n) => {
+    const t = {};
+    for (const a of [0, ...singles, 5, 12]) for (const b of [0, ...singles, 5, 12]) t[`${a},${b},2`] = { 5: n };
+    return t;
+};
+const rowsWith = (style, seed = 11, count = 400) => {
+    const rng = mulberry32(seed);
+    let p = 0;
+    let q = 0;
+    const out = [];
+    for (let k = 0; k < count; k += 1) {
+        const m = style === undefined
+            ? sampleRow(pattern, "Stream", p, q, [1, 1, 1, 1], rng)
+            : sampleRow(pattern, "Stream", p, q, [1, 1, 1, 1], rng, null, null, null, style);
+        out.push(m);
+        [q, p] = [p, m];
+    }
+    return out;
+};
+const share = (rows, m) => rows.filter((x) => x === m).length / rows.length;
+
+test("G4: a style table that always continues with mask 5 raises the share of mask 5; no style gives today's rows", () => {
+    const plain = rowsWith(undefined);
+    assert.deepEqual(rowsWith(null), plain);
+    const styled = rowsWith({ pattern: { Stream: fiveEverywhere(30) }, alpha: 4 });
+    assert.ok(share(styled, 5) > share(plain, 5) + 0.25, `share of 5: ${share(styled, 5).toFixed(2)} vs ${share(plain, 5).toFixed(2)}`);
+    // a creator seen fewer than MIN_EVIDENCE times at the level the global table uses leaves its counts alone (two
+    // sightings per context: 14 after one row, under 20)
+    assert.deepEqual(rowsWith({ pattern: { Stream: fiveEverywhere(2) }, alpha: 4 }), plain);
+    // a family the creator never mapped: the global table alone
+    assert.deepEqual(rowsWith({ pattern: { Jack: fiveEverywhere(30) }, alpha: 4 }), plain);
+});
+
+test("G4: the XGB source reads stylePattern and styleBias for the chosen style only", () => {
+    const slots = slotsForTiming({ bpm: 120, offsetMs: 0 }, 19000);
+    const audio = { envelope, ...slotFeatures(envelope, slots, 120, AUDIO_FEATURES) };
+    const base = constant(-1);
+    const styledModel = { ...base, stylePattern: { "n:five": { Stream: fiveEverywhere(30) } }, styleBias: { "n:five": 2 }, styles: [{ key: "n:five", name: "Five", maps: 40 }] };
+    const args = { audio, slots, dan: new Float64Array(slots.length).fill(5), family: slots.map(() => "Stream") };
+    const decode = (prep) => {
+        const fill = mulberry32(1);
+        const size = mulberry32(2);
+        const pat = mulberry32(3);
+        const ctx = { prev: 0, prev2: 0, recent: [] };
+        const out = [];
+        for (let i = 0; i < slots.length; i += 1) {
+            const m = prep.step(i, 3, ctx, { fill, size, pattern: pat });
+            out.push(m);
+            if (m) {
+                ctx.prev2 = ctx.prev;
+                ctx.prev = m;
+                ctx.recent.unshift({ mask: m, gapMs: 250 });
+            }
+        }
+        return out;
+    };
+    const today = xgbMarkovSource.prepare({ model: base, ...args });
+    const none = xgbMarkovSource.prepare({ model: styledModel, ...args, style: null });
+    const styled = xgbMarkovSource.prepare({ model: styledModel, ...args, style: "n:five" });
+    const unknown = xgbMarkovSource.prepare({ model: styledModel, ...args, style: "n:nobody" });
+    assert.deepEqual(Array.from(none.noteRaw), Array.from(today.noteRaw));
+    assert.deepEqual(Array.from(unknown.noteRaw), Array.from(today.noteRaw));
+    assert.ok(Array.from(styled.noteRaw).every((v, i) => Math.abs(v - (today.noteRaw[i] + 2)) < 1e-12));
+    assert.deepEqual(decode(none), decode(today));
+    assert.deepEqual(decode(unknown), decode(today));
+    const rows = decode(styled).filter(Boolean);
+    const plainRows = decode(today).filter(Boolean);
+    assert.ok(share(rows, 5) > share(plainRows, 5) + 0.25, `share of 5: ${share(rows, 5).toFixed(2)} vs ${share(plainRows, 5).toFixed(2)}`);
+});

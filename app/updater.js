@@ -5,13 +5,16 @@
 //  - portable build: electron-updater can't replace a portable exe, so the latest release's tag is compared with our
 //    version and a newer one offers its release page.
 //  - dev run (not packaged): no automatic check.
-// The automatic check (10 s after start, if the tray setting is on) tells nothing unless there is an update: offline,
-// no release yet, 404 or a rate limit only go to the log. A check from the tray tells every outcome.
+// The automatic check (10 s after start, then again every 4 hours while the app runs, each time only if the tray
+// setting is on) tells nothing unless there is an update: offline, no release yet, 404 or a rate limit only go to the
+// log, and a portable release already offered by an automatic check is not offered again. A check from the tray tells
+// every outcome.
 
 export const REPO = "kibuk12311/lunacy-mania-instrument";
 export const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
 export const AUTO_CHECK_DELAY_MS = 10_000;
+export const RECHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
 
 // "v0.8.0", "0.8.0-beta.2+build" → { core: [0, 8, 0], pre: ["beta", 2] }; anything else → null.
@@ -66,12 +69,12 @@ const firstLine = (error) => String(error?.message ?? error ?? "unknown error").
 // deps: mode ("installed" | "portable" | "dev", see updateMode), version (ours), loadAutoUpdater: async () → the
 // electron-updater autoUpdater (loaded on first use, so dev and portable runs never load it), dialog (Electron's),
 // window: () → the window to put dialogs over or null, openExternal(url), fetch, log, t, autoCheck: () → the tray setting,
-// schedule (setTimeout), delayMs.
+// schedule (setTimeout), delayMs, repeat (setInterval), everyMs.
 // → { start, check, state }; check({ manual }) resolves to what came out: "dev" | "latest" | "checking" | "downloading" |
 // "ready" | "available" | "error".
 export function createUpdater({
     mode, version, loadAutoUpdater, dialog, window = () => null, openExternal, fetch, log, t,
-    autoCheck = () => true, schedule = setTimeout, delayMs = AUTO_CHECK_DELAY_MS,
+    autoCheck = () => true, schedule = setTimeout, delayMs = AUTO_CHECK_DELAY_MS, repeat = setInterval, everyMs = RECHECK_EVERY_MS,
 }) {
     let phase = "idle"; // installed: idle → checking → downloading → ready
     let manual = false; // the running check was asked for from the tray, so its outcome is told
@@ -232,11 +235,20 @@ export function createUpdater({
         return mode === "portable" ? checkPortable(fromTray) : checkInstalled(fromTray);
     }
 
-    // The automatic check, once per run; the setting is read again when it fires, in case it was turned off meanwhile.
+    // The automatic checks: once 10 s after start, then every 4 hours while the app runs (installed and portable
+    // alike). The setting is read again each time one fires, so turning it off (or on) in the tray takes effect at the
+    // next one; the 4-hour checks run even when the setting was off at start. start() → whether the first one is set.
+    let recheck = null;
     function start() {
         if (mode === "dev") {
             log("updater: dev run, no automatic check");
             return false;
+        }
+        if (!recheck) {
+            recheck = repeat(() => {
+                if (autoCheck()) void check();
+            }, everyMs);
+            recheck?.unref?.();
         }
         if (!autoCheck()) {
             log("updater: automatic check is off");

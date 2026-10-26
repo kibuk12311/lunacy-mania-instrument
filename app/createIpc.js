@@ -1,10 +1,16 @@
-// Main-process side of the "Создать карту" tab (mapgen v3): generate-map and detect-timing.
+// Main-process side of the "Создать карту" tab (mapgen v3): generate-map, detect-timing and generator-info, and
+// (wave 3) the ratings channels through registerRatingsIpc (app/ratingsIpc.js), so main.js stays frozen.
 // Generating never writes a file: the map goes into the store and the window gets its id; saving is export-set
 // (app/exportIpc.js). Everything the window sends is checked here, and every handler answers instead of throwing.
+// The window never sends the personal model, critic weights or deadlines: main adds `personal` and `deadlineMs`.
 import { PATTERN_NAMES } from "../src/gen/patterns.js";
 import { flavoursOf } from "../src/gen/flavours.js";
 import { parseRows } from "../src/gen/mapRows.js";
+import { checkStemsTransfer } from "../src/audio/stems.js";
 import { audioNameFor } from "./mapExport.js";
+import { MODEL_SIZES, listModelFiles, generatorInfoOf } from "./generatorJobs.js";
+import { registerRatingsIpc } from "./ratingsIpc.js";
+import { registerGpuWorkerHost } from "./gpuWorkerHost.js";
 import { t } from "../src/i18n/i18n.js";
 
 export const PART_KINDS = ["intro", "build", "drop", "break", "outro", "part"];
@@ -16,6 +22,12 @@ const MAX_OWN_RANGES = 8;
 const MAX_DAN = 21;
 const MAX_ISSUES = 50;
 const MAX_JOB_ID = 64;
+const MAX_CANDIDATES = 20;
+const MAX_STYLE = 128;
+// the candidate phase's time budget in the worker (§1.1)
+const DEADLINE_MS = 4000;
+// request fields only main may set; whatever the window put there is dropped
+const MAIN_ONLY = ["personal", "deadlineMs", "critic", "blend"];
 // a lock holds while the timing and the locked part edges are the same, within these
 const SECTION_TIME_MS = 0.5;
 const SECTION_BPM = 1e-6;
@@ -92,7 +104,7 @@ function checkParts(parts, durationMs) {
     if (parts.filter((p) => p.range).length > MAX_OWN_RANGES) bad("request.parts");
 }
 
-function checkRequest(request, durationMs) {
+function checkRequest(request, durationMs, styles) {
     if (!isObject(request)) bad("request");
     if (request.range !== undefined && request.range !== null) checkRange(request.range, "request.range");
     else if (!isNumber(request.target) || request.target <= 0 || request.target > MAX_DAN) bad("request.range");
@@ -105,6 +117,11 @@ function checkRequest(request, durationMs) {
     optional(request.noteSeed, isInt, "request.noteSeed");
     optional(request.snaps, (v) => Array.isArray(v) && v.includes(4) && v.every((s) => SNAPS.includes(s)) && new Set(v).size === v.length, "request.snaps");
     optional(request.normalizeSv, (v) => typeof v === "boolean", "request.normalizeSv");
+    // wave 3: N candidates for the critic, a style the loaded model has, repeats, the model strength
+    optional(request.candidates, (v) => isInt(v) && v >= 1 && v <= MAX_CANDIDATES, "request.candidates");
+    optional(request.style, (v) => v === null || (typeof v === "string" && v.length <= MAX_STYLE && styles.has(v)), "request.style");
+    optional(request.repeats, (v) => typeof v === "boolean", "request.repeats");
+    optional(request.modelSize, (v) => MODEL_SIZES.includes(v), "request.modelSize");
     if (request.parts !== undefined && request.parts !== null) checkParts(request.parts, durationMs);
     if (request.lock !== undefined && request.lock !== null) {
         const { lock } = request;
@@ -114,17 +131,27 @@ function checkRequest(request, durationMs) {
     }
 }
 
-// The whole generate-map message → its checked parts (timing normalised to sections).
-export function checkGenerate(req) {
+// The stems beside the envelope (StemsTransfer, src/audio/stems.js): version, frames within 2 of the envelope's,
+// every array's type and length, at most 16 MB. The message names the field: "stems.kick: length 7, want 8".
+function checkStems(stems, envelope) {
+    const problem = checkStemsTransfer(stems, { frames: envelope.values.length });
+    if (problem) bad(problem);
+}
+
+// The whole generate-map message → its checked parts (timing normalised to sections). `styles`: the style keys of
+// the model the worker last reported (a style it never named is refused).
+export function checkGenerate(req, { styles = new Set() } = {}) {
     if (!isObject(req)) bad("request");
     if (req.jobId !== undefined && (typeof req.jobId !== "string" || req.jobId.length > MAX_JOB_ID)) bad("jobId");
     if (typeof req.audioPath !== "string" || !req.audioPath) bad("audioPath");
     if (req.title !== undefined && typeof req.title !== "string") bad("title");
     if (!isNumber(req.durationMs) || req.durationMs <= 0) bad("durationMs");
     checkEnvelope(req.envelope, "envelope");
+    const stems = req.stems ?? null;
+    if (stems !== null) checkStems(stems, req.envelope);
     const timing = checkTiming(req.timing, req.durationMs);
-    checkRequest(req.request, req.durationMs);
-    return { jobId: req.jobId ?? null, audioPath: req.audioPath, title: req.title ?? "", durationMs: req.durationMs, envelope: req.envelope, timing, request: req.request };
+    checkRequest(req.request, req.durationMs, styles);
+    return { jobId: req.jobId ?? null, audioPath: req.audioPath, title: req.title ?? "", durationMs: req.durationMs, envelope: req.envelope, stems, timing, request: req.request };
 }
 
 const sameSections = (a, b) => a.length === b.length && a.every((s, i) =>
@@ -146,19 +173,35 @@ function resolveLock(lock, { audioPath, timing, parts }, base) {
 
 const badRequest = (what) => ({ ok: false, code: "badRequest", message: t("app.gen.badRequest", { what }) });
 
-export function registerCreateIpc({ ipcMain, generatorClient, generatedStore, log }) {
+// the critic's answer for the window: its feature vector stays in the store (§2.6)
+const publicCritic = ({ features: _features, ...rest }) => rest;
+// the GPU capability for the window (stream W): the flag, the adapter's name, why not, and where the decoder runs
+const publicGpu = (gpu) => ({ gpuAvailable: Boolean(gpu?.gpuAvailable), adapter: gpu?.adapter ?? null, reason: gpu?.reason ?? null, decoder: gpu?.decoder ?? "cpu" });
+
+export function registerCreateIpc(deps) {
+    const { ipcMain, generatorClient, generatedStore, log } = deps;
+    const ratings = registerRatingsIpc(deps);
+    // stream W: the hidden GPU renderer (started on first use) and its ports for the generator worker
+    const gpuHost = registerGpuWorkerHost(deps);
+    // the model info the worker last answered with (generate-map or detect-timing): its styles, for checking a
+    // request's style and for generator-info
+    let lastModelInfo = null;
+    const remember = (info) => { if (isObject(info)) lastModelInfo = info; };
+    const knownStyles = () => new Set((Array.isArray(lastModelInfo?.styles) ? lastModelInfo.styles : []).map((s) => s?.key).filter((k) => typeof k === "string"));
+
     ipcMain.handle("generate-map", async (event, raw) => {
         const started = Date.now();
         let req;
         try {
-            req = checkGenerate(raw);
+            req = checkGenerate(raw, { styles: knownStyles() });
         } catch (error) {
             if (error instanceof BadRequest) return badRequest(error.what);
             return { ok: false, code: "failed", message: String(error?.message ?? error) };
         }
         try {
-            const { jobId, audioPath, title, durationMs, envelope, timing } = req;
+            const { jobId, audioPath, title, durationMs, envelope, stems, timing } = req;
             const { lock, ...request } = req.request;
+            for (const key of MAIN_ONLY) delete request[key];
             let locked = null;
             if (lock) {
                 const base = generatedStore.get(lock.fromId);
@@ -177,13 +220,18 @@ export function registerCreateIpc({ ipcMain, generatorClient, generatedStore, lo
             };
             const out = await generatorClient.generate({
                 timing, envelope, durationMs, request,
+                ...(stems ? { stems } : {}),
                 ...(locked ? { locked } : {}),
                 meta: { title, audioFilename: audioNameFor(audioPath) },
+                personal: ratings.personal() ?? null,
+                deadlineMs: DEADLINE_MS,
             }, forward);
             if (out?.kind !== "generated") {
                 log(`generate failed: ${out?.message}`);
                 return { ok: false, code: "failed", message: out?.message ?? t("app.gen.failed") };
             }
+            remember(out.modelInfo);
+            const critic = isObject(out.critic) ? out.critic : null;
             const knob = out.knob ?? out.offset ?? out.lambda ?? null;
             const planSeed = out.planSeed ?? request.planSeed ?? request.seed;
             const noteSeed = out.noteSeed ?? request.noteSeed ?? request.seed;
@@ -194,6 +242,7 @@ export function registerCreateIpc({ ipcMain, generatorClient, generatedStore, lo
                 // a later lock is checked against the parts the map was really made with
                 parts: parts.length ? parts.map(({ startMs, endMs, kind }) => ({ startMs, endMs, kind })) : (request.parts ?? []),
                 knob, planSeed, noteSeed, engine: out.engine, result: out.result, range,
+                critic, style: request.style ?? null, candidates: request.candidates ?? 1,
             });
             const ms = Date.now() - started;
             log(`generated ${id} got ${out.result?.numeric} reachable ${out.reachable} in ${ms} ms`);
@@ -205,6 +254,8 @@ export function registerCreateIpc({ ipcMain, generatorClient, generatedStore, lo
                 knob, planSeed, noteSeed,
                 stats: out.stats ?? null, issues: (out.issues ?? []).slice(0, MAX_ISSUES), parts,
                 retries: out.retries ?? { blocks: 0, dan: null }, grid: out.grid ?? Q4_GRID, ms,
+                ...(critic ? { critic: publicCritic(critic) } : {}),
+                ...(isObject(out.structure) ? { structure: out.structure } : {}),
             };
         } catch (error) {
             log(`generate failed: ${error?.message}`);
@@ -230,7 +281,23 @@ export function registerCreateIpc({ ipcMain, generatorClient, generatedStore, lo
         try {
             const out = await generatorClient.detectTiming({ envelope: raw.envelope, fine, hint });
             if (out?.kind !== "timing") return { ok: false, message: out?.message ?? t("app.gen.timingFailed") };
+            remember(out.modelInfo);
             return { ok: true, timing: out.timing, modelInfo: out.modelInfo };
+        } catch (error) {
+            return { ok: false, message: String(error?.message ?? error) };
+        }
+    });
+
+    // What the generator can do here: the model files found (the app's models/ and LUNACY_MODEL_DIR), so the engines,
+    // nn-v2 sizes and the critic; the styles and model kind from the worker's last answer. Reads no model file.
+    // gpu (stream W): { gpuAvailable, adapter, reason, decoder } of the GPU renderer, started here on first ask.
+    // { gpu: false } (the create tab's picker before the tab was ever shown, stream U): the renderer is not started for
+    // it; then gpu is what is known already, or null. null also while the renderer is still starting (unknown, not "no").
+    ipcMain.handle("generator-info", async (_event, { gpu: askGpu = true } = {}) => {
+        try {
+            if (askGpu) await gpuHost.info();
+            const known = gpuHost.capability();
+            return { ok: true, modelInfo: { ...generatorInfoOf(await listModelFiles(), lastModelInfo), gpu: known ? publicGpu(known) : null } };
         } catch (error) {
             return { ok: false, message: String(error?.message ?? error) };
         }

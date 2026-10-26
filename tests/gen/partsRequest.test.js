@@ -72,3 +72,39 @@ test("part patterns are normalised and bad parts are refused with a message that
     }
     assert.throws(() => normalizeParts([{ startMs: 0, endMs: 60000, kind: "solo" }], 60000), /Части песни заданы неверно/);
 });
+
+// ---- wave 3 (G1, G2, G4): candidates, repeats, style ----
+
+test("normalizeRequest: candidates 1..20 kept, out-of-range integers clamped, the rest refused, default 1", () => {
+    const req = (extra) => normalizeRequest({ target: 5, patterns: [{ name: "Stream", share: 1 }], seed: 1, ...extra }, 60000);
+    assert.equal(req({}).candidates, 1);
+    assert.equal(req({ candidates: null }).candidates, 1);
+    for (const n of [1, 2, 8, 12, 20]) assert.equal(req({ candidates: n }).candidates, n);
+    assert.equal(req({ candidates: 0 }).candidates, 1);
+    assert.equal(req({ candidates: -3 }).candidates, 1);
+    assert.equal(req({ candidates: 50 }).candidates, 20);
+    for (const bad of [2.5, "8", NaN, Infinity, true, {}, [3]]) {
+        assert.throws(() => req({ candidates: bad }), /candidates/, `candidates ${String(bad)}`);
+    }
+});
+
+test("normalizeRequest: repeats is a boolean (default false), style is null or a string", () => {
+    const req = (extra) => normalizeRequest({ target: 5, patterns: [{ name: "Stream", share: 1 }], seed: 1, ...extra }, 60000);
+    assert.equal(req({}).repeats, false);
+    assert.equal(req({ repeats: true }).repeats, true);
+    assert.equal(req({ repeats: false }).repeats, false);
+    for (const bad of [1, "yes", null, {}]) assert.throws(() => req({ repeats: bad }), /repeats/);
+    assert.equal(req({}).style, null);
+    assert.equal(req({ style: null }).style, null);
+    assert.equal(req({ style: "n:someone" }).style, "n:someone");
+    for (const bad of [3, "", true, {}, "x".repeat(201)]) assert.throws(() => req({ style: bad }), /style/);
+});
+
+test("the request exports the danSelect reads stay as they were (tabs-v2 §8.1)", async () => {
+    const { LEVELS, STEPS, targetNumeric } = await import("../../src/gen/request.js");
+    assert.equal(LEVELS.length, 20);
+    assert.deepEqual(LEVELS.map((l) => l.value), Array.from({ length: 20 }, (_, i) => i + 1));
+    assert.deepEqual(STEPS.map((s) => [s.id, s.offset]), [["low", -0.4], ["low/mid", -0.2], ["mid", 0], ["mid/high", 0.2], ["high", 0.4]]);
+    assert.equal(targetNumeric(7, "high"), 7.4);
+    assert.equal(targetNumeric(7, "nope"), 7);
+});

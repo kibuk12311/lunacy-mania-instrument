@@ -153,6 +153,7 @@ export function familySizeRates(pattern, family) {
 }
 
 const MIN_EVIDENCE = 20;
+export const STYLE_ALPHA = 4; // a mapper's own continuations count this many times over the global ones (§2.6)
 const JACK_FAMILIES = new Set(["Chordjack", "Jack"]);
 const total = (counts) => Object.values(counts).reduce((a, b) => a + b, 0);
 
@@ -166,7 +167,10 @@ const total = (counts) => Object.values(counts).reduce((a, b) => a + b, 0);
 // `bias` (a flavour's motif weights per mask, flavours.js motifWeights) bends the row towards the flavour: every mask
 // gets motif × (its share among the family's continuations + PROPOSAL), so a motif row the human maps never had after
 // this context still comes up, and among the motif's rows the family's own habits decide. Without it, nothing changes.
-export function sampleRow(pattern, family, prev, prev2, sizeWeights, rng, weightOf = null, prev3 = null, bias = null) {
+// `style` ({ pattern: model.stylePattern[key], alpha }, ML addendum §2.6) blends a mapper's own continuations in: at
+// the context level the global table chose, counts_global + alpha·counts_creator when the creator has at least
+// MIN_EVIDENCE rows there (else the global counts alone). Without it (null), nothing changes.
+export function sampleRow(pattern, family, prev, prev2, sizeWeights, rng, weightOf = null, prev3 = null, bias = null, style = null) {
     const fam = rowIndex(pattern)[family];
     if (!fam && bias) {
         const weighted = {};
@@ -174,18 +178,39 @@ export function sampleRow(pattern, family, prev, prev2, sizeWeights, rng, weight
         return drawWeighted(weighted, rng, weightOf);
     }
     if (!fam) return sampleMask(pattern, family, prev, prev2, 1, rng, weightOf);
-    const deep = prev3 !== null ? fam.byCtx3[`${prev},${prev2},${prev3}`] : null;
-    const exact = fam.byCtx[`${prev},${prev2}`];
+    const own = style?.pattern ? rowIndex(style.pattern)[family] ?? null : null;
+    const deepKey = `${prev},${prev2},${prev3}`;
+    const exactKey = `${prev},${prev2}`;
+    const deep = prev3 !== null ? fam.byCtx3[deepKey] : null;
+    const exact = fam.byCtx[exactKey];
     const near = fam.byPrev[String(prev)];
+    // no reliable continuation: the family's general row mix, minus jacks unless jacks are the family (the global
+    // table falls back to its whole mix when nothing is left; the creator's then adds nothing)
+    const noJacks = (all) => (JACK_FAMILIES.has(family) ? all : Object.fromEntries(Object.entries(all).filter(([m]) => (Number(m) & prev) === 0)));
+    const general = (all) => {
+        const kept = noJacks(all);
+        return Object.keys(kept).length ? kept : all;
+    };
     let counts;
-    if (deep && total(deep) >= MIN_EVIDENCE) counts = deep;
-    else if (exact && total(exact) >= MIN_EVIDENCE) counts = exact;
-    else if (near && total(near) >= MIN_EVIDENCE) counts = near;
-    else {
-        // no reliable continuation: the family's general row mix, minus jacks unless jacks are the family
-        counts = JACK_FAMILIES.has(family) ? fam.all
-            : Object.fromEntries(Object.entries(fam.all).filter(([m]) => (Number(m) & prev) === 0));
-        if (!Object.keys(counts).length) counts = fam.all;
+    let mine = null; // the creator's counts at the same level
+    if (deep && total(deep) >= MIN_EVIDENCE) {
+        counts = deep;
+        mine = own?.byCtx3[deepKey];
+    } else if (exact && total(exact) >= MIN_EVIDENCE) {
+        counts = exact;
+        mine = own?.byCtx[exactKey];
+    } else if (near && total(near) >= MIN_EVIDENCE) {
+        counts = near;
+        mine = own?.byPrev[String(prev)];
+    } else {
+        counts = general(fam.all);
+        mine = own ? noJacks(own.all) : null;
+    }
+    if (mine && total(mine) >= MIN_EVIDENCE) {
+        const alpha = Number.isFinite(style.alpha) ? style.alpha : STYLE_ALPHA;
+        const blended = { ...counts };
+        for (const [mask, c] of Object.entries(mine)) blended[mask] = (blended[mask] ?? 0) + alpha * c;
+        counts = blended;
     }
     const weighted = {};
     if (bias) {

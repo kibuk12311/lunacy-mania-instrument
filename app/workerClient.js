@@ -2,6 +2,15 @@
 // A long job may post { id, progress } on the way: it goes to the request's onProgress and re-arms its timer.
 import { getLang, t } from "../src/i18n/i18n.js";
 
+// >>> create (mapgen v3, stream W): a worker that wants the GPU renderer posts { gpuPort: true }; the hook
+// (app/gpuWorkerHost.js, set from registerCreateIpc) answers that worker with a port. No hook: nobody answers and the
+// worker stays on the CPU after its own timeout.
+let gpuPortHook = null;
+export function setGpuPortHook(hook) {
+    gpuPortHook = hook;
+}
+// <<< create
+
 export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutMs = 180_000, timingTimeoutMs = 20_000 }) {
     let worker = null;
     let disposed = false;
@@ -40,6 +49,7 @@ export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutM
         w.on("message", (msg) => {
             if (msg && "result" in msg) settle(msg.id, msg.result);
             else if (msg?.progress) progress(msg.id, msg.progress);
+            else if (msg?.gpuPort === true) gpuPortHook?.(w); // create (stream W): the GPU renderer's port
         });
         w.on("exit", () => {
             if (worker === w) worker = null;
@@ -77,6 +87,8 @@ export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutM
         generate: (payload, onProgress) => request({ kind: "generate", payload }, generateTimeoutMs, onProgress),
         detectTiming: (payload) => request({ kind: "timing", payload }, timingTimeoutMs),
         remap: (payload, onProgress) => request({ kind: "remap", payload }, generateTimeoutMs, onProgress),
+        // wave 3: the personal reranker is fitted here, never in main; it may wait behind a generation, hence its limit
+        fitPersonal: (payload) => request({ kind: "fit-personal", payload }, generateTimeoutMs),
         // <<< create
         dispose() {
             disposed = true;

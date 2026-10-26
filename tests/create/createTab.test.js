@@ -1,7 +1,9 @@
 // The create tab put together (mapgen v3, B7) on the fake DOM: loading a song (worker timing, local fallback),
 // 3 variants of one range with seeds base + v·1009, a mapset with one variant per difficulty and the same seeds,
 // progress for this job only, «Стоп», «Ещё вариант», a lock and «Перегенерировать незакреплённое», timingChanged,
-// the mode chips and what the export panel gets.
+// the mode chips and what the export panel gets. Wave 3 (stream U): the stems on song load (U0), the generator
+// options in the request and 2 cards with the critic, «только эту часть», 👍/👎 and the ratings line (U2).
+// The tests from before wave 3 run with 1 candidate (no critic), as the tab did then.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -58,6 +60,7 @@ function answerFor(req, { numeric = 13.0, patternScore = 0.8 } = {}) {
 let copies = 0;
 async function loadedTab(api = {}, opts = {}) {
     fakeAudio();
+    const candidates = opts.candidates ?? 1;
     const calls = { generate: [], timing: [], selection: [], loaded: [] };
     let progress = null;
     const dom = fakeDom({
@@ -69,7 +72,7 @@ async function loadedTab(api = {}, opts = {}) {
         generateMap: async (req) => { calls.generate.push(req); return answerFor(req); },
         onGenerateProgress: (cb) => { progress = cb; return () => {}; },
         ...api,
-    });
+    }, { storage: { "create.genOptions": JSON.stringify({ candidates, ...(opts.saved ?? {}) }) } });
     copies += 1;
     const mod = await import(`../../app/renderer/createTab.js?copy=${copies}`);
     let seed = 0.5;
@@ -81,11 +84,18 @@ async function loadedTab(api = {}, opts = {}) {
             onSelectionChanged: () => calls.selection.push(getSelection()),
         }),
         remapPanel: () => ({}),
+        gpu: async () => opts.gpu ?? false,
+        ...(opts.stems ? { stems: opts.stems } : {}),
+        ...(opts.pause ? { pause: opts.pause } : {}),
     });
-    await fire(dom.$("file"), "change", { target: { files: [{ name: "song.mp3", arrayBuffer: async () => new ArrayBuffer(8) }] } });
-    for (let i = 0; i < 200 && dom.$("generate").disabled; i += 1) await sleep(10);
-    assert.equal(dom.$("generate").disabled, false, "the song loaded");
-    return { ...dom, mod, calls, emit: (p) => progress?.(p), setSeed: (s) => { seed = s; } };
+    const load = async (name = "song.mp3") => {
+        dom.$("generate").disabled = true;
+        await fire(dom.$("file"), "change", { target: { files: [{ name, arrayBuffer: async () => new ArrayBuffer(8) }] } });
+        for (let i = 0; i < 300 && dom.$("generate").disabled; i += 1) await sleep(10);
+        assert.equal(dom.$("generate").disabled, false, "the song loaded");
+    };
+    await load();
+    return { ...dom, mod, calls, load, emit: (p) => progress?.(p), setSeed: (s) => { seed = s; } };
 }
 
 const BASE_SEED = 1 + Math.floor(0.5 * 999983);
@@ -321,4 +331,179 @@ test("the mode chips switch between the song and the remap panel", async () => {
     await fire(chips[0]);
     assert.equal(song.hidden, false);
     assert.equal(remap.hidden, true);
+});
+
+// ---- wave 3 (stream U) ----
+
+const STYLES = [{ key: "mapperA", name: "Mapper A", maps: 40 }];
+const genInfo = (over = {}) => async () => ({ ok: true, modelInfo: { kind: "nn-v2", styles: STYLES, sizes: { s: true, m: true, l: false, distilled: false }, engines: ["neural", "learned", "rules"], ...over } });
+
+test("U0: the stems are worked out on song load, yielding between chunks with the status shown, and go beside the envelope", async () => {
+    setLang("en");
+    try {
+        const seen = [];
+        const pause = async () => {
+            seen.push(globalThis.document.getElementById("gen-status").textContent);
+            await new Promise((resolve) => setImmediate(resolve));
+        };
+        const dom = await loadedTab({}, { pause });
+        assert.ok(seen.length >= 3, `yielded ${seen.length} times`);
+        assert.ok(seen.every((text) => text === "Splitting the sound into parts…"), seen.join(" | "));
+        assert.equal(dom.$("gen-status").textContent, "", "the status clears");
+        await fire(dom.$("generate"));
+        const [req] = dom.calls.generate;
+        assert.equal(req.stems.v, 1);
+        assert.ok(Math.abs(req.stems.frames - req.envelope.values.length) <= 2, `${req.stems.frames} frames, envelope ${req.envelope.values.length}`);
+        assert.ok(req.stems.kick instanceof Float32Array && req.stems.chroma instanceof Uint8Array);
+        assert.equal("stems" in req.request, false, "top level, not inside the request");
+        assert.equal(req.request.repeats, true);
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U0: a stems failure leaves them out and the request still goes; a new song drops the old stems", async () => {
+    setLang("en");
+    try {
+        const real = await import("../../src/audio/stems.js");
+        let fail = false;
+        const stems = {
+            computeStems: async (...args) => { if (fail) throw new Error("no memory"); return real.computeStems(...args); },
+            stemsToTransfer: real.stemsToTransfer,
+        };
+        const warn = console.warn;
+        const warned = [];
+        console.warn = (msg) => warned.push(String(msg));
+        try {
+            const { $, calls, load } = await loadedTab({}, { stems });
+            await fire($("generate"));
+            assert.ok(calls.generate.at(-1).stems, "the first song has its stems");
+            fail = true;
+            await load("other.mp3");
+            await fire($("generate"));
+            const req = calls.generate.at(-1);
+            assert.equal("stems" in req, false, "the new song's failed stems are not the old ones");
+            assert.equal(req.request.repeats, false, "no stems: no repeats");
+            assert.ok(textOf($("gen-options")).includes("needs the sound breakdown — reload the song"));
+            assert.ok(warned.some((w) => w.includes("no memory")), "the failure is logged");
+        } finally {
+            console.warn = warn;
+        }
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U2: the request carries the model choice, candidates, style and repeats; 12 candidates make 2 cards", async () => {
+    setLang("en");
+    try {
+        const { $, calls } = await loadedTab({ generatorInfo: genInfo() }, { candidates: 12, saved: { modelSize: "m", style: "mapperA" } });
+        await sleep(20);
+        await fire($("generate"));
+        assert.equal(calls.generate.length, 2, "CARDS_WITH_CRITIC");
+        const { request } = calls.generate[0];
+        assert.equal(request.candidates, 12);
+        assert.equal(request.modelSize, "m");
+        assert.equal(request.style, "mapperA");
+        assert.equal(request.repeats, true);
+        assert.equal($("gen-options").hidden, false);
+        assert.ok(textOf($("gen-options")).includes("Neural net M (experimental)"));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U2: progress names the candidates and the critic; the critic line is on the card", async () => {
+    setLang("en");
+    try {
+        let release = null;
+        const critic = { kind: "heuristic", score: -0.1, human: null, fun: null, play: -0.1, personal: null, style: null, picked: 3, of: 12, analysed: 3, ms: 840 };
+        const { $, calls, emit } = await loadedTab({
+            generateMap: async (req) => {
+                calls.generate.push(req);
+                await new Promise((resolve) => { release = resolve; });
+                return { ...answerFor(req), critic };
+            },
+        }, { candidates: 12 });
+        const run = fire($("generate"));
+        await sleep(5);
+        const [req] = calls.generate;
+        emit({ jobId: req.jobId, phase: "candidates", i: 4, n: 12 });
+        assert.equal($("gen-status").textContent, "Variant 1 of 2… Trying candidates: 5 of 12…");
+        emit({ jobId: req.jobId, phase: "critic", i: 0, n: 1 });
+        assert.equal($("gen-status").textContent, "Variant 1 of 2… The critic compares the best ones…");
+        release();
+        await sleep(5);
+        release();
+        await run;
+        assert.ok(textOf($("gen-result")).includes("Critic: comfort \u22120.1 · best of 12"), textOf($("gen-result")));
+        assert.ok(textOf($("gen-options")).includes("the critic picks the best · ≈0.8 s"), "840 ms over 12 candidates, × 12");
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U2: «Regenerate only this part» sends a lock of every other part", async () => {
+    setLang("en");
+    try {
+        const { $, mod, calls } = await loadedTab();
+        await fire($("generate"));
+        const { diffs } = mod.createTabState();
+        const chosen = diffs[0].cards.find((c) => c.id === diffs[0].selectedId);
+        await fire($("timeline"), "pointerdown", { offsetX: 432 * 0.5, button: 0 });
+        await fire($("timeline"), "pointerup", { offsetX: 432 * 0.5 });
+        await fire(buttons($("part-editor"), "Regenerate only this part")[0]);
+        const req = calls.generate.at(-1).request;
+        assert.deepEqual(req.lock, { fromId: chosen.id, parts: [0, 2] }, "part 1 (the drop) is the one redone");
+        assert.deepEqual(req.parts, PARTS);
+        assert.equal(req.planSeed, chosen.answer.planSeed);
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U2: the vote buttons call rateVariant with the card's id; the ratings line follows, and the export", async () => {
+    setLang("en");
+    try {
+        const rated = [];
+        let n = 0;
+        const { $, mod } = await loadedTab({
+            rateVariant: async (r) => { rated.push(r); n += r.vote ? 1 : 0; return { ok: true, n }; },
+            ratingsSummary: async () => ({ ok: true, n, up: n, down: 0, active: false, auc: null }),
+            ratingsExport: async () => ({ ok: true, file: "C:/docs/lunacy-ratings-2026-10-26.json" }),
+        });
+        await fire($("generate"));
+        const { diffs } = mod.createTabState();
+        const likes = all($("gen-result")).filter((b) => b.tagName === "BUTTON" && b.dataset.vote === "1");
+        assert.equal(likes.length, 3);
+        await fire(likes[1]);
+        assert.deepEqual(rated, [{ id: diffs[0].cards[1].id, vote: 1, tags: [] }]);
+        assert.ok(textOf($("gen-result")).includes("Your ratings: 1"));
+        await fire(buttons($("gen-result"), "Export my ratings")[0]);
+        assert.ok(textOf($("gen-result")).includes("Saved: C:/docs/lunacy-ratings-2026-10-26.json"));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("U3: once the personal model is active the line says so", async () => {
+    setLang("en");
+    try {
+        const { $ } = await loadedTab({ ratingsSummary: async () => ({ ok: true, n: 14, up: 8, down: 6, active: true, auc: 0.7 }) });
+        await fire($("generate"));
+        await sleep(5);
+        assert.ok(textOf($("gen-result")).includes("Using your ratings: 14"), textOf($("gen-result")));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("the timeline shows the chosen card's song structure", async () => {
+    const structure = { phrases: [{ startMs: 0, bars: 8 }, { startMs: 10000, bars: 8 }], repeats: [{ aMs: 0, bMs: 10000, lenMs: 5000, sim: 0.9 }] };
+    const { $, calls } = await loadedTab({ generateMap: async (req) => { calls.generate.push(req); return { ...answerFor(req), structure }; } });
+    const ctx = $("timeline").getContext("2d");
+    ctx.calls.length = 0;
+    await fire($("generate"));
+    assert.ok(ctx.calls.some((c) => c[0] === "fillRect" && c[2] === 64 - 14 && c[4] === 10), "a phrase tick");
+    assert.ok(ctx.calls.some((c) => c[0] === "fillRect" && c[2] === 64 - 3 && c[4] === 2), "a repeat underline");
 });

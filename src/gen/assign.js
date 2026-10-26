@@ -1,5 +1,6 @@
 // Which pattern each grid slot uses: whole 8-beat sections ("sections") or a weighted pick per beat ("mixed").
 import { pick } from "./rng.js";
+import { structureBars, phraseStarts } from "./echo.js";
 
 const SLOTS_PER_SECTION = 32;
 const SLOTS_PER_BEAT = 4;
@@ -52,19 +53,98 @@ export function assignPatterns(slotCount, patterns, mode, rng) {
 // Patterns per slot, part by part (mapgen v3): every part runs assignPatterns on its own beats with its own patterns
 // (or `defaults`), so pattern sections start at part starts; an empty part gets null. Sections are counted in beats,
 // so a triplet beat (3 slots) still counts as one beat of its 8-beat section.
-export function assignByParts(slots, parts, defaults, mode, rng) {
+// With a song structure (wave 3, request.repeats; ML addendum §2.3), `structure` from src/gen/structure.js:
+// - "mixed" switches families only at phrase starts: each phrase of a part gets one weighted pick (not one per beat);
+// - a repeated section takes the family plan of its first occurrence: a phrase whose bars mostly echo bars one fixed
+//   lag earlier copies the families of those bars, beat by beat, when its part may use them (in "mixed", only when the
+//   copy keeps one family over the phrase, so no switch lands inside it). Without it, v3 exactly.
+export function assignByParts(slots, parts, defaults, mode, rng, { structure = null } = {}) {
     const out = new Array(slots.length).fill(null);
+    const starts = structure ? phraseStarts(structure, slots) : null;
     let i = 0;
     parts.forEach((part, p) => {
         const from = i;
         while (i < slots.length && (p + 1 >= parts.length || slots[i].t < parts[p + 1].startMs)) i += 1;
         if (part.empty || i === from) return;
+        const patterns = part.patterns ?? defaults;
+        if (starts && mode === "mixed") {
+            const names = patterns.map((x) => x.name);
+            const weights = patterns.map((x) => x.share);
+            let name = null;
+            for (let k = from; k < i; k += 1) {
+                if (k === from || starts[k]) name = pick(rng, names, weights);
+                out[k] = name;
+            }
+            return;
+        }
         const firstBeat = slots[from].beat;
         const beats = slots[i - 1].beat - firstBeat + 1;
-        const plan = assignPatterns(beats * SLOTS_PER_BEAT, part.patterns ?? defaults, mode, rng);
+        const plan = assignPatterns(beats * SLOTS_PER_BEAT, patterns, mode, rng);
         for (let k = from; k < i; k += 1) out[k] = plan[(slots[k].beat - firstBeat) * SLOTS_PER_BEAT + slots[k].sub];
     });
+    if (structure) copyEchoFamilies(out, slots, parts, defaults, mode, structure);
     return out;
+}
+
+// The first slot of every beat of a bar, in order.
+function beatStarts(slots, bar) {
+    const out = [];
+    for (let i = bar.i0; i < bar.i1; i += 1) {
+        const s = slots[i];
+        const prev = slots[i - 1];
+        if (i === bar.i0 || s.beat !== prev.beat || (s.pos ?? s.sub) <= (prev.pos ?? prev.sub)) out.push(i);
+    }
+    return out;
+}
+
+// Repeated phrases copy their first occurrence's families (see assignByParts), phrase by phrase in song order, so a
+// repeat of a repeat copies the copy.
+function copyEchoFamilies(out, slots, parts, defaults, mode, structure) {
+    const echoOf = structure.echoOf;
+    if (!echoOf?.length || !structure.phrases?.length) return;
+    const { bars } = structureBars(structure, slots);
+    const partAt = (t) => {
+        let p = 0;
+        while (p + 1 < parts.length && t >= parts[p + 1].startMs) p += 1;
+        return p;
+    };
+    const allowed = (i) => {
+        const part = parts[partAt(slots[i].t)];
+        return part.empty ? null : new Set((part.patterns ?? defaults).map((x) => x.name));
+    };
+    for (const phrase of structure.phrases) {
+        const end = Math.min(phrase.bar + phrase.bars, bars.length, echoOf.length);
+        const lags = new Map();
+        for (let b = phrase.bar; b < end; b += 1) if (echoOf[b] >= 0 && echoOf[b] < b) lags.set(b - echoOf[b], (lags.get(b - echoOf[b]) ?? 0) + 1);
+        let lag = 0;
+        let count = 0;
+        for (const [L, c] of lags) if (c > count || (c === count && L < lag)) [lag, count] = [L, c];
+        if (!lag || count * 2 < end - phrase.bar) continue;
+        const copy = [];
+        let ok = true;
+        for (let b = phrase.bar; b < end && ok; b += 1) {
+            const src = b - lag;
+            if (src < 0) {
+                ok = false;
+                break;
+            }
+            const mine = beatStarts(slots, bars[b]);
+            const theirs = beatStarts(slots, bars[src]);
+            mine.forEach((start, k) => {
+                const from = theirs[k];
+                const family = from === undefined ? null : out[from];
+                const stop = k + 1 < mine.length ? mine[k + 1] : bars[b].i1;
+                for (let i = start; i < stop; i += 1) {
+                    if (out[i] === null) continue; // an empty part stays empty
+                    if (family === null || !allowed(i)?.has(family)) ok = false;
+                    copy.push([i, family]);
+                }
+            });
+        }
+        if (!ok || !copy.length) continue;
+        if (mode === "mixed" && new Set(copy.map(([, f]) => f)).size > 1) continue;
+        for (const [i, family] of copy) out[i] = family;
+    }
 }
 
 const PHRASE_BARS = 8;

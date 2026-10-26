@@ -21,3 +21,21 @@ test("without a range the answers' own ranges count; the list is not changed", (
     assert.deepEqual(rankVariants(list).map((a) => a.id), ["b", "a"]);
     assert.deepEqual(list.map((a) => a.id), ["a", "b"]);
 });
+
+test("within one pattern-score bucket the higher critic score (to 0.25) comes first, before fewer issues", () => {
+    const range = { lo: 12.5, hi: 13.5 };
+    const c = (score) => ({ critic: { kind: "heuristic", score } });
+    const ranked = rankVariants([
+        { ...v("low critic, no issues", 13, 0.8, 0), ...c(-1.2) },
+        { ...v("high critic, issues", 13, 0.81, 4), ...c(0.4) },
+        { ...v("better pattern", 13, 0.9, 6), ...c(-5) },
+        { ...v("near tie", 13.2, 0.8, 1), ...c(0.45) },
+    ], range);
+    assert.deepEqual(ranked.map((a) => a.id), ["better pattern", "near tie", "high critic, issues", "low critic, no issues"]);
+    // the critic counts only when both cards have one: a card without it keeps the v3 order (issues)
+    const mixed = rankVariants([{ ...v("no critic, 2 issues", 13, 0.8, 2) }, { ...v("critic, 3 issues", 13, 0.8, 3), ...c(3) }], range);
+    assert.deepEqual(mixed.map((a) => a.id), ["no critic, 2 issues", "critic, 3 issues"]);
+    // in range still beats any critic score
+    const out = rankVariants([{ ...v("out", 14, 0.8), ...c(9) }, { ...v("in", 13, 0.8), ...c(-9) }], range);
+    assert.deepEqual(out.map((a) => a.id), ["in", "out"]);
+});

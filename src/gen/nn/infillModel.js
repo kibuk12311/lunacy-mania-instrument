@@ -18,6 +18,9 @@
 // mask, else as empty — rows decided outside the source should be passed as `fixed` so the decoder sees them.
 // snapshot()/restore(s) copy the decoder's ring caches and the rows, so one block or part can be re-decoded from its
 // start. The math matches tools/nn/infill_model.py (tests/fixtures/infill-parity.json, ≤ 2e-3).
+// Stream W (GPU, src/gen/nn/webgpu/): prepare({ …, encoded: { inputs, enc } }) takes the beat inputs and the encoder
+// output computed elsewhere for the same arguments (enc may carry e2d and cross, the decoder's static K/V), so a GPU
+// encoder feeds this very decoder and sampler; pickRow and createHistory are shared with the GPU decoder.
 import { decodeF16, encodeF16 } from "./f16.js";
 import { linearRows, matvec, layerNorm, geluInPlace, softmaxInPlace, attendHead, alibiSlopes } from "./kernels.js";
 import { slotFeatures, AUDIO_FEATURES_V2 } from "../slotFeatures.js";
@@ -276,8 +279,9 @@ export function createDecoder(net, enc, inp) {
     const hh = arch.lane_hidden;
     const le = arch.lane_emb;
     const LD = arch.dec_layers;
-    const e2d = linearRows(enc.out, T, W["e2d.weight"], W["e2d.bias"], d, dd);
-    const cross = Array.from({ length: LD }, (_, l) => linearRows(enc.out, T, W[`dec.${l}.ckv.weight`], W[`dec.${l}.ckv.bias`], d, 2 * dd));
+    // the static K/V, unless the encoder already gave them (the GPU encoder does)
+    const e2d = enc.e2d ?? linearRows(enc.out, T, W["e2d.weight"], W["e2d.bias"], d, dd);
+    const cross = enc.cross ?? Array.from({ length: LD }, (_, l) => linearRows(enc.out, T, W[`dec.${l}.ckv.weight`], W[`dec.${l}.ckv.bias`], d, 2 * dd));
     let ring = Array.from({ length: LD }, () => new Float32Array(R * 2 * dd));
     let z = new Float32Array(dd);
     let beat = 0;
@@ -383,7 +387,7 @@ export function createDecoder(net, enc, inp) {
 }
 
 // The lane head's history: the last 4 rows (newest first), as one-hot mask + gap in beats (clipped to 4, / 4).
-function createHistory() {
+export function createHistory() {
     const mask = new Uint8Array(N_HIST);
     const pos = new Float64Array(N_HIST);
     let n = 0;
@@ -599,16 +603,41 @@ export function buildInfillInputs(net, { audio = {}, slots, dan, family, known =
     };
 }
 
+// One slot's row from its 16 logits (logit 0 = no row; the caller's logits are changed): logits[0] −= offset, one
+// rngs.fill() draw decides row / no row, then the guard's weights scale the row probabilities and one rngs.pattern()
+// draw picks the row; all rows vetoed → weightOf.fallback(). p: 16 float64 of scratch.
+export function pickRow(logits, offset, rngs, weightOf, p = new Float64Array(N_CLASSES)) {
+    logits[0] -= offset;
+    for (let k = 0; k < N_CLASSES; k += 1) p[k] = logits[k];
+    softmaxInPlace(p, 0, N_CLASSES);
+    if (rngs.fill() < p[0]) return 0;
+    let total = 0;
+    for (let k = 1; k < N_CLASSES; k += 1) {
+        const w = weightOf ? weightOf(k) : 1;
+        p[k] *= w > 0 ? w : 0;
+        total += p[k];
+    }
+    const fallback = () => (weightOf?.fallback ? weightOf.fallback() : 0);
+    if (!(total > 0)) return fallback();
+    let r = rngs.pattern() * total;
+    for (let k = 1; k < N_CLASSES; k += 1) {
+        r -= p[k];
+        if (r < 0) return k;
+    }
+    for (let k = N_CLASSES - 1; k > 0; k -= 1) if (p[k] > 0) return k;
+    return fallback();
+}
+
 // ---- the row source ----
 export const infillSource = {
     kind: "nn-v2",
     caps: { infill: true },
-    prepare({ model, audio, slots, dan, family, known = null, cond = null, structure = null }) {
+    prepare({ model, audio, slots, dan, family, known = null, cond = null, structure = null, encoded = null }) {
         const net = loadInfill(model);
-        const inp = buildInfillInputs(net, { audio, slots, dan, family, known, cond, structure });
+        const inp = encoded?.inputs ?? buildInfillInputs(net, { audio, slots, dan, family, known, cond, structure });
         const stats = { encodes: 0, decoded: 0 };
         if (!inp.T) return { step: () => 0, begin() {}, snapshot: () => null, restore() {}, stats, inputs: inp };
-        const enc = encodeBeats(net, inp);
+        const enc = encoded?.enc ?? encodeBeats(net, inp);
         stats.encodes += 1;
         const dec = createDecoder(net, enc, inp);
         const hist = createHistory();
@@ -636,25 +665,7 @@ export const infillSource = {
                 stats.decoded += 1;
             }
             dec.laneLogits(inp.laneOf[i], hist.features(posOf(i), h), logits);
-            logits[0] -= offset;
-            for (let k = 0; k < N_CLASSES; k += 1) p[k] = logits[k];
-            softmaxInPlace(p, 0, N_CLASSES);
-            if (rngs.fill() < p[0]) return 0;
-            let total = 0;
-            for (let k = 1; k < N_CLASSES; k += 1) {
-                const w = weightOf ? weightOf(k) : 1;
-                p[k] *= w > 0 ? w : 0;
-                total += p[k];
-            }
-            const fallback = () => (weightOf?.fallback ? weightOf.fallback() : 0);
-            if (!(total > 0)) return fallback();
-            let r = rngs.pattern() * total;
-            for (let k = 1; k < N_CLASSES; k += 1) {
-                r -= p[k];
-                if (r < 0) return k;
-            }
-            for (let k = N_CLASSES - 1; k > 0; k -= 1) if (p[k] > 0) return k;
-            return fallback();
+            return pickRow(logits, offset, rngs, weightOf, p);
         };
         return {
             stats,

@@ -63,6 +63,7 @@ npm start
 
 - `node tools/fetch-tosu.mjs` скачивает закреплённую версию tosu в `vendor/tosu/` и проверяет её sha256.
 - Обученного генератора `models/mapper.json` (~37 МБ) нет в git. Скачай `mapper.json` из релиза в `models/`; без него генератор работает по правилам.
+- Если есть видеокарта с WebGPU, энкодер нейросетевых моделей считается на ней в скрытом окне (`app/gpuWorker*`, `src/gen/nn/webgpu/`); декодер и выбор нот остаются на процессоре, а без видеокарты или если она не прошла проверку точности всё считается на процессоре. Проверки: `npx electron tests/smoke/electron-webgpu.mjs` (ядра на видеокарте против PyTorch и JS), `npx electron tests/smoke/electron-gpu-link.mjs` (связь воркера с видеокартой), замер скорости: `npx electron tools/bench-gpu.mjs` (цифры в `docs/2026-10-26-webgpu-stream-w.md`).
 - `npm test` — тесты (встроенный в Node раннер).
 - `npm run dist` — собирает установщик, портативный exe и `latest.yml` в `dist/`.
 

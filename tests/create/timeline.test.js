@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { fakeDom, fire, textOf } from "../helpers/fakeDom.js";
 import { setLang } from "../../src/i18n/i18n.js";
 import {
-    splitPart, mergeParts, partRange, badgeText, partAt, energyFallback, toPartSpecs, createTimeline, MAX_PARTS,
+    splitPart, mergeParts, partRange, badgeText, partAt, energyFallback, toPartSpecs, createTimeline, MAX_PARTS, repeatGroups,
 } from "../../app/renderer/timeline.js";
 
 const PARTS = [
@@ -205,4 +205,62 @@ test("detected parts replace the old ones only while nothing was edited", () => 
     tl.setParts([{ startMs: 0, endMs: 90000, kind: "part" }], { detected: true });
     assert.equal(tl.parts.length, 1);
     assert.equal(tl.selected, null, "the pick is dropped with the old parts");
+});
+
+// ---- wave 3 (stream U): the song structure on the curve and «Regenerate only this part» ----
+
+test("repeat groups: sections that repeat each other share one colour; chained repeats join one group", () => {
+    const groups = repeatGroups([
+        { aMs: 0, bMs: 20000, lenMs: 10000, sim: 0.9 },
+        { aMs: 20000, bMs: 60000, lenMs: 10000, sim: 0.85 }, // the second A repeats again: same group
+        { aMs: 30000, bMs: 70000, lenMs: 5000, sim: 0.8 },
+        { aMs: 1, bMs: Number.NaN, lenMs: 1 }, // not a repeat
+    ]);
+    assert.equal(groups.length, 2);
+    assert.deepEqual(groups[0].spans, [[0, 10000], [20000, 30000], [60000, 70000]]);
+    assert.deepEqual(groups[1].spans, [[30000, 35000], [70000, 75000]]);
+    assert.notEqual(groups[0].color, groups[1].color);
+    assert.deepEqual(repeatGroups(null), []);
+});
+
+test("the chosen variant's phrase starts are ticks and its repeats underlines; a new song clears them", () => {
+    const { $, tl } = setup();
+    const ctx = $("timeline").getContext("2d");
+    const structure = { phrases: [{ startMs: 0, bars: 8 }, { startMs: 22500, bars: 8 }, { startMs: 45000, bars: 4 }], repeats: [{ aMs: 0, bMs: 45000, lenMs: 22500, sim: 0.9 }] };
+    ctx.calls.length = 0;
+    tl.setResult({ reports: null, structure });
+    const ticks = ctx.calls.filter((c) => c[0] === "fillRect" && c[2] === 64 - 14 && c[4] === 10);
+    assert.deepEqual(ticks.map((c) => c[1]), [Math.round(432 * 0.25), Math.round(432 * 0.5)], "the song's start needs no tick");
+    const lines = ctx.calls.filter((c) => c[0] === "fillRect" && c[2] === 64 - 3 && c[4] === 2);
+    assert.deepEqual(lines.map((c) => [Math.round(c[1]), Math.round(c[3])]), [[0, 108], [216, 108]]);
+    ctx.calls.length = 0;
+    tl.setSong({ durationMs: 90000, energy: null });
+    assert.equal(ctx.calls.filter((c) => c[0] === "fillRect" && (c[4] === 10 || c[4] === 2)).length, 0);
+});
+
+test("«Regenerate only this part» shows with the lock toggle when there is more than one part, and names the part", async () => {
+    setLang("en");
+    try {
+        const dom = fakeDom({});
+        const only = [];
+        const tl = createTimeline({
+            canvas: dom.$("timeline"), editor: dom.$("part-editor"), getCursor: () => 0,
+            onSeek() {}, onChange() {}, onReset() {}, onToggleLock() {}, onOnlyThis: (i) => only.push(i),
+        });
+        tl.setSong({ durationMs: 90000, energy: null });
+        tl.setParts(PARTS.map((p) => ({ ...p })));
+        const button = () => find(dom.$("part-editor"), (n) => n.tagName === "BUTTON" && n.textContent === "Regenerate only this part");
+        tl.select(1);
+        assert.equal(button(), undefined, "no result yet");
+        tl.setResult({ reports: [], locks: new Set(), canLock: true });
+        tl.select(1);
+        await fire(button());
+        assert.deepEqual(only, [1]);
+        tl.setParts([{ startMs: 0, endMs: 90000, kind: "part" }]);
+        tl.setResult({ reports: [], locks: new Set(), canLock: true });
+        tl.select(0);
+        assert.equal(button(), undefined, "one part: nothing else to keep");
+    } finally {
+        setLang("ru");
+    }
 });

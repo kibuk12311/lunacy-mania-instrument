@@ -1,12 +1,12 @@
 // Updates (app/updater.js) with fakes for electron-updater, the dialog, fetch and the clock: version compare, the
 // installed flow (ready → dialog → quitAndInstall / later), the portable release-page offer, quiet automatic errors
-// versus told tray checks, the dev run and the automatic-check setting.
+// versus told tray checks, the dev run, the automatic-check setting and the check every 4 hours.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import {
     compareVersions, parseVersion, isPortableRun, updateMode, releasePage, createUpdater,
-    LATEST_RELEASE_API, RELEASES_PAGE, AUTO_CHECK_DELAY_MS,
+    LATEST_RELEASE_API, RELEASES_PAGE, AUTO_CHECK_DELAY_MS, RECHECK_EVERY_MS,
 } from "../app/updater.js";
 import { setLang, t } from "../src/i18n/i18n.js";
 
@@ -48,6 +48,7 @@ function setup({ mode = "installed", check = upToDate, responses = [], fetchAnsw
     const boxes = [];
     const opened = [];
     const timers = [];
+    const intervals = [];
     const fetched = [];
     const autoUpdater = fakeAutoUpdater(check);
     let loaded = 0;
@@ -75,8 +76,13 @@ function setup({ mode = "installed", check = upToDate, responses = [], fetchAnsw
         t,
         autoCheck,
         schedule: (fn, ms) => timers.push({ fn, ms }),
+        repeat: (fn, ms) => {
+            const timer = { fn, ms, unrefs: 0, unref() { this.unrefs += 1; } };
+            intervals.push(timer);
+            return timer;
+        },
     });
-    return { updater, autoUpdater, logs, boxes, opened, timers, fetched, loaded: () => loaded };
+    return { updater, autoUpdater, logs, boxes, opened, timers, intervals, fetched, loaded: () => loaded };
 }
 
 test("versions: semver precedence with a leading v, prereleases and build metadata", () => {
@@ -139,11 +145,65 @@ test("start: the automatic check runs 10 s after start, re-reads the setting, an
     const dev = setup({ mode: "dev" });
     assert.equal(dev.updater.start(), false);
     assert.equal(dev.timers.length, 0);
+    assert.equal(dev.intervals.length, 0, "no 4-hour check in a dev run");
     assert.equal(await dev.updater.check(), "dev");
     assert.equal(dev.boxes.length, 0, "quiet");
     assert.equal(dev.loaded(), 0, "electron-updater never loaded");
     assert.equal(await dev.updater.check({ manual: true }), "dev");
     assert.equal(dev.boxes[0].message, "Updates are checked only in the built app");
+});
+
+test("every 4 hours while the app runs: installed and portable check again, only while the setting is on", async () => {
+    assert.equal(RECHECK_EVERY_MS, 4 * 60 * 60 * 1000);
+    let on = true;
+    const installed = setup({ autoCheck: () => on });
+    installed.updater.start();
+    installed.updater.start(); // a second start does not add a second repeat
+    assert.equal(installed.intervals.length, 1);
+    assert.equal(installed.intervals[0].ms, RECHECK_EVERY_MS);
+    assert.equal(installed.intervals[0].unrefs, 1, "it never keeps the app alive by itself");
+    installed.timers[0].fn();
+    await flush();
+    assert.equal(installed.autoUpdater.checks, 1, "the first check, 10 s after start");
+    installed.intervals[0].fn();
+    await flush();
+    assert.equal(installed.autoUpdater.checks, 2, "4 hours later");
+    installed.intervals[0].fn();
+    await flush();
+    assert.equal(installed.autoUpdater.checks, 3, "and 4 hours after that");
+    on = false;
+    installed.intervals[0].fn();
+    await flush();
+    assert.equal(installed.autoUpdater.checks, 3, "the setting is read each time");
+    assert.equal(installed.boxes.length, 0, "up to date: nothing is told");
+
+    // portable: the release page is offered once; later 4-hour checks of the same release stay quiet
+    const portable = setup({ mode: "portable", fetchAnswer: { body: { tag_name: "v0.9.0", html_url: "https://github.com/kibuk12311/lunacy-mania-instrument/releases/tag/v0.9.0" } }, responses: [1] });
+    portable.updater.start();
+    assert.equal(portable.intervals.length, 1);
+    portable.intervals[0].fn();
+    await flush();
+    await flush();
+    assert.equal(portable.fetched.length, 1);
+    assert.equal(portable.boxes.length, 1);
+    portable.intervals[0].fn();
+    await flush();
+    await flush();
+    assert.equal(portable.fetched.length, 2, "checked again");
+    assert.equal(portable.boxes.length, 1, "the same release is not offered twice by itself");
+
+    // the setting off at start: no first check, but the 4-hour one is there for when it is turned on
+    let later = false;
+    const off = setup({ autoCheck: () => later });
+    assert.equal(off.updater.start(), false);
+    assert.equal(off.intervals.length, 1);
+    off.intervals[0].fn();
+    await flush();
+    assert.equal(off.loaded(), 0);
+    later = true;
+    off.intervals[0].fn();
+    await flush();
+    assert.equal(off.autoUpdater.checks, 1);
 });
 
 test("installed: found → downloaded → asked once → «Restart now» runs quitAndInstall silently and restarts", async () => {

@@ -71,3 +71,42 @@
 .pp-family > span { margin-bottom: 3px; }
 .pp-family > span[data-pattern] { min-width: 84px; text-align: center; }
 .pp-family .pp-flavour { padding: 2px 7px; font-size: 11px; margin-right: 4px; }
+
+/* >>> mapgen-ML: the generator options (genOptions.js), the critic line and the 👍/👎 bar (ratingBar.js) */
+.ml-options { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ml-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ml-label { font-size: 12px; color: #cccccc; }
+/* the model picker: a card per model, like picking a model; two per row when there is room; the experimental ones
+   get a dashed border so the classic default stands out */
+.ml-sizes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; min-width: 0; }
+.ml-size {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; text-align: left;
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 6px 9px;
+    font: inherit; font-size: 12px; cursor: pointer;
+}
+.ml-size:hover:not(:disabled) { border-color: #8fd3ff88; }
+.ml-size.sel { border-color: var(--blue); background: #8fd3ff14; }
+.ml-size.sel .ml-size-name { color: var(--blue); }
+.ml-size.exp { border-style: dashed; }
+.ml-size:disabled { opacity: 0.45; cursor: default; }
+.ml-size-name { font-size: 13px; }
+.ml-size-line { color: var(--muted); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.ml-candidates { grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 24px; }
+.ml-count { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+.ml-hint { margin-top: -4px; overflow-wrap: anywhere; }
+.ml-style { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #cccccc; min-width: 0; }
+.ml-style select { flex: 1; min-width: 0; padding: 3px 6px; font-size: 12px; }
+.ml-style select:disabled { opacity: 0.5; }
+/* on a card: the critic line, the 👍/👎 bar and its tags; under the cards the ratings line */
+.cr-card .ml-critic { color: #b9b4c9; }
+.ml-rate { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-top: 5px; border-top: 1px solid var(--line); }
+.ml-rate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#create-tab .ml-rate button.small { padding: 2px 8px; font-size: 11px; color: #cccccc; }
+#create-tab .ml-rate button.small.sel { color: var(--gold); border-color: var(--gold); background: #f5c66b14; }
+.ml-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ml-tags > .muted { flex-basis: 100%; font-size: 11px; }
+.ml-rate-note { font-size: 11px; }
+.ml-ratings { flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+.ml-ratings[hidden] { display: none; }
+.ml-ratings .ok { color: var(--green); }
+/* <<< mapgen-ML */

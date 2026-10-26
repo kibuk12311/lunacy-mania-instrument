@@ -2,7 +2,7 @@
 // the store, forwards progress, keeps the map in the store and writes no file; detect-timing goes to the worker.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerCreateIpc } from "../app/createIpc.js";
@@ -67,9 +67,9 @@ function setup({ answer } = {}) {
     return { handlers, generate, detect, sent, calls, generatedStore, logs };
 }
 
-test("registers generate-map and detect-timing, and nothing else", () => {
+test("registers generate-map, detect-timing, generator-info and the ratings channels, and nothing else", () => {
     const { handlers } = setup();
-    assert.deepEqual(Object.keys(handlers).sort(), ["detect-timing", "generate-map"]);
+    assert.deepEqual(Object.keys(handlers).sort(), ["detect-timing", "generate-map", "generator-info", "rate-variant", "ratings-export", "ratings-summary"]);
 });
 
 test("a good request goes to the worker and comes back as a stored id, with no file", async () => {
@@ -430,4 +430,160 @@ test("registering calls nothing", () => {
     const trap = new Proxy({}, { get: () => { touched += 1; return () => {}; } });
     registerCreateIpc({ ipcMain: { handle() {}, on() {} }, generatorClient: trap, generatedStore: trap, log: () => { touched += 1; } });
     assert.equal(touched, 0);
+});
+
+// ---- wave 3 (P-ml1): stems, candidates, style, repeats, modelSize; personal and the deadline; generator-info ----
+
+const stemsOf = (frames = 8, over = {}) => {
+    const curve = () => new Float32Array(frames).fill(0.25);
+    return { v: 1, hopSec: 0.0116, frameOffsetSec: 0.01, frames, kick: curve(), snare: curve(), hat: curve(), harm: curve(), percShare: curve(), chroma: new Uint8Array(frames * 12), timbre: new Uint8Array(frames * 12), ...over };
+};
+const BIG = 400_000; // 44 bytes a frame: more than 16 MB in all
+const ML_BAD = [
+    ["stems not an object", () => request({ top: { stems: 5 } }), "stems"],
+    ["stems of another version", () => request({ top: { stems: stemsOf(8, { v: 2 }) } }), "stems.v"],
+    ["stems 3 frames off the envelope", () => request({ top: { stems: stemsOf(11) } }), "stems.frames"],
+    ["a stem curve of the wrong length", () => request({ top: { stems: stemsOf(8, { kick: new Float32Array(7) }) } }), "stems.kick"],
+    ["a stem curve that is not a Float32Array", () => request({ top: { stems: stemsOf(8, { hat: Array(8).fill(0) }) } }), "stems.hat"],
+    ["chroma of the wrong length", () => request({ top: { stems: stemsOf(8, { chroma: new Uint8Array(12) }) } }), "stems.chroma"],
+    ["stems over 16 MB", () => request({ top: { envelope: { values: new Float32Array(BIG), hopSec: 0.0116, frameOffsetSec: 0.01 }, stems: stemsOf(BIG) } }), "stems"],
+    ["0 candidates", () => request({ over: { candidates: 0 } }), "request.candidates"],
+    ["21 candidates", () => request({ over: { candidates: 21 } }), "request.candidates"],
+    ["fractional candidates", () => request({ over: { candidates: 2.5 } }), "request.candidates"],
+    ["candidates as text", () => request({ over: { candidates: "3" } }), "request.candidates"],
+    ["a style no model has", () => request({ over: { style: "nobody" } }), "request.style"],
+    ["a style that is not text", () => request({ over: { style: 3 } }), "request.style"],
+    ["repeats not a flag", () => request({ over: { repeats: 1 } }), "request.repeats"],
+    ["an unknown model size", () => request({ over: { modelSize: "xl" } }), "request.modelSize"],
+    ["a model size in capitals", () => request({ over: { modelSize: "L" } }), "request.modelSize"],
+];
+
+for (const [name, make, what] of ML_BAD) {
+    test(`bad request: ${name}`, async () => {
+        const { generate, calls } = setup();
+        const answer = await generate(make());
+        assert.equal(answer.ok, false);
+        assert.equal(answer.code, "badRequest");
+        assert.ok(answer.message.includes(what), `${answer.message} should name ${what}`);
+        assert.equal(calls.generate.length, 0);
+    });
+}
+
+test("good stems go to the worker at the top level; within 2 frames of the envelope is fine", async () => {
+    const { generate, calls } = setup();
+    for (const frames of [6, 8, 10]) {
+        const stems = stemsOf(frames);
+        const answer = await generate(request({ top: { stems } }));
+        assert.equal(answer.ok, true, answer.message);
+        assert.equal(calls.generate.at(-1).stems, stems);
+    }
+    await generate(request({ top: { stems: null } }));
+    assert.equal("stems" in calls.generate.at(-1), false);
+    await generate(request());
+    assert.equal("stems" in calls.generate.at(-1), false);
+});
+
+test("candidates 1..20, repeats, a null style and every model size pass", async () => {
+    const { generate, calls } = setup();
+    for (const over of [{ candidates: 1 }, { candidates: 20 }, { repeats: true }, { repeats: false }, { style: null },
+        ...["auto", "xgb3", "s", "m", "l"].map((modelSize) => ({ modelSize }))]) {
+        const answer = await generate(request({ over }));
+        assert.equal(answer.ok, true, `${JSON.stringify(over)}: ${answer.message}`);
+        const [[key, value]] = Object.entries(over);
+        assert.equal(calls.generate.at(-1).request[key], value);
+    }
+});
+
+test("a style passes once the worker has named it in a generate answer", async () => {
+    const styles = [{ key: "mapperA", name: "Mapper A", maps: 40 }];
+    assert.equal((await setup().generate(request({ over: { style: "mapperA" } }))).code, "badRequest");
+    const { generate, calls } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, modelInfo: { kind: "nn-v2", styles } }) });
+    await generate(request());
+    const answer = await generate(request({ over: { style: "mapperA" } }));
+    assert.equal(answer.ok, true, answer.message);
+    assert.equal(calls.generate.at(-1).request.style, "mapperA");
+    assert.equal((await generate(request({ over: { style: "mapperB" } }))).code, "badRequest");
+});
+
+test("a style passes once detect-timing's model info has named it", async () => {
+    const handlers = {};
+    const generatorClient = {
+        generate: async () => ({ kind: "generated", osuText: "o", version: "v", result: {} }),
+        detectTiming: async () => ({ kind: "timing", timing: { sections: [{ timeMs: 0, bpm: 120, meter: 4 }], bpm: 120, offsetMs: 0 }, modelInfo: { kind: "xgb-v3", styles: [{ key: "s1", name: "S1", maps: 9 }] } }),
+    };
+    registerCreateIpc({ ipcMain: { handle: (c, fn) => { handlers[c] = fn; }, on() {} }, generatorClient, generatedStore: createGeneratedStore(), log() {} });
+    await handlers["detect-timing"]({}, { envelope: { values: [1], hopSec: 0.01 } });
+    assert.equal((await handlers["generate-map"]({ sender: { send() {} } }, request({ over: { style: "s1" } }))).ok, true);
+});
+
+test("the renderer's personal model, deadline and critic weights are ignored; main adds personal: null and the deadline", async () => {
+    const { generate, calls } = setup();
+    const personal = { v: 1, names: ["x"], w: [9], b: 9, n: 99, weight: 1 };
+    const answer = await generate(request({ top: { personal, deadlineMs: 1 }, over: { personal, deadlineMs: 1, critic: { wF: 9 }, blend: { wP: 0 } } }));
+    assert.equal(answer.ok, true);
+    const [payload] = calls.generate;
+    assert.equal(payload.personal, null);
+    assert.equal(payload.deadlineMs, 4000);
+    for (const key of ["personal", "deadlineMs", "critic", "blend"]) assert.equal(key in payload.request, false, key);
+});
+
+test("the critic and the structure pass through; the critic's features stay in the store", async () => {
+    const critic = { kind: "critic-v1", score: 1.2, human: 0.8, fun: 0.1, play: -0.2, personal: null, style: null, picked: 3, of: 12, analysed: 4, ms: 900, features: [1, 2, 3] };
+    const structure = { phrases: [{ startMs: 0, bars: 8 }], repeats: [] };
+    const { generate, generatedStore } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, critic, structure }) });
+    const answer = await generate(request({ over: { candidates: 12, style: null } }));
+    assert.equal(answer.ok, true);
+    assert.equal("features" in answer.critic, false);
+    assert.equal(answer.critic.picked, 3);
+    assert.deepEqual(answer.structure, structure);
+    const stored = generatedStore.get(answer.id);
+    assert.deepEqual(stored.critic.features, [1, 2, 3]);
+    assert.equal(stored.candidates, 12);
+    assert.equal(stored.style, null);
+    const plain = await setup().generate(request());
+    assert.equal("critic" in plain, false);
+    assert.equal("structure" in plain, false);
+});
+
+test("generator-info: the model files there, the sizes, the critic, and the styles the worker last named; no file written", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "gen-info-"));
+    await writeFile(path.join(dir, "mapper-nn2-m.json"), "{}");
+    await writeFile(path.join(dir, "critic.json"), "{}");
+    const before = process.env.LUNACY_MODEL_DIR;
+    process.env.LUNACY_MODEL_DIR = dir;
+    try {
+        const styles = [{ key: "mapperA", name: "Mapper A", maps: 40 }];
+        const first = await setup().handlers["generator-info"]({});
+        assert.equal(first.ok, true);
+        assert.equal(first.modelInfo.sizes.m, true);
+        assert.equal(first.modelInfo.critic, "critic-v1");
+        assert.ok(first.modelInfo.engines.includes("neural"));
+        assert.deepEqual(first.modelInfo.styles, []);
+        assert.deepEqual(first.modelInfo.modelSizes, ["auto", "xgb3", "s", "m", "l"]);
+        const { generate, handlers } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, modelInfo: { kind: "nn-v2", grid: "snap-v2", maps: 5, styles } }) });
+        await generate(request());
+        const after = await handlers["generator-info"]({});
+        assert.deepEqual(after.modelInfo.styles, styles);
+        assert.equal(after.modelInfo.kind, "nn-v2");
+        assert.deepEqual((await readdir(dir)).sort(), ["critic.json", "mapper-nn2-m.json"]);
+    } finally {
+        if (before === undefined) delete process.env.LUNACY_MODEL_DIR;
+        else process.env.LUNACY_MODEL_DIR = before;
+    }
+});
+
+test("the ratings channels (app/ratingsIpc.js): a summary of nothing; an unknown id, bad votes and an empty export are refused without writing", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "ratings-"));
+    const handlers = {};
+    registerCreateIpc({ ipcMain: { handle: (c, fn) => { handlers[c] = fn; }, on() {} }, generatorClient: {}, generatedStore: createGeneratedStore(), log() {}, paths: { userData: dir, docsDir: dir } });
+    assert.deepEqual(await handlers["ratings-summary"]({}), { ok: true, n: 0, up: 0, down: 0, active: false, auc: null });
+    const rated = await handlers["rate-variant"]({}, { id: "x", vote: 1, tags: ["fun"] });
+    assert.equal(rated.ok, false);
+    assert.equal(rated.code, "unknownId");
+    assert.equal((await handlers["rate-variant"]({}, { id: "x", vote: 2, tags: [] })).code, "badRating");
+    assert.equal((await handlers["rate-variant"]({}, { id: "x", vote: 1, tags: ["fun", "human", "comfy", "boring", "awkward"] })).code, "badRating");
+    assert.equal((await handlers["rate-variant"]({}, { id: "x", vote: 1, tags: ["nope"] })).code, "badRating");
+    assert.equal((await handlers["rate-variant"]({}, null)).code, "badRating");
+    assert.equal((await handlers["ratings-export"]({})).ok, false);
+    assert.deepEqual(await readdir(dir), []);
 });

@@ -9,5 +9,6 @@ models/mapper.json
 .lekhapion/
 models/mapper-nn.json
 models/mapper-nn2*.json
+models/mapper-xgb3.json
 models/critic.json
 models/archive/

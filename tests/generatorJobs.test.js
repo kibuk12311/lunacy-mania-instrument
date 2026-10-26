@@ -31,8 +31,9 @@ const models = (files) => async (name) => {
     return files[name];
 };
 
-test("the neural model is tried first, then the tree model", () => {
-    assert.deepEqual(MODEL_FILES, ["mapper-nn.json", "mapper.json"]);
+test("the tree models close the list; nn-v1 (mapper-nn.json) is no longer read (the order is in tests/generatorJobsMl.test.js)", () => {
+    assert.deepEqual(MODEL_FILES.slice(-2), ["mapper-xgb3.json", "mapper.json"]);
+    assert.equal(MODEL_FILES.includes("mapper-nn.json"), false);
 });
 
 test("generate uses the tree model when it is the one that loads", async () => {
@@ -49,20 +50,20 @@ test("generate uses the tree model when it is the one that loads", async () => {
     assert.equal(r.sawModel, xgb);
     assert.equal(r.analyze, analyze);
     assert.deepEqual(r.sawEnvelope, { values: [1], rebuilt: true });
-    assert.deepEqual(r.modelInfo, { kind: "xgb-v1", grid: "q4", maps: 6326 });
+    assert.deepEqual(r.modelInfo, { kind: "xgb-v1", grid: "q4", maps: 6326, size: null, styles: [], critic: null, stems: false });
     assert.deepEqual(progress, [{ phase: "search", i: 1, n: 2 }]);
 });
 
-test("generate prefers the neural model when it loads", async () => {
+test("auto keeps the classic tree model even when a neural file is there", async () => {
     const jobs = createGeneratorJobs({
         load: fakeLoad({ "../src/audio/onset.js": onset, "../src/gen/generateLearned.js": { generateLearnedMap: async (_i, _a, model) => ({ sawModel: model }) } }),
         readModel: models({ "mapper-nn.json": nn, "mapper.json": xgb }),
         analyze: () => {},
     });
     const r = await jobs.run("generate", { envelope: {}, request: {} }, () => {});
-    assert.equal(r.sawModel, nn);
-    assert.equal(r.engine, "neural");
-    assert.deepEqual(r.modelInfo, { kind: "nn-v1", grid: "snap-v2", maps: 9000 });
+    assert.equal(r.sawModel, xgb);
+    assert.equal(r.engine, "learned");
+    assert.deepEqual(r.modelInfo, { kind: "xgb-v1", grid: "q4", maps: 6326, size: null, styles: [], critic: null, stems: false });
 });
 
 test("without a model the rule-based generator runs", async () => {
@@ -77,7 +78,7 @@ test("without a model the rule-based generator runs", async () => {
     assert.equal(r.kind, "generated");
     assert.equal(r.engine, "rules");
     assert.equal(r.rebuilt, true);
-    assert.deepEqual(r.modelInfo, { kind: "rules", grid: "q4", maps: 0 });
+    assert.deepEqual(r.modelInfo, { kind: "rules", grid: "q4", maps: 0, size: null, styles: [], critic: null, stems: false });
     assert.deepEqual(progress, ["search"]);
     assert.ok(!seen.includes("../src/gen/generateLearned.js"));
 });
@@ -92,7 +93,8 @@ test("the model is read once per worker", async () => {
     await jobs.run("generate", { envelope: {} }, () => {});
     await jobs.run("timing", { envelope: {} }, () => {});
     await jobs.run("generate", { envelope: {} }, () => {});
-    assert.equal(reads, 2); // mapper-nn.json (missing) and mapper.json, once
+    // auto: mapper.json and critic.json (missing), once each
+    assert.equal(reads, 2);
 });
 
 test("a missing module breaks only its own kind", async () => {
@@ -149,7 +151,7 @@ test("remap passes the chart, the analyser, the model and progress", async () =>
 
 test("only the create kinds are jobs", () => {
     const jobs = createGeneratorJobs({ readModel: models({}), analyze: () => {} });
-    assert.deepEqual(["generate", "timing", "remap", "analyze", undefined, "details"].map((k) => jobs.has(k)), [true, true, true, false, false, false]);
+    assert.deepEqual(["generate", "timing", "remap", "fit-personal", "analyze", undefined, "details"].map((k) => jobs.has(k)), [true, true, true, true, false, false, false]);
 });
 
 test("the real timing module finds the click track's tempo, as one section", async () => {
@@ -162,5 +164,5 @@ test("the real timing module finds the click track's tempo, as one section", asy
     assert.equal(r.timing.bpm, old.bpm);
     assert.equal(r.timing.offsetMs, old.offsetMs);
     assert.deepEqual(r.timing.sections, [{ timeMs: old.offsetMs, bpm: old.bpm, meter: 4 }]);
-    assert.deepEqual(r.modelInfo, { kind: "rules", grid: "q4", maps: 0 });
+    assert.deepEqual(r.modelInfo, { kind: "rules", grid: "q4", maps: 0, size: null, styles: [], critic: null, stems: false });
 });

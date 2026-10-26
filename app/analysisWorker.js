@@ -6,9 +6,12 @@ import { readFile } from "node:fs/promises";
 import { setLang } from "../src/i18n/i18n.js";
 // >>> create (mapgen v3)
 import { createGeneratorJobs } from "./generatorJobs.js";
+import { createGpuWorkerLink } from "./gpuWorkerLink.js";
 
 const readModel = (name) => readFile(new URL(`../models/${name}`, import.meta.url), "utf8").then(JSON.parse);
-const createJobs = createGeneratorJobs({ readModel, analyze: analyzeChart });
+// stream W: the GPU renderer's nn-v2 encoder, asked for on the first nn-v2 job (app/gpuWorkerLink.js)
+const gpuLink = createGpuWorkerLink({ post: (message) => process.parentPort.postMessage(message) });
+const createJobs = createGeneratorJobs({ readModel, analyze: analyzeChart, gpu: gpuLink.autoGpu, nnBackend: gpuLink.backend });
 // <<< create
 // >>> analysis v2: details — {kind: "details", osuText, rate} → {kind: "details", details} | {kind: "error", message}
 import { detailsJob } from "../src/analysis/timeline.js";
@@ -25,7 +28,10 @@ async function handle(data, post) {
     return analyzeChart(data.osuText, data.rate);
 }
 
-process.parentPort.on("message", async ({ data }) => {
+process.parentPort.on("message", async ({ data, ports }) => {
+    // >>> create (stream W): main's answer to { gpuPort: true }
+    if (gpuLink.accept(data, ports)) return;
+    // <<< create
     const post = (message) => process.parentPort.postMessage(message);
     post({ id: data.id, result: await handle(data, post) });
 });

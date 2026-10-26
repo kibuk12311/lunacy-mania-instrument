@@ -63,6 +63,9 @@ npm start
 
 - `node tools/fetch-tosu.mjs` downloads the pinned tosu release into `vendor/tosu/` and checks its sha256.
 - The trained map generator `models/mapper.json` (~37 MB) is not in git. Download `mapper.json` from a release into `models/`; without it the generator runs in its rule-based mode.
+- The generator picks the first model that loads and fits the request (`app/generatorJobs.js`): the neural `mapper-nn2-{l,m,s}.json` sizes (on "auto", L and M only with a GPU path; the distilled `mapper-nn2-s-distilled.json` before the plain S), then `mapper-xgb3.json`, `mapper-nn.json`, `mapper.json`. A model that needs the song's stems is skipped without them. `critic.json` is optional.
+- For development, set `LUNACY_MODEL_DIR` to folders to read models from before `models/` (joined by `;`), for example `set LUNACY_MODEL_DIR=A:\SneezeyTrain\candidates;A:\SneezeyTrain\critic` before `npm start`. Nothing is copied; unset it to go back to the shipped models.
+- With a WebGPU adapter, the neural models' encoder runs on the GPU in a hidden window (`app/gpuWorker*`, `src/gen/nn/webgpu/`); the decoder and the sampling stay on the CPU, and without a GPU, or when the GPU fails its parity probe, everything runs on the CPU. `npx electron tests/smoke/electron-webgpu.mjs` checks the GPU kernels against PyTorch and the JS path, `npx electron tests/smoke/electron-gpu-link.mjs` checks the worker-to-GPU link, and `npx electron tools/bench-gpu.mjs` times both paths (numbers in `docs/2026-10-26-webgpu-stream-w.md`).
 - `npm test` runs the tests (Node's built-in test runner).
 - `npm run dist` builds the installer, the portable exe and `latest.yml` into `dist/`.
 

@@ -13,13 +13,15 @@ const JUDGED = new Set(["Stream", "Jumpstream", "Handstream", "Chordjack", "Jack
 
 // Blocks: runs of slots inside one part with one family ("sections") or 32-slot chunks ("mixed"). A block under
 // 32 slots joins the block before it in its part (or the one after). Empty parts (family null) have none.
+// phraseStart (wave 3, request.repeats: 1 at the first slot of each phrase, echo.js phraseStarts) also starts a new
+// run there; the 32-slot minimum and the merge rule stay.
 // → [{ index, part, inPart, i0, i1, startMs, endMs, families }], i1 exclusive.
-export function planBlocks(assign, slots, partOf, mix) {
+export function planBlocks(assign, slots, partOf, mix, { phraseStart = null } = {}) {
     const runs = [];
     for (let i = 0; i < slots.length; i += 1) {
         if (assign[i] === null || assign[i] === undefined) continue;
         const last = runs.at(-1);
-        const sameRun = last && last.i1 === i && last.part === partOf[i]
+        const sameRun = last && last.i1 === i && last.part === partOf[i] && !phraseStart?.[i]
             && (mix === "mixed" ? i - last.i0 < MIXED_BLOCK_SLOTS : assign[i] === assign[i - 1]);
         if (sameRun) last.i1 = i + 1;
         else runs.push({ part: partOf[i], i0: i, i1: i + 1 });

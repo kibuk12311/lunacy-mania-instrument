@@ -2,12 +2,18 @@
 // (the oldest card that is not the best goes). A card shows its name, the dan with ✓ / ≈, the pattern match, the
 // row stats, the grid and model lines, retries, the problem spots (5, then «ещё n») and its parts with lock toggles,
 // «лучший» on the best card, «Взять этот», and «Перегенерировать незакреплённое» once a part is locked.
+// Wave 3 (stream U): the critic's line («Критик: как у человека 81% · интерес +0.3 · удобство −0.2 · лучший из 12»,
+// a head that is missing left out), a note when the model size asked for was not there, the 👍/👎 bar
+// (ratingBar.js) on every card, and under the cards the ratings line («Учитываю твои оценки: n» once the personal
+// model is active) with «Выгрузить мои оценки».
 import { t } from "../../src/i18n/i18n.js";
 import { confidenceWord } from "../../src/core/labels.js";
 import { clockText } from "./snapColors.js";
 import { rangeText } from "./timeline.js";
 import { isDetailed, patternsInMode } from "./patternMode.js";
 import { flavourName } from "../../src/gen/flavours.js";
+import { createRatingBar, newRating } from "./ratingBar.js";
+import { sizeName, MODEL_SIZES, EXPERIMENTAL } from "./genOptions.js";
 
 export const MAX_CARDS = 6;
 const SHOWN_ISSUES = 5;
@@ -16,7 +22,11 @@ const ISSUE_KEYS = {
     jack: "create.issue.jack", anchor: "create.issue.anchor", hand: "create.issue.hand",
     spike: "create.issue.spike", fastJack: "create.issue.fastJack", columns: "create.issue.columns",
 };
-const MODEL_KEYS = { "nn-v1": "create.model.neural", "xgb-v1": "create.model.trees", "xgb-v2": "create.model.trees", rules: "create.model.rules" };
+const MODEL_KEYS = {
+    "nn-v1": "create.model.neural", "nn-v2": "create.model.neural",
+    "xgb-v1": "create.model.trees", "xgb-v2": "create.model.trees", "xgb-v3": "create.model.trees", rules: "create.model.rules",
+};
+const MINUS = "−";
 
 const middle = (r) => (r.lo + r.hi) / 2;
 const inRange = (v, r) => Number.isFinite(v.result?.numeric) && v.result.numeric >= r.lo && v.result.numeric < r.hi;
@@ -62,6 +72,35 @@ export function addVariant(diff, answer, { rank = rankFallback, extra = {} } = {
 }
 
 const pct = (share) => Math.round((Number(share) || 0) * 100);
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+// +0.3 / −0.2 / 0.0
+const signed = (x) => {
+    const r = Math.round(x * 10) / 10;
+    if (r === 0) return "0.0";
+    return `${r > 0 ? "+" : MINUS}${Math.abs(r).toFixed(1)}`;
+};
+
+// The critic's line for a card, or null: the heads it has (human-like %, fun, comfort) and how many candidates it
+// chose from; a head that is missing (null) is left out.
+export function criticLine(critic) {
+    if (!critic || typeof critic !== "object") return null;
+    const parts = [];
+    if (isNum(critic.human)) parts.push(t("create.ml.critic.human", { h: Math.round(Math.min(1, Math.max(0, critic.human)) * 100) }));
+    if (isNum(critic.fun)) parts.push(t("create.ml.critic.fun", { f: signed(critic.fun) }));
+    if (isNum(critic.play)) parts.push(t("create.ml.critic.play", { p: signed(critic.play) }));
+    if (Number.isInteger(critic.of) && critic.of > 1) parts.push(t("create.ml.critic.of", { n: critic.of }));
+    return parts.length ? t("create.ml.critic", { parts: parts.join(" · ") }) : null;
+}
+
+// The note when the model asked for was not there: { want, got } from the worker's modelInfo.sizeNote (got: the
+// choice that ran, "auto" for the classic model, null for the rules).
+function sizeNoteText(note) {
+    if (!note || !EXPERIMENTAL.includes(note.want)) return null;
+    const got = note.got === "sd" ? "s" : note.got;
+    return MODEL_SIZES.includes(got)
+        ? t("create.ml.sizeNote", { want: sizeName(note.want), got: sizeName(got) })
+        : t("create.ml.sizeNoteNone", { want: sizeName(note.want) });
+}
 const percentOf = (x) => Math.round(Number(x) > 1 ? Number(x) : Number(x) * 100);
 
 // One problem spot as a line.
@@ -110,6 +149,10 @@ export function cardLines(answer, range, { detailed = isDetailed() } = {}) {
     const info = answer.modelInfo;
     if (info?.maps > 0) add(t("create.result.model", { kind: t(MODEL_KEYS[info.kind] ?? "create.model.trees"), maps: info.maps }));
     else if (answer.engine === "rules" || info?.kind === "rules") add(t("create.result.rules"));
+    const note = sizeNoteText(info?.sizeNote);
+    if (note) add(note, "warn");
+    const critic = criticLine(answer.critic);
+    if (critic) lines.push({ text: critic, cls: "muted ml-critic", title: t("create.ml.critic.hint") });
     if (answer.retries?.blocks > 0) add(t("create.retry.blocks", { n: answer.retries.blocks }));
     if (answer.retries?.dan === "low") add(t("create.retry.danLow"));
     if (answer.retries?.dan === "high") add(t("create.retry.danHigh"));
@@ -143,8 +186,29 @@ function el(tag, className = "", text = "") {
 }
 
 // root = #gen-result. The callbacks get the difficulty's index (easiest first) and the card's id:
-// onUse(d, id), onMore(d), onRegen(d, id), onToggleLock(d, id, partIndex).
-export function createResultView({ root, onUse, onMore, onRegen, onToggleLock }) {
+// onUse(d, id), onMore(d), onRegen(d, id), onToggleLock(d, id, partIndex); onRate({ id, vote, tags }) → the
+// rate-variant answer; onExport() exports the ratings.
+export function createResultView({ root, onUse, onMore, onRegen, onToggleLock, onRate, onExport }) {
+    // the ratings line under the cards: { n, active, note, failed } from ratings-summary (and the export's answer);
+    // one element, refilled by setRatings without rebuilding the cards
+    const footer = el("div", "row ml-ratings");
+    let ratingsNow = null;
+    let busyNow = false;
+    function fillFooter() {
+        const r = ratingsNow;
+        const kids = [];
+        if (r && (r.n > 0 || r.note)) {
+            if (r.n > 0) kids.push(el("span", r.active ? "ok" : "muted", t(r.active ? "create.ml.personal" : "create.ml.ratings", { n: r.n })));
+            const exp = el("button", "small", t("create.ml.export"));
+            exp.disabled = busyNow || !(r.n > 0);
+            exp.addEventListener("click", () => onExport?.());
+            kids.push(exp);
+            if (r.note) kids.push(el("span", r.failed ? "warn" : "muted", r.note));
+        }
+        footer.replaceChildren(...kids);
+        footer.hidden = !kids.length;
+    }
+
     function card(diff, d, c, busy) {
         const chosen = c.id === diff.selectedId;
         const box = el("div", `cr-card${chosen ? " sel" : ""}`);
@@ -153,7 +217,11 @@ export function createResultView({ root, onUse, onMore, onRegen, onToggleLock })
         if (c.id === diff.bestId) head.append(el("span", "cr-best", t("create.variant.best")));
         head.append(el("span", "muted", c.answer.version ?? ""));
         box.append(head);
-        for (const line of cardLines(c.answer, diff.range)) box.append(el("div", line.cls, line.text));
+        for (const line of cardLines(c.answer, diff.range)) {
+            const node = el("div", line.cls, line.text);
+            if (line.title) node.title = line.title;
+            box.append(node);
+        }
 
         const issues = c.answer.issues ?? [];
         if (!issues.length) box.append(el("div", "muted", t("create.stats.clean")));
@@ -194,12 +262,13 @@ export function createResultView({ root, onUse, onMore, onRegen, onToggleLock })
             actions.append(regen);
         }
         box.append(actions);
+        if (c.id) box.append(createRatingBar({ id: c.id, rating: (c.rating ??= newRating()), rate: (r) => onRate?.(r) ?? Promise.resolve({ ok: false }) }));
         return box;
     }
 
     return {
-        // diffs: [newDiff…] easiest first; busy: a generate run is going on
-        render(diffs, { busy = false } = {}) {
+        // diffs: [newDiff…] easiest first; busy: a generate run is going on; ratings: the ratings line (or null)
+        render(diffs, { busy = false, ratings = null } = {}) {
             const sections = diffs.filter((diff) => diff.cards.length).map((diff) => {
                 const d = diffs.indexOf(diff);
                 const section = el("div", "cr-diffset");
@@ -211,8 +280,16 @@ export function createResultView({ root, onUse, onMore, onRegen, onToggleLock })
                 section.append(head, ...diff.cards.map((c) => card(diff, d, c, busy)));
                 return section;
             });
-            root.replaceChildren(...sections);
+            ratingsNow = ratings;
+            busyNow = busy;
+            fillFooter();
+            root.replaceChildren(...sections, ...(sections.length ? [footer] : []));
             root.hidden = !sections.length;
+        },
+        // a new ratings line (after a vote, an export, a summary); the cards stay as they are
+        setRatings(ratings) {
+            ratingsNow = ratings;
+            fillFooter();
         },
     };
 }

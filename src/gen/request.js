@@ -57,12 +57,36 @@ const MAX_OWN_RANGES = 8;
 const MAX_DAN = 21;
 const DEFAULT_BAR_MS = 2000;
 
+const MAX_CANDIDATES = 20;
+const MAX_STYLE = 200;
+const badRequest = (what) => new Error(t("gen.request.bad", { what }));
+
+// Wave 3 (ML addendum §1.1): N candidates per variant (an integer; outside 1..20 it is clamped), a mapper style key
+// (null or a string: whether the model knows it is checked in app/createIpc.js against modelInfo.styles) and
+// repeats (repeated sections get consistent patterns). Absent: 1, null, false, which is v3 exactly.
+function candidatesOf(v) {
+    if (v === undefined || v === null) return 1;
+    if (!Number.isInteger(v)) throw badRequest("candidates");
+    return Math.min(MAX_CANDIDATES, Math.max(1, v));
+}
+function styleOf(v) {
+    if (v === undefined || v === null) return null;
+    if (typeof v !== "string" || !v || v.length > MAX_STYLE) throw badRequest("style");
+    return v;
+}
+function repeatsOf(v) {
+    if (v === undefined) return false;
+    if (typeof v !== "boolean") throw badRequest("repeats");
+    return v;
+}
+
 // The generator's request with every default filled in: range (or the old single target), shares that sum to 1,
-// the two seeds (both default to `seed`), the grids (1/4 always) and the scroll-speed lines. A flavour that is not
-// its pattern's own throws gen.request.bad, as it does in a part (gen.parts.bad).
+// the two seeds (both default to `seed`), the grids (1/4 always), the scroll-speed lines and the wave-3 fields
+// (candidates, style, repeats). A flavour that is not its pattern's own throws gen.request.bad, as it does in a part
+// (gen.parts.bad); so does a candidates, style or repeats value of the wrong type.
 export function normalizeRequest(raw, _durationMs) {
     (raw.patterns ?? []).forEach((p, i) => {
-        if (!flavoursValid(p)) throw new Error(t("gen.request.bad", { what: `patterns[${i}].flavours` }));
+        if (!flavoursValid(p)) throw badRequest(`patterns[${i}].flavours`);
     });
     const range = raw.range ? { lo: raw.range.lo, hi: raw.range.hi } : null;
     const seed = Number.isSafeInteger(raw.seed) ? raw.seed : 1;
@@ -79,6 +103,9 @@ export function normalizeRequest(raw, _durationMs) {
         noteSeed: Number.isSafeInteger(raw.noteSeed) ? raw.noteSeed : seed,
         snaps: SNAPS.filter((s) => s === 4 || raw.snaps?.includes(s)),
         normalizeSv: raw.normalizeSv ?? true,
+        candidates: candidatesOf(raw.candidates),
+        style: styleOf(raw.style),
+        repeats: repeatsOf(raw.repeats),
     };
 }
 

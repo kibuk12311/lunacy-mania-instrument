@@ -100,6 +100,13 @@ app.whenReady().then(async () => {
     await dbg.sendCommand("DOM.setFileInputFiles", { nodeId, files: [song] });
     dbg.detach();
     const loaded = await until(win, `!document.getElementById("generate").disabled`);
+    // wave 3: one candidate per card (no critic), so a run makes the three variants checked here
+    // (tests/smoke/electron-create-ml.mjs covers the critic's two cards)
+    await win.webContents.executeJavaScript(`(() => {
+        const s = document.querySelector("#gen-options [data-role=candidates]");
+        if (s) { s.value = "1"; s.dispatchEvent(new Event("change")); }
+        return true;
+    })()`);
 
     await win.webContents.executeJavaScript(`document.getElementById("generate").click(); true`);
     const generated = await until(win, `document.querySelectorAll(".cr-card").length >= 3 && document.getElementById("generate").textContent !== ${JSON.stringify(lang === "en" ? "Stop" : "Стоп")}`, 20000);

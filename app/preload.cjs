@@ -30,6 +30,12 @@ contextBridge.exposeInMainWorld("danApi", {
     songTags: (audioPath) => ipcRenderer.invoke("song-tags", audioPath),
     remapLoad: (request) => ipcRenderer.invoke("remap-load", request),
     remapCreate: (request) => ipcRenderer.invoke("remap-create", request),
+    // wave 3: what the generator can do here (engines, nn-v2 sizes, styles, critic); 👍/👎 on a variant by store id
+    generatorInfo: (opts) => ipcRenderer.invoke("generator-info", opts),
+    // { id, vote: 1 | -1 | 0, tags } → { ok, n }
+    rateVariant: (request) => ipcRenderer.invoke("rate-variant", request),
+    ratingsSummary: () => ipcRenderer.invoke("ratings-summary"),
+    ratingsExport: () => ipcRenderer.invoke("ratings-export"),
     openMap: (file) => ipcRenderer.invoke("open-map", file),
     showMap: (file) => ipcRenderer.send("show-map", file),
     // <<< create

@@ -4,6 +4,12 @@
 // «Создать карту» makes 3 variants of one range, or one variant per difficulty of a mapset, through generate-map
 // (one call per variant; generating writes no file). The best card of each difficulty is chosen after ranking; the
 // playfield and the timeline badges show the chosen card; «Ещё вариант» and «Перегенерировать незакреплённое» add cards.
+// Wave 3 (stream U, docs/2026-10-25-mapgen-v3-ml-addendum.md §2.2, §6): on song load the light stems
+// (src/audio/stems.js) are computed right after the onset envelope, in chunks so «Разбираем звук на партии…» paints,
+// and go to generate-map as the top-level `stems` (a failure only leaves them out). The generator options
+// (genOptions.js: model strength, candidates, style, repeats) go into every request; with the critic choosing each
+// card from several candidates a run of one range makes CARDS_WITH_CRITIC cards. «Перегенерировать только эту часть»
+// locks every other part; 👍/👎 go to rate-variant, and the ratings line under the cards comes from ratings-summary.
 import { onsetEnvelope, envelopeToTransfer } from "../../src/audio/onset.js";
 import { detectTiming } from "../../src/audio/tempo.js";
 import { fineOnset } from "../../src/audio/fineOnset.js";
@@ -23,6 +29,7 @@ import { createDiffList } from "./diffList.js";
 import { createResultView, newDiff, addVariant, rankFallback } from "./resultView.js";
 import { initExportPanel } from "./exportPanel.js";
 import { initRemapPanel } from "./remapPanel.js";
+import { createGenOptions, probeGpu } from "./genOptions.js";
 
 const ANALYSIS_RATE = 22050;
 const CHECK_SEC = 8;
@@ -30,11 +37,15 @@ const VARIANTS = 3;
 const SEED_STEP = 1009;
 const REDETECT_MS = 300;
 const CURVE_POINTS = 432;
-const PHASE_KEYS = { search: "create.progress.search", retry: "create.progress.retry", describe: "create.progress.describe", prepare: "create.generating" };
+const PHASE_KEYS = {
+    search: "create.progress.search", retry: "create.progress.retry", describe: "create.progress.describe", prepare: "create.generating",
+    critic: "create.progress.critic",
+};
+const RATINGS_RECHECK_MS = 4000; // the personal model is refitted 2 s after a rating; look again a little later
 
 const $ = (id) => document.getElementById(id);
 const state = {
-    song: null, // { path, title, durationMs, buffer, samples, envelope, transfer, fine }
+    song: null, // { path, title, durationMs, buffer, samples, envelope, transfer, fine, stems: StemsTransfer | null }
     selected: new Map([["Jumpstream", 100]]),
     flavours: new Map(), // family → Set of flavour ids, sent only in the Detailed mode (remembered in General)
     mix: "sections",
@@ -42,6 +53,7 @@ const state = {
     focus: null, // { d, id }: the card on the playfield and the timeline
     running: null, // { stop, jobId, prefix }
     loads: 0,
+    ratings: null, // { n, up, down, active, note, failed }: the line under the cards
 };
 let ui = null; // the parts built in initCreateTab
 
@@ -117,11 +129,42 @@ function scheduleRedetect() {
     redetectTimer = setTimeout(redetectParts, REDETECT_MS);
 }
 
+// a newer song load stops the stems of the one before
+class Superseded extends Error {}
+
+function loadStems() {
+    ui.stemsModule ??= ui.stemsGiven ? Promise.resolve(ui.stemsGiven) : import("../../src/audio/stems.js").catch(() => null);
+    return ui.stemsModule;
+}
+
+// The song's light stems as the StemsTransfer generate-map sends beside the envelope, or null when they fail (the
+// worker then takes a model that does not need them). The status shows while they run, yielding between chunks.
+async function songStems(samples, load) {
+    setStatus(t("create.ml.stems"));
+    try {
+        const stems = await loadStems();
+        if (!stems?.computeStems) return null;
+        const computed = await stems.computeStems(samples, ANALYSIS_RATE, {
+            pause: async () => {
+                await ui.pause();
+                if (load !== state.loads) throw new Superseded();
+            },
+        });
+        return stems.stemsToTransfer(computed);
+    } catch (error) {
+        if (!(error instanceof Superseded)) console.warn(`stems: ${error?.message ?? error}`);
+        return null;
+    } finally {
+        if (load === state.loads) setStatus("");
+    }
+}
+
 async function loadSong(file) {
     const path = window.danApi.pathForFile(file);
     if (!path) return setStatus(t("create.song.noPath"));
     $("drop").textContent = t("create.song.reading", { name: file.name });
     $("generate").disabled = true;
+    ui.options?.askGpu();
     await new Promise((r) => setTimeout(r, 30)); // let the label paint before the heavy work
     const load = (state.loads += 1);
     if (state.running) state.running.stop = true;
@@ -135,22 +178,30 @@ async function loadSong(file) {
             // the worker refines without it
         }
         const durationMs = Math.round(buffer.duration * 1000);
-        state.song = { path, title: file.name.replace(/\.[^.]+$/, ""), durationMs, buffer, samples, envelope, transfer: envelopeToTransfer(envelope), fine };
+        state.song = { path, title: file.name.replace(/\.[^.]+$/, ""), durationMs, buffer, samples, envelope, transfer: envelopeToTransfer(envelope), fine, stems: null };
         state.diffs = [];
         state.focus = null;
         ui.player.load(buffer);
         ui.strip.setSong({ samples, sampleRate: ANALYSIS_RATE, durationMs });
 
+        // the worker detects the timing while the stems are worked out here
+        const asked = (async () => {
+            try {
+                return await window.danApi.detectTiming?.({ envelope: state.song.transfer, fine: fineTransfer(fine) });
+            } catch {
+                return null; // the local detector below
+            }
+        })();
+        const stems = await songStems(samples, load);
+        if (load !== state.loads) return;
+        state.song.stems = stems;
+        ui.options?.setStems(Boolean(stems));
         let timing = null;
         let modelInfo = null;
-        try {
-            const answer = await window.danApi.detectTiming?.({ envelope: state.song.transfer, fine: fineTransfer(fine) });
-            if (answer?.ok && answer.timing?.sections?.length) {
-                timing = answer.timing;
-                modelInfo = answer.modelInfo ?? null;
-            }
-        } catch {
-            // the local detector below
+        const answer = await asked;
+        if (answer?.ok && answer.timing?.sections?.length) {
+            timing = answer.timing;
+            modelInfo = answer.modelInfo ?? null;
         }
         if (load !== state.loads) return;
         timing ??= localTiming(envelope);
@@ -180,6 +231,7 @@ async function loadSong(file) {
         $("generate").disabled = false;
         setStatus("");
         ui.exportPanel.onSongLoaded?.(songForExport());
+        ui.options?.refresh(); // detect-timing told main the model's styles
     } catch (error) {
         if (load !== state.loads) return;
         state.song = null;
@@ -230,6 +282,7 @@ function chosenPatterns() {
 
 function phaseText(p) {
     if (p.phase === "partSearch") return t("create.progress.partSearch", { i: Math.min(p.n, (p.i ?? 0) + 1), n: p.n, kind: kindText(p.kind) });
+    if (p.phase === "candidates") return t("create.progress.candidates", { i: Math.min(p.n, (p.i ?? 0) + 1), n: p.n });
     const key = PHASE_KEYS[p.phase];
     return key ? t(key) : "";
 }
@@ -240,6 +293,7 @@ function payload(job, patterns, jobId) {
     const { sections, bpm, offsetMs } = ui.timing.timing;
     return {
         jobId, audioPath: song.path, title: song.title, durationMs: song.durationMs, envelope: song.transfer,
+        ...(song.stems ? { stems: song.stems } : {}),
         timing: { sections, bpm, offsetMs },
         request: {
             range: job.range, patterns, mix: state.mix,
@@ -247,6 +301,7 @@ function payload(job, patterns, jobId) {
             burst: Number($("burst").value) / 100,
             seed: job.planSeed, planSeed: job.planSeed, noteSeed: job.noteSeed,
             snaps: ui.timing.snaps(), normalizeSv: ui.timing.normalizeSv(),
+            ...(ui.options?.request() ?? {}),
             ...(job.parts?.length ? { parts: job.parts } : {}),
             ...(job.lock ? { lock: job.lock } : {}),
         },
@@ -256,7 +311,47 @@ function payload(job, patterns, jobId) {
 const newSeed = () => 1 + Math.floor(ui.random() * 999983);
 
 function redrawResults() {
-    ui.results.render(state.diffs, { busy: Boolean(state.running) });
+    ui.results.render(state.diffs, { busy: Boolean(state.running), ratings: state.ratings });
+}
+
+// The ratings line under the cards, from main (ratings-summary).
+async function refreshRatings() {
+    try {
+        const summary = await window.danApi.ratingsSummary?.();
+        if (!summary?.ok) return;
+        state.ratings = { ...(state.ratings ?? {}), n: summary.n, up: summary.up, down: summary.down, active: summary.active };
+        ui.results.setRatings(state.ratings);
+    } catch {
+        // an older main: no ratings line
+    }
+}
+
+// 👍/👎 of a card → rate-variant; the count under the cards follows.
+async function rateVariant(rating) {
+    const answer = (await window.danApi.rateVariant?.(rating)) ?? { ok: false, message: t("app.gen.failed") };
+    if (answer?.ok) {
+        state.ratings = { ...(state.ratings ?? {}), n: answer.n, note: "", failed: false };
+        ui.results.setRatings(state.ratings);
+        clearTimeout(ui.ratingsTimer);
+        ui.ratingsTimer = setTimeout(refreshRatings, RATINGS_RECHECK_MS);
+    }
+    return answer;
+}
+
+// «Выгрузить мои оценки»: a new file in the documents folder.
+async function exportRatings() {
+    let answer;
+    try {
+        answer = await window.danApi.ratingsExport?.();
+    } catch (error) {
+        answer = { ok: false, message: error.message };
+    }
+    let note;
+    if (answer?.ok) note = t("create.ml.exported", { file: answer.file });
+    else if (answer?.code === "empty") note = answer.message;
+    else note = t("create.ml.exportFailed", { message: answer?.message ?? t("app.gen.failed") });
+    state.ratings = { ...(state.ratings ?? { n: 0 }), note, failed: !answer?.ok };
+    ui.results.setRatings(state.ratings);
 }
 
 // Shows a card on the playfield and the timeline; it becomes its difficulty's chosen card.
@@ -274,7 +369,7 @@ function focusCard(d, id) {
     const parts = ui.timeline.parts;
     const aligned = reports.length > 0 && reports.length === parts.length
         && reports.every((r, i) => Math.abs(r.startMs - parts[i].startMs) <= 1 && Math.abs(r.endMs - parts[i].endMs) <= 1);
-    ui.timeline.setResult({ reports, locks: aligned ? card.locks : new Set(), canLock: aligned });
+    ui.timeline.setResult({ reports, locks: aligned ? card.locks : new Set(), canLock: aligned, structure: card.answer.structure ?? null });
     redrawResults();
 }
 
@@ -302,7 +397,8 @@ async function runJobs(jobs, { kind }) {
                 ? t("create.set.progress", { i: k + 1, n: jobs.length, dan: rangeText(job.range) })
                 : t("create.variants.progress", { n: k + 1, total: jobs.length });
             setStatus(`${state.running.prefix} ${t("create.generating")}`);
-            const answer = await window.danApi.generateMap(payload(job, patterns, jobId));
+            const sent = payload(job, patterns, jobId);
+            const answer = await window.danApi.generateMap(sent);
             if (song !== state.song) break; // another song was loaded meanwhile
             if (!answer?.ok) {
                 if (answer?.code === "timingChanged" && job.base) {
@@ -314,6 +410,7 @@ async function runJobs(jobs, { kind }) {
                 break;
             }
             const diff = state.diffs[job.d];
+            ui.options?.noteAnswer(answer, sent.request.modelSize);
             addVariant(diff, answer, { rank, extra: { partsSent: job.parts ?? null, locks: new Set(job.keepLocks ?? []) } });
             focusCard(job.d, diff.selectedId);
         }
@@ -327,6 +424,8 @@ async function runJobs(jobs, { kind }) {
         else redrawResults();
         setStatus(failure ?? "");
         ui.exportPanel.onSelectionChanged?.();
+        ui.options?.refresh(); // the worker may have named the model's styles
+        refreshRatings(); // the personal model may have become active meanwhile
     }
 }
 
@@ -335,7 +434,8 @@ function currentParts() {
     return parts.length ? toPartSpecs(parts, { detailed: isDetailed() }) : null;
 }
 
-// «Создать карту»: 3 variants of one range, or one variant per difficulty (all with the same base seeds).
+// «Создать карту»: 3 variants of one range (2 when the critic picks each from several candidates), or one variant per
+// difficulty (all with the same base seeds).
 function generate() {
     if (state.running) {
         state.running.stop = true;
@@ -350,8 +450,9 @@ function generate() {
     ui.timeline.setResult({});
     const base = newSeed();
     const parts = currentParts();
+    const variants = ui.options?.variants(VARIANTS) ?? VARIANTS;
     const jobs = ranges.length === 1
-        ? Array.from({ length: VARIANTS }, (_, v) => ({ d: 0, range: ranges[0], planSeed: base + v * SEED_STEP, noteSeed: base + v * SEED_STEP, parts }))
+        ? Array.from({ length: variants }, (_, v) => ({ d: 0, range: ranges[0], planSeed: base + v * SEED_STEP, noteSeed: base + v * SEED_STEP, parts }))
         : ranges.map((range, d) => ({ d, range, planSeed: base, noteSeed: base, parts }));
     return runJobs(jobs, { kind: ranges.length === 1 ? "variants" : "set" });
 }
@@ -381,18 +482,38 @@ function basePartsOf(card) {
     });
 }
 
-// «Перегенерировать незакреплённое»: the locked parts stay note for note, the rest gets a new note seed.
-function regenerate(d, id) {
+// A new variant of card `id` that keeps the parts `keep` note for note (a lock of them), the rest with a new note seed;
+// the new card shows `shown` as locked.
+function regenerateKeeping(d, id, keep, shown = keep) {
     const diff = state.diffs[d];
     const card = diff?.cards.find((c) => c.id === id);
-    if (state.running || !card || !card.locks.size || !state.song) return undefined;
+    if (state.running || !card || !state.song) return undefined;
     const parts = basePartsOf(card);
-    const locks = [...card.locks].filter((i) => i < parts.length).sort((a, b) => a - b);
+    const locks = [...new Set(keep)].filter((i) => Number.isInteger(i) && i >= 0 && i < parts.length).sort((a, b) => a - b);
     if (!locks.length) return undefined;
     const planSeed = Number.isSafeInteger(card.answer.planSeed) ? card.answer.planSeed : newSeed();
     return runJobs([{
-        d, range: diff.range, planSeed, noteSeed: newSeed(), parts, base: card, keepLocks: locks, lock: { fromId: card.id, parts: locks },
+        d, range: diff.range, planSeed, noteSeed: newSeed(), parts, base: card, keepLocks: shown.filter((i) => i < parts.length),
+        lock: { fromId: card.id, parts: locks },
     }], { kind: "variants" });
+}
+
+// «Перегенерировать незакреплённое»: the locked parts stay note for note, the rest gets a new note seed.
+function regenerate(d, id) {
+    const card = state.diffs[d]?.cards.find((c) => c.id === id);
+    if (!card?.locks.size) return undefined;
+    return regenerateKeeping(d, id, [...card.locks]);
+}
+
+// «Перегенерировать только эту часть» (the part editor): every other part of the chosen card stays as it is; the new
+// card keeps the locks the user had on the others.
+function regenerateOnly(part) {
+    const focus = state.focus;
+    const card = focus && state.diffs[focus.d]?.cards.find((c) => c.id === focus.id);
+    if (!card) return undefined;
+    const count = basePartsOf(card).length;
+    const others = Array.from({ length: count }, (_, i) => i).filter((i) => i !== part);
+    return regenerateKeeping(focus.d, focus.id, others, [...card.locks].filter((i) => i !== part));
 }
 
 function toggleLock(d, id, part) {
@@ -469,9 +590,14 @@ function typingInField() {
 }
 
 // opts are for tests: random (seeds), core (instead of loading src/gen/songParts.js and variants.js), player,
-// and the stream C panels.
-export function initCreateTab({ random = Math.random, core = null, player = null, exportPanel = initExportPanel, remapPanel = initRemapPanel } = {}) {
-    ui = { random, core: core ? Promise.resolve(core) : null, checking: false, rankVariants: null };
+// the stream C panels; stems (instead of src/audio/stems.js) and pause (the wait between their chunks); gpu (the
+// graphics-card probe of the model-strength picker).
+const nextTask = () => (globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0)));
+export function initCreateTab({
+    random = Math.random, core = null, player = null, exportPanel = initExportPanel, remapPanel = initRemapPanel,
+    stems = null, pause = nextTask, gpu = probeGpu,
+} = {}) {
+    ui = { random, core: core ? Promise.resolve(core) : null, checking: false, rankVariants: null, stemsGiven: stems, stemsModule: null, pause };
     ui.player = player ?? createAudioPlayer();
     ui.timing = createTimingPanel({
         root: $("timing-sections"), snapsRoot: $("snaps"), bpmInput: $("bpm"), offsetInput: $("offset"), note: $("timing-note"),
@@ -507,6 +633,7 @@ export function initCreateTab({ random = Math.random, core = null, player = null
             redetectParts();
         },
         onToggleLock: (part) => { if (state.focus) toggleLock(state.focus.d, state.focus.id, part); },
+        onOnlyThis: (part) => regenerateOnly(part),
     });
     ui.playfield = createPlayfield({ canvas: $("playfield"), controls: $("play-controls"), player: ui.player, getTiming: () => ui.timing.timing });
     ui.diffList = createDiffList({ root: $("diffs"), generateButton: $("generate") });
@@ -519,7 +646,12 @@ export function initCreateTab({ random = Math.random, core = null, player = null
         onMore: moreVariant,
         onRegen: regenerate,
         onToggleLock: toggleLock,
+        onRate: rateVariant,
+        onExport: exportRatings,
     });
+    // the graphics-card probe waits until the tab is first shown (or a song is loaded)
+    ui.options = createGenOptions({ root: $("gen-options"), gpu, probeAtStart: false });
+    refreshRatings();
     ui.exportPanel = exportPanel({ root: $("export-panel"), metaRoot: $("meta-group"), player: ui.player, getSelection }) ?? {};
     remapPanel({ root: $("remap-panel") });
     loadCore().then((c) => { ui.rankVariants = c.rankVariants; });
@@ -584,7 +716,11 @@ export function initCreateTab({ random = Math.random, core = null, player = null
         stopCheck();
         ui.player.toggle();
     });
-    window.addEventListener("tab-shown", (e) => { if (e.detail === "create") redrawCanvases(); });
+    window.addEventListener("tab-shown", (e) => {
+        if (e.detail !== "create") return;
+        ui.options.askGpu();
+        redrawCanvases();
+    });
     window.addEventListener("resize", redrawCanvases);
 }
 

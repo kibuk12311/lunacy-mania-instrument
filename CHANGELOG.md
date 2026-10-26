@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+- **Model picker for Create map:** "Classic" — the proven model from 0.8 — stays the default and is what Auto runs. Next to it, experimental models to try: XGBoost v3, and the neural nets S (fast) and M; the neural net L (needs a graphics card) shows as not there yet — it is still training and comes in a later update. On 179 held-out songs the new models hit the asked dan more often, but their notes and patterns are less like a human mapper's, so each one says so in its hint and none is the default. A card names the model it was made with, and if the one you picked couldn't run (no file, or no sound breakdown) it says which one was used instead.
+- **Ratings:** 👍 / 👎 on every variant, with up to four reasons ("too jacky", "fun", …); your ratings are counted and can be exported to a file.
+- **Candidates and the critic:** the "Candidates to choose from" slider (1–20, default 1: off) makes several candidates per variant and lets the critic pick the most human-like, fun and comfortable one; the card shows its scores.
+- **Stems and repeats:** the song is split into kick, snare, hi-hat and harmony when it loads; with that, repeated parts of the song can get similar patterns ("Repeats get similar patterns"), and a mapper style can be picked when the model knows any.
+- **Graphics card path:** the neural nets run on the graphics card (WebGPU) when there is one that passes a self-check, else on the CPU; "Regenerate only this part" redoes one part of a variant in place.
+- **Updates:** the app checks for a new version again every 4 hours while it runs (installed and portable), not only at start.
+
 ## 0.8.1
 
 - **In-game overlay:** three separate always-on-top windows over osu! (windowed or borderless): judgements with the MAX:300 ratio, accuracy and UR; KPS now and max with a graph; key-press lines for K1–K4. Five styles (Minimal, Card, Neon, osu! Classic, Compact), opacity and size per window, Ctrl+Shift+O to move them, settings in the tray. Off by default; nothing is injected into osu!.
