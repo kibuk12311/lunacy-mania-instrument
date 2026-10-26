@@ -415,7 +415,7 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
     }));
     const library = {
         status: () => lib().status(), scan: () => lib().scan(), pause: () => lib().pause(), resume: () => lib().resume(),
-        pickSongs: (dir) => lib().pickSongs(dir), maps: () => lib().maps(), text: (id) => lib().text(id),
+        pickSongs: (dir) => lib().pickSongs(dir), maps: () => lib().maps(), text: (id) => lib().text(id), clear: () => lib().clear(),
     };
     let savedStore = null;
     const savedFile = () => (savedStore ??= createJsonStore({ file: path.join(paths.userData, "sessions.json"), normalize: normalizeSaved, fallback: [] }));
@@ -450,6 +450,15 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
     ipcMain.handle("session-library-status", () => h.libraryStatus());
     ipcMain.handle("session-library-scan", () => h.scan());
     ipcMain.handle("session-library-pause", () => h.pause());
+    // the Settings page: the library's cache forgotten (session-library.json)
+    ipcMain.handle("session-library-clear", async () => {
+        try {
+            const r = await library.clear();
+            return r.ok ? { ok: true, status: await h.libraryStatus() } : { ok: false, busy: true, message: t("settings.cache.busy") };
+        } catch (error) {
+            return fail(error);
+        }
+    });
     ipcMain.handle("session-library-resume", () => h.resume());
     ipcMain.handle("session-library-pick", async () => {
         const picked = await dialog.showOpenDialog(window() ?? undefined, { title: t("session.pickSongsTitle"), properties: ["openDirectory"] });

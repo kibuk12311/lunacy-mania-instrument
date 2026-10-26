@@ -377,6 +377,19 @@ export function createSessionLibrary({
             paused = false;
             return scan();
         },
+        // The Settings page's "clear": the list and its analyses forgotten (not while a scan runs); the next scan
+        // lists and analyses again.
+        async clear() {
+            if (running) return { ok: false, busy: true };
+            await load();
+            store = normalizeStore(null, analyzer);
+            lastScan = null;
+            lastError = null;
+            phase = "idle";
+            await save();
+            tell();
+            return { ok: true };
+        },
         // A Songs folder picked in the window (osu! closed, or not where tosu says).
         async pickSongs(dir) {
             await load();

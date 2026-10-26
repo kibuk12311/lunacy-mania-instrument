@@ -184,10 +184,10 @@ test("the analysis card: General families, Detailed the finder's kinds by the ca
     const result = { kind: "ok", label: "Gamma mid", numeric: 13, halfWidth: 0.3, confidence: "высокая", primary: "Jumptrill",
         top3: [{ name: "Jumptrill", share: 0.46 }, { name: "Handstream", share: 0.22 }, { name: "Minijacks", share: 0.15 }], tech: false, bpm: 180, durationSec: 120, rate: 1 };
     fresh();
-    const general = plain(renderView({ screen: "result", result }, { compact: false }));
+    const general = plain(renderView({ screen: "result", result }, {}));
     assert.ok(general.includes("Jumpstream 46%") && general.includes("Jacks 15%"), general);
     setPatternMode("detailed");
-    const detailed = plain(renderView({ screen: "result", result }, { compact: false }));
+    const detailed = plain(renderView({ screen: "result", result }, {}));
     assert.ok(detailed.includes("Джамптриллы 46%") && detailed.includes("Миниджеки 15%"), detailed);
 });
 
@@ -196,7 +196,7 @@ test("the pattern strip: General families, Detailed the kinds along the map (old
     const families = Array.from({ length: 120 }, (_, i) => (i < 60 ? "jumpstream" : "jack"));
     const flavourBins = Array.from({ length: 120 }, (_, i) => (i < 30 ? "Jumptrill" : i < 60 ? "Anchor" : i < 70 ? "-" : "Gluts"));
     const details = { v: 2, durationSec: 120, strain: new Array(120).fill(0.5), hardest: [], families, flavours: [{ id: "Jumptrill", share: 0.25 }, { id: "Gluts", share: 0.4 }], flavourBins };
-    const state = { view: { screen: "result", result: { kind: "ok", numeric: 13, rate: 1 }, key: "k" }, compact: false, details, profile: { state: "idle" }, ladder: new Map(), ladderOpen: false };
+    const state = { view: { screen: "result", result: { kind: "ok", numeric: 13, rate: 1 }, key: "k" }, details, profile: { state: "idle" }, ladder: new Map(), ladderOpen: false };
     const general = renderExtras(state);
     assert.ok(general.includes("fam-jumpstream") && !general.includes("Анкоры"));
     assert.ok(general.includes('data-pattern-mode="general" class="sel"'), "the switch sits in the strip's head");

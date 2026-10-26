@@ -1,9 +1,12 @@
-// The in-game overlay from the main window: the OV button in the card's footer opens a small panel with the overlay
-// on/off, a checkbox per widget, the move mode (the same as the hotkey) and a link to the overlay's settings window.
+// The in-game overlay from the main window: its block on the Settings page (app/renderer/settingsPage.js) with the
+// overlay on/off, a checkbox per widget, the move mode (the same as the hotkey) and a link to the overlay's settings window.
 // The state is the overlay's own (userData\overlay.json, app/overlay/overlayManager.js): every change made here, in
 // the tray, by the hotkey or in the settings window comes back as { settings, edit } and redraws the panel.
+// It also tells main the player's skill of the profile in use (the picks tab's source: mania-tracker, hand-set or
+// the local profile), for the Dan widget's "for you"; null while there is none.
 import { t } from "../../src/i18n/i18n.js";
 import { WIDGETS, hotkeyLabel } from "../../src/overlay/settings.js";
+import { getProfile, onProfile } from "./profile.js";
 
 function el(tag, cls, text) {
     const node = document.createElement(tag);
@@ -21,9 +24,21 @@ function check(text, onChange) {
     return { label, box };
 }
 
-export function initOverlayPanel({ button, panel, api = window.danApi }) {
-    if (!button || !panel || !api?.overlayGet) return null;
+// the profile's skill as main takes it: { skill } while one is ready, else { skill: null }
+export const profileForOverlay = (p) => ({ skill: p?.state === "ready" && p.skill && typeof p.skill === "object" ? p.skill : null });
+
+export function initOverlayPanel({ panel, api = window.danApi, profile = { getProfile, onProfile } }) {
+    if (!panel || !api?.overlayGet) return null;
     let state = null;
+    const tellProfile = (p) => {
+        try {
+            api.overlayProfile?.(profileForOverlay(p));
+        } catch {
+            // the overlay goes without "for you"
+        }
+    };
+    tellProfile(profile.getProfile());
+    profile.onProfile(tellProfile);
 
     const enabled = check(t("overlay.main.enabled"), (on) => api.overlaySet({ enabled: on }).then(render));
     const widgetBox = el("div", "ov-widgets");
@@ -44,7 +59,7 @@ export function initOverlayPanel({ button, panel, api = window.danApi }) {
     });
     const actions = el("div", "ov-actions");
     actions.append(move, more);
-    panel.replaceChildren(el("h4", "", t("overlay.set.heading")), enabled.label, widgetBox, actions);
+    panel.replaceChildren(enabled.label, widgetBox, actions);
 
     function render(payload) {
         if (!payload?.settings) return;
@@ -55,24 +70,9 @@ export function initOverlayPanel({ button, panel, api = window.danApi }) {
         widgetBox.classList.toggle("off", !s.enabled);
         move.textContent = payload.edit ? t("overlay.main.moveDone") : t("overlay.main.move", { hotkey: hotkeyLabel() });
         move.classList.toggle("on", payload.edit);
-        button.classList.toggle("live", s.enabled);
-        button.classList.toggle("on", !panel.hidden || payload.edit);
     }
 
-    const open = (on) => {
-        panel.hidden = !on;
-        button.setAttribute("aria-expanded", String(on));
-        button.classList.toggle("on", on || Boolean(state?.edit));
-    };
-    button.addEventListener("click", (e) => {
-        e.stopPropagation();
-        open(panel.hidden);
-    });
-    // a click elsewhere closes it
-    document.addEventListener("click", (e) => {
-        if (!panel.hidden && !panel.contains(e.target) && e.target !== button) open(false);
-    });
     api.onOverlaySettings(render);
     api.overlayGet().then(render);
-    return { render, open };
+    return { render, state: () => state };
 }

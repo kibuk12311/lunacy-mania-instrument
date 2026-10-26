@@ -26,6 +26,7 @@ export function createOverlaySession() {
     let mapChecksum = null;
     let mode = null;
     let rate = 1;
+    let mods = [];
     let hits = { ...ZERO };
     let accuracy = null;
     let ur = null;
@@ -56,6 +57,7 @@ export function createOverlaySession() {
         }
         checksum = frame.checksum;
         rate = frame.rate > 0 ? frame.rate : 1;
+        mods = Array.isArray(frame.mods) ? frame.mods : [];
         nps.setRate(rate);
     }
 
@@ -185,6 +187,10 @@ export function createOverlaySession() {
             phase,
             running,
             rate,
+            // the map and its mode (3 = mania, null: not told), the mods' acronyms: the Dan widget's
+            checksum,
+            mode,
+            mods: [...mods],
             clock: t,
             hits: { ...hits },
             ratio: formatRatio(hits.max, hits.n300),
@@ -209,6 +215,8 @@ export function createOverlaySession() {
     return {
         onFrame, onPrecise, setMap, snapshot,
         phase: () => phase,
+        // the map of the play (or its results) and its rate and mode, for the Dan widget
+        map: () => ({ checksum: phase === "idle" ? null : checksum, rate, mode }),
         // a play that is really going on: its clock moved on the last reading, or it has judgements
         advancing: () => phase === "playing" && (running || totalHits(hits) > 0),
     };

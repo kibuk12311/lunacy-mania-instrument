@@ -3,7 +3,7 @@
 // a broken one, a patch from the settings window) into a complete, valid object.
 
 export const STYLES = ["minimal", "card", "neon", "classic", "compact"];
-export const WIDGETS = ["judgements", "kps", "nps", "keys"];
+export const WIDGETS = ["judgements", "kps", "nps", "keys", "dan"];
 export const EDIT_HOTKEY = "CommandOrControl+Shift+O";
 export const SCALE = { min: 0.5, max: 2.5 };
 export const OPACITY = { min: 0.2, max: 1 };
@@ -14,6 +14,8 @@ export const SHOW = {
     kps: ["now", "max", "graph"],
     nps: ["now", "peak", "graph"],
     keys: ["lines", "counts"],
+    // the map's dan, its main pattern (and how sure), the dan along the map with "now", "for you", the play's own dan
+    dan: ["map", "pattern", "live", "forYou", "play"],
 };
 
 // window size at scale 1 per widget and style (CSS px); minimal is smaller, compact is one line
@@ -22,9 +24,10 @@ const SIZES = {
     kps: { default: [210, 128], minimal: [180, 104], compact: [250, 40] },
     nps: { default: [210, 128], minimal: [180, 104], compact: [250, 40] },
     keys: { default: [196, 260], compact: [240, 120] },
+    dan: { default: [230, 170], minimal: [200, 140], compact: [560, 40] },
 };
 
-const DEFAULT_STYLE = { judgements: "card", kps: "card", nps: "card", keys: "card" };
+const DEFAULT_STYLE = { judgements: "card", kps: "card", nps: "card", keys: "card", dan: "card" };
 
 export function widgetSize(widget, style, scale = 1) {
     const sizes = SIZES[widget] ?? SIZES.kps;
@@ -49,6 +52,7 @@ function normalizeWidget(widget, raw) {
     };
 }
 
+// An overlay.json from before a widget existed gets that widget with its defaults (on, like the others), the rest kept.
 export function normalizeOverlaySettings(raw) {
     const widgets = {};
     for (const w of WIDGETS) widgets[w] = normalizeWidget(w, raw?.widgets?.[w]);
@@ -81,7 +85,7 @@ export function placeWidget(widget, settings, displays) {
         x + size.width > a.x + 20 && x < a.x + a.width - 20 && y >= a.y - 10 && y < a.y + a.height - 20);
     if (w.x !== null && w.y !== null && onScreen(w.x, w.y)) return { x: w.x, y: w.y, ...size };
     const a = displays[0]?.workArea ?? { x: 0, y: 0, width: 1920, height: 1080 };
-    const offsets = { judgements: [24, 120], kps: [24, 340], nps: [24, 490], keys: [250, 120] };
+    const offsets = { judgements: [24, 120], kps: [24, 340], nps: [24, 490], keys: [250, 120], dan: [250, 400] };
     const [dx, dy] = offsets[widget] ?? [24, 24];
     return { x: a.x + dx, y: a.y + dy, ...size };
 }

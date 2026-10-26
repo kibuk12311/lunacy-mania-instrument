@@ -1,4 +1,5 @@
-// One overlay widget window: the config comes from main (style, opacity, scale, what to show, the edit mode),
+// One overlay widget window: the config comes from main (style, opacity, scale, what to show, the edit mode, and for
+// the Dan widget the map's dan data — sent again whenever the map, the rate or the profile changes),
 // snapshots of the play about 30 times a second; the canvases are drawn every animation frame in between.
 // In the edit mode outside a play it shows made-up numbers, so there is something to place.
 import { setLang, t } from "../../src/i18n/i18n.js";
@@ -27,7 +28,7 @@ function mount() {
     root.style.height = "100%";
     root.style.opacity = String(config.opacity);
     badge.textContent = `${t(`overlay.widget.${widget}`)} · ${t("overlay.edit.badge")}`;
-    view = mountWidget(root, widget, { style: config.style, show: config.show, zoom: config.scale });
+    view = mountWidget(root, widget, { style: config.style, show: config.show, zoom: config.scale, dan: config.dan ?? null });
     if (snapshot) view.update(snapshot);
 }
 

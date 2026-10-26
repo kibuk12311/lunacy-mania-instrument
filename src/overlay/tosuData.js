@@ -16,11 +16,14 @@ const num = (x) => {
 };
 const count = (x) => Math.max(0, Math.trunc(num(x) ?? 0));
 
+// the mods' acronyms: lazer's array, or stable's name ("HDDT") in twos
+export const modCodes = (mods) => (Array.isArray(mods?.array) && mods.array.length
+    ? mods.array.map((m) => String(m?.acronym ?? m).toUpperCase())
+    : (String(mods?.name ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").match(/.{1,2}/g) ?? []));
+
 function rateOf(mods) {
     const reported = num(mods?.rate);
-    const codes = Array.isArray(mods?.array) && mods.array.length
-        ? mods.array.map((m) => String(m?.acronym ?? m).toUpperCase())
-        : (String(mods?.name ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").match(/.{1,2}/g) ?? []);
+    const codes = modCodes(mods);
     const speed = codes.find((c) => c in SPEED);
     if (reported && reported > 0 && (reported !== 1 || !speed)) return reported;
     return speed ? SPEED[speed] : 1;
@@ -53,6 +56,7 @@ export function readPlayFrame(json) {
         mode, // 3 = mania
         checksum: json?.beatmap?.checksum ? String(json.beatmap.checksum) : null,
         rate: rateOf(play.mods),
+        mods: modCodes(play.mods),
         liveMs: num(json?.beatmap?.time?.live),
         hits,
         accuracy,

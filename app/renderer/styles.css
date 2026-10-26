@@ -53,9 +53,8 @@ body { display: flex; flex-direction: column; }
 
 .message { font-size: 14px; color: var(--muted); padding-top: 6px; line-height: 1.4; }
 
-/* a row under the card; in compact mode it floats over the card's right edge */
+/* a row under the card */
 footer { display: flex; justify-content: flex-end; gap: 4px; padding: 0 8px 6px; }
-body.compact footer { position: fixed; right: 8px; bottom: 6px; padding: 0; }
 footer button {
     background: transparent;
     border: 1px solid var(--line);
@@ -68,20 +67,66 @@ footer button {
     opacity: 0.6;
 }
 footer button.on { color: var(--gold); border-color: var(--gold); opacity: 1; }
-footer select {
-    background: var(--bg); border: 1px solid var(--line); color: var(--muted);
-    border-radius: 6px; font-size: 12px; height: 22px; padding: 0 2px; cursor: pointer; margin-right: auto;
+footer button[hidden] { display: none; }
+footer button.settings-open { font-size: 13px; opacity: 0.75; }
+footer button.settings-open:hover { opacity: 1; color: var(--gold); }
+
+/* the Settings page: over the whole window, its own scroll; ⚙ under the card opens it, «← Назад» or Esc closes it */
+.settings-page {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--bg);
 }
-body.compact footer select, body.compact .calc-tag { display: none; }
+.settings-page[hidden] { display: none; }
+.st-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.st-head h2 { margin: 0; font-size: 15px; color: var(--gold); }
+.st-back {
+    background: transparent; border: 1px solid var(--line); color: var(--text); border-radius: 6px;
+    font-size: 12px; padding: 3px 8px; cursor: pointer;
+}
+.st-body { flex: 1; overflow-y: auto; padding: 4px 12px 12px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; font-size: 12px; }
+.st-group { padding: 8px 0 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+.st-group h3 { margin: 0 0 2px; font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.4px; }
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.st-row select {
+    background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; font-size: 12px; height: 24px; padding: 0 2px; cursor: pointer; max-width: 100%;
+}
+.st-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.st-label { color: var(--text); }
+.st-note { font-size: 11px; line-height: 1.35; }
+.st-path { font-size: 10px; word-break: break-all; user-select: text; }
+.st-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st-seg { display: inline-flex; gap: 4px; }
+.st-body button.small, .st-seg button {
+    background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
+    font-size: 11px; padding: 2px 8px; cursor: pointer;
+}
+.st-seg button.on { color: var(--gold); border-color: var(--gold); }
+.st-body button.st-yes { color: var(--red); border-color: var(--red); }
+.st-sure { color: var(--red); font-size: 11px; }
+.st-group > button { align-self: flex-start; }
+.st-cache { display: flex; flex-direction: column; gap: 3px; padding: 3px 0; }
+.st-sources span { cursor: pointer; }
+/* the overlay's and Interlude's blocks sit in the page itself, not as pop-ups */
+.st-panel.overlay-panel {
+    position: static; width: auto; max-width: none; max-height: none; overflow: visible; padding: 0;
+    border: 0; box-shadow: none; background: transparent;
+}
+.st-panel.interlude-panel .il-results { max-height: 260px; }
+.st-author { padding: 10px 0 2px; text-align: center; }
+.st-author-line { font-size: 11px; }
+button.st-discord {
+    background: transparent; border: 0; padding: 0; color: var(--blue); font: inherit; cursor: copy; text-decoration: underline dotted;
+}
+.st-toast {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 21; padding: 4px 12px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--green); color: var(--green); font-size: 12px; pointer-events: none;
+}
+.st-toast[hidden] { display: none; }
 /* which osu! tosu reads: a small word left of the buttons */
 .osu-client { align-self: center; font-size: 10px; color: var(--muted); padding: 0 3px; white-space: nowrap; }
 .osu-client.lazer { color: var(--gold); }
-body.compact .osu-client { display: none; }
 
-/* the overlay block: the OV button opens a small panel over the card's bottom right (not in compact mode) */
 footer button.ov-button { width: auto; padding: 0 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
-footer button.ov-button.live { color: var(--gold); opacity: 0.9; }
-body.compact .ov-button, body.compact .overlay-panel { display: none; }
 .overlay-panel {
     position: fixed; right: 8px; bottom: 34px; z-index: 5; width: 220px; max-width: calc(100vw - 16px);
     max-height: calc(100vh - 44px); overflow-y: auto; box-sizing: border-box;
@@ -105,7 +150,6 @@ body.compact .ov-button, body.compact .overlay-panel { display: none; }
 .osu-client.interlude { color: var(--blue); }
 footer button.il-toggle.live { color: var(--blue); opacity: 0.9; }
 footer button.il-toggle.on { border-color: var(--blue); }
-body.compact .il-toggle, body.compact .interlude-panel { display: none; }
 .interlude-panel { width: 300px; }
 .interlude-panel h4 { color: var(--blue); }
 .interlude-panel .il-folder { font-size: 10px; word-break: break-all; margin: 2px 0; }
@@ -156,9 +200,6 @@ footer button.il-toggle.warn { color: var(--gold); }
 .calc-row.ours b { color: var(--gold); }
 .msd-list { margin-top: 4px; font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 8px; }
 
-body.compact #card { padding: 6px 70px 6px 12px; overflow: hidden; }
-body.compact .label { font-size: 20px; }
-body.compact .primary { margin-top: 2px; font-size: 13px; }
 
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
 .tabs button {
@@ -167,7 +208,6 @@ body.compact .primary { margin-top: 2px; font-size: 13px; }
     white-space: nowrap; /* five tabs on one line at the default 320px window */
 }
 .tabs button.on { color: var(--gold); border-bottom-color: var(--gold); }
-body.compact .tabs { display: none; }
 
 #analysis-tab { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #create-tab { flex: 1; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; user-select: text; }

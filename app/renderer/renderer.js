@@ -11,22 +11,18 @@ import { initInterludeState, onInterludeState } from "./interlude.js";
 import { initInterludePanel } from "./interludePanel.js";
 import { initProfileTab, onProfileTabShown } from "./profileTab.js";
 import { initSkinTab } from "./skinTab.js";
+import { initSettingsPage } from "./settingsPage.js";
 
 const TABS = ["analysis", "rate", "marathon", "recommend", "profile", "create", "skin"];
 
 const card = document.getElementById("card");
-const pin = document.getElementById("pin");
-const compactButton = document.getElementById("compact");
 applyI18n(document);
 // starting values of text fields (the marathon title) come in the current language too
 for (const node of document.querySelectorAll("[data-i18n-value]")) node.value = t(node.dataset.i18nValue);
 document.documentElement.lang = getLang();
-const langButton = document.getElementById("lang");
-langButton.textContent = getLang().toUpperCase();
-langButton.addEventListener("click", () => window.danApi.setLang(getLang() === "ru" ? "en" : "ru"));
 
 const calcSelect = document.getElementById("calc");
-let settings = { alwaysOnTop: false, compact: false };
+let settings = { alwaysOnTop: false };
 let view = { screen: "waiting-osu" };
 let osuClient = null; // "stable" | "lazer" | null: which osu! tosu reads
 let interludeChart = null; // the Interlude chart on the card (its name), while it is there
@@ -34,7 +30,7 @@ let interludeLinked = false; // an Interlude folder is linked
 let interludeLive = null; // what main says of following Interlude live: { state: { status, onCard, … }, text }
 const clientBadge = document.getElementById("osu-client");
 
-// The calculator the card leads with lives in this window only.
+// The calculator the card leads with lives in this window only (its select is on the Settings page).
 const CALC_KEY = "analysis-calc";
 let calc = "ours";
 try {
@@ -80,9 +76,6 @@ function draw() {
         clientBadge.textContent = !osuClient ? "" : osuClient === "lazer" ? t("analysis.client.lazer") : t("analysis.client.stable");
         clientBadge.title = osuClient ? t("analysis.client.title", { client: osuClient }) : "";
     }
-    document.body.classList.toggle("compact", settings.compact);
-    pin.classList.toggle("on", settings.alwaysOnTop);
-    compactButton.classList.toggle("on", settings.compact);
 }
 
 function showTab(tab) {
@@ -116,8 +109,6 @@ window.danApi.onOsuClient?.((p) => {
     draw();
     window.dispatchEvent(new CustomEvent("osu-client", { detail: osuClient }));
 });
-pin.addEventListener("click", () => window.danApi.toggleAlwaysOnTop());
-compactButton.addEventListener("click", () => window.danApi.toggleCompact());
 for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
 // One tab opens another: open-tab { tab }, open-rate { rate } (the rate tab at that rate).
 window.addEventListener("open-tab", (e) => { if (TABS.includes(e.detail?.tab)) showTab(e.detail.tab); });
@@ -137,7 +128,7 @@ initRecommendTab();
 initProfileTab();
 initSkinTab();
 initAnalysisPanel({ card, redraw: draw });
-initOverlayPanel({ button: document.getElementById("overlay-toggle"), panel: document.getElementById("overlay-panel") });
+initOverlayPanel({ panel: document.getElementById("overlay-panel") });
 initInterludeState();
 window.danApi.onInterludeLive?.((info) => {
     if (!info?.ok) return;
@@ -146,7 +137,13 @@ window.danApi.onInterludeLive?.((info) => {
 });
 window.danApi.interludeLiveGet?.().then((info) => { if (info?.ok) { interludeLive = info; draw(); } }, () => {});
 
-initInterludePanel({ button: document.getElementById("interlude-toggle"), panel: document.getElementById("interlude-panel") });
+// the Settings page holds the overlay's and Interlude's blocks; the IL button under the card opens it at the library
+const settingsPage = document.getElementById("settings-page");
+const interludeBlock = initInterludePanel({
+    button: document.getElementById("interlude-toggle"), panel: document.getElementById("interlude-panel"),
+    onOpen: () => settingsView?.open("interlude"), visible: () => !settingsPage.hidden,
+});
+const settingsView = initSettingsPage({ page: settingsPage, openButton: document.getElementById("settings-open"), interlude: interludeBlock });
 onInterludeState((s) => {
     const next = s?.selected ?? null;
     const linked = Boolean(s?.linked);

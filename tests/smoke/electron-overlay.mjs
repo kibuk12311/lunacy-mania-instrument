@@ -14,6 +14,10 @@
 // play must not start it over.
 // The widget windows are made headless (never put on the screen) and captured: every widget in every style, in
 // Russian and in English, plus the edit mode and the settings window. User data goes into <out dir>/user-data (lazer-user-data with --lazer).
+// The Dan widget: the map played is analysed for real in this process (src/core/analyze.js and the details job, as the
+// worker would), a hand-set profile stands in for the main window's, recording is on: while playing it must show the
+// map's dan with its label, the pattern, the confidence, "now" and "for you" in each language, and on the results
+// screen at the end (the fake tosu's results state, Interlude's score screen) "this play".
 // Exits 1 when a check fails.
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { createServer } from "node:http";
@@ -23,6 +27,8 @@ import { WebSocketServer } from "ws";
 import { setLang, t } from "../../src/i18n/i18n.js";
 import { createOverlay } from "../../app/overlay/overlayManager.js";
 import { STYLES, WIDGETS } from "../../src/overlay/settings.js";
+import { analyzeChart } from "../../src/core/analyze.js";
+import { computeDetails } from "../../src/analysis/timeline.js";
 
 const outDir = path.resolve(process.argv.slice(2).find((a) => !a.startsWith("-") && !a.endsWith(".mjs")) ?? "overlay-smoke");
 const lazer = process.argv.includes("--lazer");
@@ -48,7 +54,7 @@ const notes = [];
 for (let i = 0; i < 700; i += 1) {
     const t0 = 1000 + i * NOTE_MS;
     const col = [0, 2, 1, 3, 0, 3, 2, 1][i % 8];
-    const hold = i % 13 === 6 ? 360 : 0;
+    const hold = i % 13 === 6 ? 150 : 0; // shorter than the gap to its column's next note (the analysis refuses stacked notes)
     notes.push({ t: t0, col, end: hold ? t0 + hold : null });
 }
 const osu = [
@@ -101,6 +107,7 @@ async function startFakeTosu() {
     });
     await new Promise((r) => http.listen(0, "127.0.0.1", r));
     let playStart = null; // real ms when the play's clock was 0
+    let results = false; // the results screen after the play
     const live = () => (playStart === null ? 0 : (Date.now() - playStart) * RATE);
     const frame = () => {
         const now = live();
@@ -113,7 +120,7 @@ async function startFakeTosu() {
         const mods = lazer ? { name: "DT", array: [{ acronym: "DT", settings: { speed_change: RATE } }], rate: RATE } : { name: "", array: [], rate: 1 };
         return {
             ...(lazer ? { client: "lazer", server: "ppy.sh" } : {}),
-            state: { number: playStart === null ? 5 : 2, name: playStart === null ? "selectPlay" : "play" },
+            state: { number: results ? 7 : playStart === null ? 5 : 2, name: results ? "resultScreen" : playStart === null ? "selectPlay" : "play" },
             beatmap: { checksum: "smoke-map", time: { live: now }, mode: { number: 3, name: "mania" } },
             play: { mode: { number: 3 }, hits, hitErrorArray: errors.slice(-200), unstableRate: 0, accuracy: null, mods },
         };
@@ -128,6 +135,7 @@ async function startFakeTosu() {
     return {
         port: http.address().port,
         startPlay: () => { playStart = Date.now() - 500; },
+        results: () => { results = true; },
         // one frame of another state in the middle of song select (what used to flash the windows)
         blip: (number) => { const j = JSON.stringify({ ...frame(), state: { number } }); for (const ws of main.clients) ws.send(j); },
         close: () => { timers.forEach(clearInterval); main.close(); precise.close(); http.close(); },
@@ -186,6 +194,7 @@ async function startInterlude(overlay) {
     await sleep(500);
     return {
         play: () => cmd("play"),
+        results: () => cmd("screen score"),
         leave: () => cmd("screen levelselect"),
         async stop() {
             await reader.stop();
@@ -195,6 +204,29 @@ async function startInterlude(overlay) {
 }
 // the fake Interlude's chart: 2000 notes, one every 50 ms round the columns, on the reader's clock (0 at the first)
 const interludeNotes = async () => ({ keys: 4, notes: Array.from({ length: 2000 }, (_, i) => ({ t: i * 50, col: i % 4, end: null })) });
+// the same chart as the .osu the library would give the Dan widget (its first note at 1000 ms of the file)
+const interludeOsu = [
+    "osu file format v14", "", "[General]", "Mode: 3", "", "[Difficulty]", "CircleSize:4", "OverallDifficulty:8", "", "[HitObjects]",
+    ...Array.from({ length: 2000 }, (_, i) => `${Math.floor((((i % 4) + 0.5) * 512) / 4)},192,${1000 + i * 50},1,0,0:0:0:0:`),
+].join("\r\n");
+// the analysis the app's worker does, here in this process (cached per map and rate by the overlay itself)
+const danAnalyze = async ({ text, rate, result }) => {
+    const r = result ?? await analyzeChart(text, rate);
+    let details = null;
+    try {
+        details = r?.kind === "ok" ? computeDetails(text, rate) : null;
+    } catch (error) {
+        console.log("details failed", error.message);
+    }
+    return { result: r, details };
+};
+// a dan label in either language: "Gamma mid", "12 high", "выше Kappa", "below dan 1" …
+const DAN_LABEL = /((Alpha|Beta|Gamma|Delta|Epsilon|Zeta|Eta|Theta|Iota|Kappa|\b\d{1,2}) (low|low\/mid|mid|mid\/high|high)|выше Kappa|above Kappa|ниже 1 дана|below dan 1)/;
+const danText = (win) => win.webContents.executeJavaScript(`({
+    text: document.getElementById("widget").innerText,
+    state: document.querySelector(".ov-dan .ov-box")?.dataset.state ?? null,
+    pattern: document.querySelector(".d-pattern")?.textContent ?? "",
+    spark: (() => { const c = document.querySelector(".d-spark"); return c && !c.hidden ? [c.width, c.height] : null; })() })`);
 
 // The widgets kept up: an overlay of its own (not headless) in the edit mode, so they are on the screen; one minimized,
 // one hidden, the app's window (a stand-in) minimized and restored → all back, visible, top-most.
@@ -237,12 +269,14 @@ app.whenReady().then(async () => {
     const overlay = createOverlay({
         electron: { BrowserWindow, ipcMain, globalShortcut, screen },
         userData: app.getPath("userData"), port: tosu.port, t, log: (l) => console.log("log", l), headless: true,
-        interludeNotes,
+        interludeNotes, danAnalyze, interludeText: async () => interludeOsu, recording: async () => true,
     });
     let il = null;
     try {
         if (interludeMode) il = await startInterlude(overlay);
         overlay.apply({ enabled: true });
+        // the profile the main window would tell: a hand-set one, 12 on every tile
+        overlay.setProfile({ skill: { overall: 12, tiles: { speed: 12, jack: 12, stamina: 12, tech: 12 } } });
         await sleep(600);
         check(WIDGETS.every((w) => !overlay.isShown(w)), "song select: no widget shown");
         tosu.blip(2);
@@ -257,6 +291,19 @@ app.whenReady().then(async () => {
         const win = (w) => overlay.windowFor(w);
         check(win("kps").isAlwaysOnTop(), "always on top");
         await sleep(2500); // let the play run
+        // the Dan widget: the map's analysis (in this process here, the worker in the app) comes once
+        let dan = await danText(win("dan"));
+        for (let i = 0; i < 300 && dan.state !== "ok"; i += 1) {
+            await sleep(100);
+            dan = await danText(win("dan"));
+        }
+        console.log("dan", JSON.stringify(dan));
+        check(dan.state === "ok" && DAN_LABEL.test(dan.text) && /\d+\.\d/.test(dan.text), `dan: the map's dan with its label (${dan.text.replace(/\s+/g, " ")})`);
+        check(dan.text.includes("уверенность:") && dan.text.includes("сейчас:") && dan.text.includes("к твоему уровню"),
+            "dan: confidence, now and for you (ru)");
+        // the fake Interlude's chart is one note round the columns: no named pattern in it, so none is shown
+        if (!interludeMode) check(Boolean(dan.pattern), `dan: the main pattern (${dan.pattern})`);
+        check(Array.isArray(dan.spark) && dan.spark[0] > 50, "dan: the line along the map is drawn");
 
         // one stray song-select frame in the middle of the play: the play goes on, its KPS max and lanes are kept
         await win("keys").webContents.executeJavaScript(`window.__last = null; window.overlayApi.onState((s) => { window.__last = s; }); true`);
@@ -336,6 +383,10 @@ app.whenReady().then(async () => {
                 await sleep(500);
                 for (const w of WIDGETS) await capture(win(w), `${prefix}${l}-${style}-${w}.png`);
             }
+            const danNow = await danText(win("dan"));
+            check(l === "ru" ? danNow.text.includes("сейчас:") && danNow.text.includes("к твоему уровню")
+                : danNow.text.includes("now:") && danNow.text.includes("vs your level"),
+            `${l}: the Dan widget's words (${danNow.text.replace(/\s+/g, " ")})`);
             const peakLabel = await win("nps").webContents.executeJavaScript(`document.querySelector(".k-max .k-unit").textContent`);
             check(peakLabel === (l === "ru" ? "пик" : "peak"), `${l}: NPS peak label "${peakLabel}"`);
             const cls = await win("kps").webContents.executeJavaScript(`document.getElementById("widget").className`);
@@ -367,6 +418,19 @@ app.whenReady().then(async () => {
         await sleep(200);
         const after = win("kps").getBounds();
         check(after.width > before.width && after.height > before.height, `scale 1.5 resizes the window (${before.width}×${before.height} → ${after.width}×${after.height})`);
+        // the results screen: the Dan widget shows the play's own dan (recording is on), in place of "now"
+        if (il) await il.results();
+        else tosu.results();
+        let danAfter = await danText(win("dan"));
+        for (let i = 0; i < 40 && !danAfter.text.includes(lang === "ru" ? "эта игра:" : "this play:"); i += 1) {
+            await sleep(100);
+            danAfter = await danText(win("dan"));
+        }
+        console.log("dan results", JSON.stringify(danAfter));
+        check(overlay.isShown("dan"), "results: the Dan widget stays (shown on the results screen)");
+        check(danAfter.text.includes(lang === "ru" ? "эта игра:" : "this play:") && DAN_LABEL.test(danAfter.text), `results: this play's dan (${danAfter.text.replace(/\s+/g, " ")})`);
+        check(!danAfter.text.includes(lang === "ru" ? "сейчас:" : "now:"), "results: no \"now\" any more");
+        await capture(win("dan"), `${prefix}${lang}-results-dan.png`);
         if (il) {
             // Interlude back in level select: the play is over, the widgets go
             await il.leave();

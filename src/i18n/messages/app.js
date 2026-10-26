@@ -3,10 +3,10 @@ export default {
     // tray menu; the language item shows both languages at once ("Язык / Language"), built from this entry in main.js
     "app.tray.show": { ru: "Показать", en: "Show" },
     "app.tray.alwaysOnTop": { ru: "Поверх всех окон", en: "Always on top" },
-    "app.tray.compact": { ru: "Компактный режим", en: "Compact mode" },
     "app.tray.language": { ru: "Язык", en: "Language" },
     "app.tray.checkUpdates": { ru: "Проверить обновления", en: "Check for updates" },
     "app.tray.autoUpdate": { ru: "Проверять обновления автоматически", en: "Check for updates automatically" },
+    "app.tray.settings": { ru: "Настройки…", en: "Settings…" },
     "app.tray.quit": { ru: "Выход", en: "Quit" },
 
     // updates from GitHub Releases (app/updater.js): the installed build updates itself, the portable one sends to the page

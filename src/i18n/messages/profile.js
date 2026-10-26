@@ -82,6 +82,23 @@ export default {
     "profile.conf.medium": { ru: "уверенность средняя", en: "medium confidence" },
     "profile.conf.high": { ru: "уверенность высокая", en: "high confidence" },
 
+    // the dan pictures (app/renderer/danCharts.js)
+    "profile.chart.scale": { ru: "Шкала", en: "Scale" },
+    "profile.chart.radar": { ru: "Паутинка", en: "Radar" },
+    "profile.chart.overall": { ru: "Общий", en: "Overall" },
+    "profile.chart.tapHint": { ru: "Наведи или нажми на отметку — покажу, что значит число", en: "Hover over or tap a marker to see what its number means" },
+    "profile.chart.legend": {
+        ru: "{num} = {label}. Целое число — дан (11 = Alpha … 20 = Kappa), дробь — low/mid/high внутри дана; ± — насколько уверена оценка",
+        en: "{num} = {label}. The whole number is the dan (11 = Alpha … 20 = Kappa), the fraction is low/mid/high within it; ± is how sure the estimate is",
+    },
+    "profile.chart.legendNoRange": {
+        ru: "{num} = {label}. Целое число — дан (11 = Alpha … 20 = Kappa), дробь — low/mid/high внутри дана",
+        en: "{num} = {label}. The whole number is the dan (11 = Alpha … 20 = Kappa), the fraction is low/mid/high within it",
+    },
+    "profile.chart.byMaps.one": { ru: "по {n} карте", en: "from {n} map" },
+    "profile.chart.byMaps.few": { ru: "по {n} картам", en: "from {n} maps" },
+    "profile.chart.byMaps.many": { ru: "по {n} картам", en: "from {n} maps" },
+
     // one play
     "profile.play.fail": { ru: "провал", en: "failed" },
     "profile.play.quit": { ru: "вышел", en: "quit" },

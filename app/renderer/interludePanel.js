@@ -1,8 +1,9 @@
-// The IL button in the card's footer opens Interlude's panel: its folder (picked, found or unlinked) and its library,
+// Interlude's block on the Settings page (app/renderer/settingsPage.js): its folder (picked, found or unlinked) and its library,
 // searched by artist, title, difficulty name or creator; a click puts the chart on the card (dan, patterns, MSD,
 // rates), and the rate tab then works on it. Above the library: following the running game (the card shows what is
 // selected in Interlude, the overlay its plays, through app/interludeReader.js) with its state in words, and the
-// setting that lets the reader download .NET's DAC file once when none matches (off by default).
+// setting that lets the reader download .NET's DAC file once when none matches (off by default). The IL button under
+// the card (there only while a folder is linked) shows the live state and opens this block, for the library.
 import { t } from "../../src/i18n/i18n.js";
 import { onInterludeState } from "./interlude.js";
 
@@ -20,8 +21,9 @@ const mmss = (ms) => {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export function initInterludePanel({ button, panel, api = window.danApi }) {
-    if (!button || !panel || !api?.interludeStatus) return null;
+// button: the IL button under the card (or null); onOpen(): it was clicked; visible() → the block can be seen now
+export function initInterludePanel({ button = null, panel, api = window.danApi, onOpen = () => {}, visible = () => true }) {
+    if (!panel || !api?.interludeStatus) return null;
     const statusLine = el("div", "il-status");
     const folderLine = el("div", "il-folder muted");
     const pick = el("button", "small", t("interlude.panel.pick"));
@@ -53,7 +55,7 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
     const liveLine = el("div", "il-live muted");
     const liveBox = el("div", "il-live-box");
     liveBox.append(liveCheck.box, liveLine, downloadCheck.box);
-    panel.replaceChildren(el("h4", "", t("interlude.panel.heading")), statusLine, folderLine, actions, answer, liveBox, libraryBox, note);
+    panel.replaceChildren(statusLine, folderLine, actions, answer, liveBox, libraryBox, note);
 
     let state = null;
     let token = 0;
@@ -97,8 +99,11 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
     function render(s) {
         state = s;
         const linked = Boolean(s?.linked);
-        button.classList.toggle("live", linked);
-        button.title = linked ? t("interlude.badge.linkedTitle", { folder: s.folder ?? "" }) : t("interlude.badge.title");
+        if (button) {
+            button.hidden = !linked;
+            button.classList.toggle("live", linked);
+            button.title = linked ? t("settings.il.openTitle") : t("interlude.badge.title");
+        }
         statusLine.className = `il-status ${linked ? "ok" : "muted"}`;
         statusLine.textContent = linked
             ? (Number.isFinite(s.size) ? t("interlude.panel.linked", { n: s.size }) : t("interlude.panel.linkedNoCount"))
@@ -108,7 +113,7 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
         if (s?.message) say(s.message, "bad");
         unlink.hidden = !s?.folder;
         libraryBox.hidden = !linked;
-        if (linked && !panel.hidden) runSearch();
+        if (linked && visible()) runSearch();
     }
 
     const act = (fn) => async () => {
@@ -128,21 +133,15 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
         timer = setTimeout(runSearch, SEARCH_DELAY_MS);
     });
 
-    const open = (on) => {
-        panel.hidden = !on;
-        button.setAttribute("aria-expanded", String(on));
-        button.classList.toggle("on", on);
-        if (on && state?.linked) {
-            runSearch();
-            search.focus();
-        }
+    // the block came into view (the Settings page opened): the library is searched afresh
+    const shown = ({ focus = false } = {}) => {
+        if (!state?.linked) return;
+        runSearch();
+        if (focus) search.focus();
     };
-    button.addEventListener("click", (e) => {
+    button?.addEventListener("click", (e) => {
         e.stopPropagation();
-        open(panel.hidden);
-    });
-    document.addEventListener("click", (e) => {
-        if (!panel.hidden && !panel.contains(e.target) && e.target !== button) open(false);
+        onOpen();
     });
     function renderLive(info) {
         if (!info?.ok) return;
@@ -152,8 +151,8 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
         liveLine.textContent = info.text ?? "";
         const bad = s.status === "error" || s.status === "missing" || s.status === "crashed" || s.warn;
         liveLine.className = `il-live ${bad ? "bad" : s.status === "attached" ? "ok" : "muted"}`;
-        button.classList.toggle("attached", s.status === "attached");
-        button.classList.toggle("warn", Boolean(bad));
+        button?.classList.toggle("attached", s.status === "attached");
+        button?.classList.toggle("warn", Boolean(bad));
     }
     const setLive = (patch) => async () => {
         liveCheck.input.disabled = true;
@@ -171,6 +170,6 @@ export function initInterludePanel({ button, panel, api = window.danApi }) {
     api.interludeLiveGet?.().then(renderLive, () => {});
 
     onInterludeState(render);
-    return { render, open, renderLive };
+    return { render, shown, renderLive };
 
 }

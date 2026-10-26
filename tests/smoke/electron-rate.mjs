@@ -134,7 +134,7 @@ app.whenReady().then(async () => {
     };
     const report = {};
 
-    win.webContents.send("settings", { alwaysOnTop: false, compact: false, lang });
+    win.webContents.send("settings", { alwaysOnTop: false, lang });
     win.webContents.send("view", { screen: "waiting-osu" });
     await js(`document.querySelector('[data-tab=rate]').click();`);
     await waitFor(`document.getElementById("rate-preview").innerText === ${JSON.stringify(t("rate.preview.lnHint"))}`);

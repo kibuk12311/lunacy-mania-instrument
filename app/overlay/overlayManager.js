@@ -1,4 +1,5 @@
-// The in-game overlay: four small windows of their own (judgements, KPS, map NPS, key lines) over osu!, nothing injected.
+// The in-game overlay: five small windows of their own (judgements, KPS, map NPS, key lines, dan) over osu!, nothing
+// injected.
 // Each is transparent, frameless, always on top at the screen-saver level and click-through while you play;
 // the edit mode (the hotkey or the tray) lets them be dragged and resized by their corner. They show while osu! is
 // playing (and on the results screen if asked), fed by their own tosu sockets: /websocket/v2 for the judgements
@@ -10,6 +11,9 @@
 // Kept up: a widget meant to be on screen that Windows minimized or hid (Win+D, minimizing the game or the app's own
 // window) is put back at once, and while any is shown a light watchdog re-asserts the top-most level every
 // KEEP_UP_MS (a borderless game taking focus can push itself above top-most windows).
+// The Dan widget's map data (app/overlay/danSource.js: the card's analysis per map and rate, the dan along the map,
+// the player's skill from the main window, whether the local profile records) goes with its config, sent again only
+// when it changes.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -19,6 +23,8 @@ import { readInterludeFrame } from "../../src/overlay/interludeData.js";
 import { createOverlaySession, LEAVE_MS } from "../../src/overlay/session.js";
 import { parseManiaNotes } from "../../src/overlay/maniaNotes.js";
 import { createVisibilityGate } from "../../src/overlay/visibility.js";
+import { buildDanPayload, cleanSkill, danKey } from "../../src/overlay/dan.js";
+import { createDanSource } from "./danSource.js";
 import {
     EDIT_HOTKEY, WIDGETS, applyPatch, hotkeyLabel, normalizeOverlaySettings, placeWidget, widgetSize,
 } from "../../src/overlay/settings.js";
@@ -30,7 +36,7 @@ export const KEEP_UP_MS = 1500;
 
 export const OVERLAY_CHANNELS = {
     handle: ["overlay-get", "overlay-set"],
-    on: ["overlay-edit", "overlay-scale", "overlay-open-settings"],
+    on: ["overlay-edit", "overlay-scale", "overlay-open-settings", "overlay-profile"],
 };
 
 export function loadOverlaySettings(file) {
@@ -49,10 +55,14 @@ export function saveOverlaySettings(file, settings) {
 
 // electron: { BrowserWindow, ipcMain, globalShortcut, screen }; headless (the smoke test): windows are never put on
 // the screen, only marked shown, so their pages can still be captured.
+// The Dan widget: danAnalyze({ text, rate, result }) → { result, details } (danSource.js makeDanAnalyzer; without it
+// the widget says there is no estimate), interludeText(hash) → the .osu text of an Interlude chart, recording() →
+// whether the local profile records plays.
 export function createOverlay({
     electron, userData, port, t, log = () => {}, onChange = () => {}, icon, mainWindow = () => null,
     fetchImpl = globalThis.fetch, WebSocketImpl = globalThis.WebSocket, now = () => performance.now(), headless = false,
     interludeNotes = async () => null, setInterval: every = setInterval, clearInterval: stopEvery = clearInterval,
+    danAnalyze = null, interludeText = async () => null, recording = async () => false,
 }) {
     const { BrowserWindow, ipcMain, globalShortcut, screen, powerMonitor } = electron;
     const file = path.join(userData, "overlay.json");
@@ -77,6 +87,15 @@ export function createOverlay({
     let mapLoading = null;
     let hotkeyOn = false;
     let disposed = false;
+    // the Dan widget
+    let mapText = null; // { checksum, text } of the osu! map last fetched from tosu
+    let skill = null; // the player's skill from the main window (cleanSkill), null without a profile
+    let skillVersion = 0;
+    let recordingOn = false;
+    let recordingKey = null; // the map key recording() was last asked for
+    let danSig = null; // what the payload sent was built from
+    let danPayload = null;
+    const dan = createDanSource({ analyze: danAnalyze, log, onChange: () => setImmediate(syncDan) });
 
     const alive = (win) => win && !win.isDestroyed();
     const displays = () => [screen.getPrimaryDisplay(), ...screen.getAllDisplays()];
@@ -94,7 +113,8 @@ export function createOverlay({
 
     const configFor = (widget) => {
         const w = settings.widgets[widget];
-        return { widget, style: w.style, opacity: w.opacity, scale: w.scale, show: w.show, edit, hotkey: hotkeyLabel() };
+        const config = { widget, style: w.style, opacity: w.opacity, scale: w.scale, show: w.show, edit, hotkey: hotkeyLabel() };
+        return widget === "dan" ? { ...config, dan: danPayload } : config;
     };
 
     // the settings window and the main window's overlay block show the same state
@@ -111,7 +131,11 @@ export function createOverlay({
         mapLoading = checksum;
         fetchImpl(`http://127.0.0.1:${port}/files/beatmap/file`, { signal: AbortSignal.timeout(5000) })
             .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`status ${res.status}`))))
-            .then((text) => session.setMap(checksum, parseManiaNotes(text)))
+            .then((text) => {
+                mapText = { checksum, text };
+                session.setMap(checksum, parseManiaNotes(text));
+                syncDan();
+            })
             .catch((error) => {
                 log(`overlay: no map notes (${error.message})`);
                 session.setMap(checksum, null);
@@ -128,6 +152,7 @@ export function createOverlay({
                     const { mapWanted } = session.onFrame(frame, now());
                     if (mapWanted) loadMap(mapWanted);
                     updateVisibility();
+                    syncDan();
                 },
                 // tosu gone (osu! closed, the app quitting): the play is over as far as the overlay knows
                 onStatus: (status) => {
@@ -148,6 +173,55 @@ export function createOverlay({
         sockets = [];
         session = createOverlaySession();
         ilSession = createOverlaySession();
+    }
+
+    // ---- the Dan widget ----
+
+    // the .osu text of a play's map: Interlude's library chart, or the osu! map tosu serves (the one being played)
+    async function danText(checksum) {
+        if (checksum.startsWith("interlude:")) return interludeText(checksum.slice("interlude:".length));
+        if (mapText?.checksum === checksum) return mapText.text;
+        const res = await fetchImpl(`http://127.0.0.1:${port}/files/beatmap/file`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const text = await res.text();
+        // tosu answers for what is selected now: still this play's map?
+        if (active().map().checksum !== checksum) throw new Error("another map by now");
+        mapText = { checksum, text };
+        return text;
+    }
+
+    // The map of the play shown (or its results) → its dan worked out once, and the payload sent to the Dan widget
+    // when what it is built from changed (another map or rate, the analysis came, the profile, the recording setting).
+    function syncDan() {
+        if (disposed || !settings.widgets.dan.enabled) return;
+        const { checksum, rate, mode } = active().map();
+        if (!checksum) return;
+        const key = danKey(checksum, rate);
+        const mania = mode === 3 || mode === null;
+        if (mania) dan.want(checksum, rate, { text: () => danText(checksum), interlude: checksum.startsWith("interlude:") });
+        if (recordingKey !== key) {
+            recordingKey = key;
+            Promise.resolve().then(recording).then((on) => {
+                if (Boolean(on) === recordingOn || disposed) return;
+                recordingOn = Boolean(on);
+                syncDan();
+            }, () => {});
+        }
+        const sig = `${key}|${mode}|${dan.get(key)?.version ?? 0}|${skillVersion}|${recordingOn}`;
+        if (sig === danSig) return;
+        danSig = sig;
+        danPayload = buildDanPayload({ checksum, rate, mode, entry: dan.get(key), skill, recording: recordingOn });
+        const win = windows.get("dan");
+        if (alive(win)) win.webContents.send("overlay-config", configFor("dan"));
+    }
+
+    // the player's profile in use in the main window (the picks tab's source): { skill } or null
+    function setProfile(p) {
+        const next = cleanSkill(p?.skill);
+        if (JSON.stringify(next) === JSON.stringify(skill)) return;
+        skill = next;
+        skillVersion += 1;
+        syncDan();
     }
 
     // ---- Interlude (the reader's state lines, from main) ----
@@ -175,6 +249,7 @@ export function createOverlay({
         const frame = readInterludeFrame(msg);
         const { mapWanted } = ilSession.onFrame(frame, now());
         if (mapWanted && frame.hash) loadInterludeMap(mapWanted, frame.hash);
+        syncDan();
         // outside a play the reader writes a line only on a change: the same frame again once it has lasted, so the
         // play ends (a single odd frame in the middle of a play must last LEAVE_MS to end it)
         clearTimeout(ilLeaveTimer);
@@ -395,6 +470,7 @@ export function createOverlay({
     ipcMain.handle("overlay-set", (_e, patch) => ({ settings: apply(patch), edit }));
     ipcMain.on("overlay-edit", (_e, on) => setEdit(on));
     ipcMain.on("overlay-open-settings", () => openSettings());
+    ipcMain.on("overlay-profile", (_e, p) => setProfile(p));
     ipcMain.on("overlay-scale", (_e, request) => {
         const widget = request?.widget;
         if (!WIDGETS.includes(widget) || !Number.isFinite(request?.scale)) return;
@@ -428,6 +504,9 @@ export function createOverlay({
         }],
         openSettings,
         onInterlude,
+        // the card's result for its map (the "result" hook, with the map's checksum): the Dan widget's data at once
+        onCardResult: (r) => dan.fromCard(r),
+        setProfile,
         keepUp: () => keepUp(),
         setEdit,
         apply,

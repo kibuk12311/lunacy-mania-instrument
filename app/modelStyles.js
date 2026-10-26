@@ -145,5 +145,11 @@ export function createStyleCatalog({ dirs = () => modelDirs(), cacheFile = null,
         return Object.fromEntries(MODEL_SIZES.map((size) => [size, displayStyles(raw[size], names)]));
     }
 
-    return { forFile, bySize };
+    // the Settings page's "clear the cache": every model file is read again when next asked
+    async function clear() {
+        memo.clear();
+        if (store) await store.set({ v: CACHE_VERSION, files: {} });
+    }
+
+    return { forFile, bySize, clear };
 }

@@ -25,13 +25,58 @@
 .prof-axis-sub { grid-column: 2; font-size: 11px; margin-top: -3px; }
 .prof-msd { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
-/* the seven patterns */
+/* the dan pictures (danCharts.js): the four skills on one dan axis or as a spider chart, the overall in gold */
+.prof-viz { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; user-select: text; }
+.prof-viz-modes span { font-size: 11px; }
+.prof-viz-svg { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; overflow: visible; }
+.prof-viz-svg.radar { max-width: 340px; }
+.prof-viz-edge { stroke: var(--line); stroke-width: 1; fill: none; }
+.prof-viz-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; fill: none; }
+.prof-viz-tick { stroke: var(--muted); stroke-width: 1; }
+.prof-viz-axis { fill: var(--muted); font-size: 10px; }
+.prof-viz-axis.step { font-size: 8px; opacity: 0.8; }
+.prof-viz-axis.ring { font-size: 9px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.prof-viz-name { fill: var(--text); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.prof-viz-value { fill: var(--blue); font-size: 10px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.prof-viz-value.few, .prof-viz-few { fill: var(--muted); font-size: 10px; font-style: italic; }
+.prof-viz-row.few .prof-viz-name { fill: var(--muted); font-weight: 400; }
+.prof-viz-hit { fill: transparent; cursor: pointer; }
+.prof-viz-row:hover .prof-viz-hit { fill: var(--accent-bg); }
+.prof-viz-track { stroke: var(--line); stroke-width: 2; }
+.prof-viz-track.few { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.6; }
+.prof-viz-band { fill: var(--blue); }
+.prof-viz-dot { fill: var(--blue); stroke: var(--panel); stroke-width: 1.5; pointer-events: none; }
+.prof-viz-whisker { stroke: var(--blue); stroke-width: 6; stroke-linecap: round; }
+/* how sure: the ± band fades with the confidence */
+.prof-conf-high { opacity: 0.55; }
+.prof-conf-medium { opacity: 0.38; }
+.prof-conf-low { opacity: 0.2; }
+.prof-viz-dot.prof-conf-high, .prof-viz-dot.prof-conf-medium, .prof-viz-dot.prof-conf-none { opacity: 1; }
+.prof-viz-dot.prof-conf-low { opacity: 0.6; }
+.prof-viz-overall-line { stroke: var(--gold); stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
+.prof-viz-overall-text { fill: var(--gold); font-size: 10px; font-weight: 600; }
+.prof-viz-overall { cursor: pointer; }
+.prof-viz-shape { fill: var(--blue); fill-opacity: 0.18; stroke: var(--blue); stroke-width: 1.5; }
+.prof-viz-shape.few { stroke-dasharray: 4 3; }
+.prof-viz-tip { font-size: 12px; color: var(--text); min-height: 1.35em; line-height: 1.35; }
+.prof-viz-tip.muted { color: var(--muted); font-size: 11px; }
+.prof-viz-legend { font-size: 11px; line-height: 1.35; }
+
+/* the seven patterns: a bar each on one dan axis, the dan names above */
 .prof-table { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
 .prof-trow { display: contents; }
 .prof-tname { grid-column: 1; color: #cccccc; }
-.prof-tdan { grid-column: 2; font-weight: 600; }
-.prof-trow.few .prof-tdan { color: var(--muted); font-weight: 400; }
-.prof-tsub { grid-column: 2; font-size: 11px; margin-top: -2px; margin-bottom: 2px; }
+.prof-trow.few .prof-tname { color: var(--muted); }
+.prof-tsub { grid-column: 1 / -1; font-size: 11px; margin-top: -1px; margin-bottom: 3px; }
+.prof-bars-axis { grid-column: 2; position: relative; height: 13px; font-size: 10px; color: var(--muted); }
+.prof-bars-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.prof-bar-cell { grid-column: 2; align-self: center; min-width: 0; }
+.prof-bar-svg { display: block; width: 100%; height: 12px; }
+.prof-bar { fill: var(--blue); }
+.prof-bar.prof-conf-high { opacity: 0.85; }
+.prof-bar.prof-conf-medium { opacity: 0.6; }
+.prof-bar.prof-conf-low { opacity: 0.35; }
+.prof-bar-whisker { stroke: var(--text); stroke-width: 1.5; }
 
 /* plays */
 .prof-list { display: flex; flex-direction: column; gap: 4px; user-select: text; }
@@ -45,3 +90,5 @@
 /* the history charts' scale: readable at the window's width (the viewBox is 300 wide) */
 .prof-chart-label { fill: var(--muted); font-size: 12px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .prof-chart-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+/* a dan axis: a line between two dans (the dotted ones split low / mid / high) */
+.prof-chart-edge { stroke: var(--line); stroke-width: 1.5; }

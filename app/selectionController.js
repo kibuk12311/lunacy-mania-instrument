@@ -6,7 +6,7 @@ const UPDATE_HINT_MS = 10_000;
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
 
-// onResult({ key, text, rate, result }): once per fresh result that is still the selection (cache hits and errors
+// onResult({ key, text, rate, result, checksum }): once per fresh result that is still the selection (cache hits and errors
 // too, key and text null when the file could not be read); showing a kept result again does not call it.
 export function createSelectionController({ fetchOsu, analyze, cache, now = Date.now, onView, onResult = () => {} }) {
     let tosuStatus = "connecting";
@@ -68,7 +68,7 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
         currentKey = key;
         show(resultView());
         try {
-            onResult({ key, text, rate, result });
+            onResult({ key, text, rate, result, checksum });
         } catch {
             // a tab's hook must not stop the card
         }

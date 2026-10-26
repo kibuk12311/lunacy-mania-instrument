@@ -141,12 +141,13 @@ app.whenReady().then(async () => {
 ${await js("document.body.innerText.slice(0, 1500)")}`);
     };
     const report = {};
-    win.webContents.send("settings", { alwaysOnTop: false, compact: false, lang });
+    win.webContents.send("settings", { alwaysOnTop: false, lang });
     win.webContents.send("view", { screen: "waiting-osu" });
 
-    // the IL panel before a folder is linked
-    await js(`document.getElementById("interlude-toggle").click();`);
-    await waitFor(`!document.getElementById("interlude-panel").hidden`);
+    // Interlude's block on the Settings page (⚙ under the card) before a folder is linked; no IL button yet
+    report.ilHidden = await js(`document.getElementById("interlude-toggle").hidden`);
+    await js(`document.getElementById("settings-open").click(); document.getElementById("st-interlude").scrollIntoView({ block: "start" });`);
+    await waitFor(`!document.getElementById("settings-page").hidden`);
     report.unlinked = await text("interlude-panel");
     await shot(`interlude-${lang}-1-unlinked.png`);
 
@@ -170,7 +171,8 @@ ${await js("document.body.innerText.slice(0, 1500)")}`);
     report.answer = await js(`document.querySelector("#interlude-panel .il-answer").innerText`);
     report.badge = await text("osu-client");
     report.badgeTitle = await js(`document.getElementById("osu-client").title`);
-    await js(`document.getElementById("interlude-toggle").click();`);
+    // the chart went on the card: the page gave way to it
+    await waitFor(`document.getElementById("settings-page").hidden`);
     await shot(`interlude-${lang}-4-card.png`);
     report.card = (await text("card")).slice(0, 200);
 
@@ -216,7 +218,7 @@ ${await js("document.body.innerText.slice(0, 1500)")}`);
         && report.rateNote && report.oszMade.length === 1 && report.oszMade[0].endsWith(".osz") && report.revealed.length === 1
         && Array.isArray(report.playlist) && report.playlist.length === 1 && report.playlist[0][1].Rate === 1.15
         && report.fixtureChanged.length === 1 && report.fixtureChanged[0].startsWith(path.join("Data", "collections.json"))
-        && !report.overflow.page && !report.overflow.wide.length;
+        && !report.overflow.page && !report.overflow.wide.length && report.ilHidden === true && report.buttonLive === true;
     app.exit(ok ? 0 : 2);
 }).catch((error) => {
     console.error("smoke failed:", error?.stack ?? error);
@@ -300,7 +302,7 @@ async function runLive() {
         }
         throw new Error(`timed out: ${code}\n${await js("document.body.innerText.slice(0, 1500)")}`);
     };
-    win.webContents.send("settings", { alwaysOnTop: false, compact: false, lang });
+    win.webContents.send("settings", { alwaysOnTop: false, lang });
     win.webContents.send("view", { screen: "waiting-osu" });
 
     const fake = spawn(FAKE, [], { stdio: ["pipe", "pipe", "pipe"] });
@@ -326,13 +328,14 @@ async function runLive() {
         report.badge = await js(`document.getElementById("osu-client").innerText`);
         report.badgeTitle = await js(`document.getElementById("osu-client").title`);
         await shot(`live-${lang}-1-card.png`);
+        // the IL button under the card opens the Settings page at Interlude's block
         await js(`document.getElementById("interlude-toggle").click();`);
-        await waitFor(`!document.getElementById("interlude-panel").hidden && ${panelLive}.innerText.length > 3`);
+        await waitFor(`!document.getElementById("settings-page").hidden && ${panelLive}.innerText.length > 3`);
         report.liveLine = await js(`${panelLive}.innerText`);
         report.liveChecked = await js(`document.querySelectorAll("#interlude-panel .il-check input")[0].checked`);
         report.downloadChecked = await js(`document.querySelectorAll("#interlude-panel .il-check input")[1].checked`);
         await shot(`live-${lang}-2-panel.png`);
-        await js(`document.getElementById("interlude-toggle").click();`);
+        await js(`document.getElementById("settings-back").click();`);
 
         // a chart Interlude has that the linked library doesn't: its names and a note
         await cmd("select hashZ|Unknown Song|Someone|4K Hard|Nobody|4|90000|180|4.2");
@@ -355,7 +358,7 @@ async function runLive() {
 
         // the error texts: an Interlude update renamed a field; no DAC for this runtime (download off: the hint)
         live.onMessage({ v: 1, status: "error", code: "field_not_found", reason: "field SelectedChart._rate/rate not found (Interlude version 0.7.29.0)" });
-        await js(`document.getElementById("interlude-toggle").click();`);
+        await js(`document.getElementById("settings-open").click(); document.getElementById("st-interlude").scrollIntoView({ block: "start" });`);
         await waitFor(`${panelLive}.classList.contains("bad")`);
         report.fieldText = await js(`${panelLive}.innerText`);
         report.warn = await js(`document.getElementById("interlude-toggle").classList.contains("warn")`);

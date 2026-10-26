@@ -27,14 +27,14 @@ const count = (s, part) => s.split(part).length - 1;
 
 test("the card: «выше Kappa» beside its own number, not twice; the other calculators too", () => {
     const result = { kind: "ok", label: "выше Kappa · 21.3", numeric: 21.3, halfWidth: 0.4, confidenceLevel: "medium", primary: "Jumpstream", top3: [], rate: 1, calcs: { mixed: 22.04 } };
-    const own = text(renderView({ screen: "result", result }, { compact: false }));
+    const own = text(renderView({ screen: "result", result }, {}));
     assert.ok(own.includes("выше Kappa 21.3"), own);
     assert.equal(count(own, "21.3"), 1, own);
-    const mixed = text(renderView({ screen: "result", result }, { compact: false, calc: "mixed" }));
+    const mixed = text(renderView({ screen: "result", result }, { calc: "mixed" }));
     assert.ok(mixed.includes("выше Kappa 22.0") && mixed.includes("общий: выше Kappa 21.3"), mixed);
-    const all = text(renderView({ screen: "result", result }, { compact: false, calc: "all" }));
+    const all = text(renderView({ screen: "result", result }, { calc: "all" }));
     assert.ok(!all.includes("Kappa high") && !all.includes("undefined"), all);
-    assert.ok(inLang("en", () => text(renderView({ screen: "result", result }, { compact: false }))).includes("above Kappa 21.3"));
+    assert.ok(inLang("en", () => text(renderView({ screen: "result", result }, {}))).includes("above Kappa 21.3"));
 });
 
 test("analysis extras: «для тебя» and the dan-by-rate ladder show «выше Kappa» once with the number", () => {

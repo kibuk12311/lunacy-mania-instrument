@@ -420,7 +420,9 @@ test("every style has lane colours; the fake snapshot is shaped like a real one"
     assert.equal(laneColor("nope", 5), PALETTE.card.lanes[1]);
     const fake = fakeSnapshot(5000);
     const real = createOverlaySession().snapshot(0);
-    assert.deepEqual(Object.keys(fake).sort(), Object.keys(real).sort());
+    // the made-up one carries the Dan widget's made-up payload too (main's comes with the config)
+    assert.deepEqual(Object.keys(fake).filter((k) => k !== "dan").sort(), Object.keys(real).sort());
+    assert.equal(fake.dan.checksum, fake.checksum);
     assert.deepEqual(Object.keys(fake.lanes).sort(), Object.keys(real.lanes).sort());
     assert.ok(fake.lanes.bars.length > 0);
     assert.match(fake.ratio, /^\d+\.\d\d:1$/);

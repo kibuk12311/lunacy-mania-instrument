@@ -80,14 +80,13 @@ function externalInfo(info = {}) {
         + `<div class="ext-note muted">${escape(info.note ?? "")}</div></div>`;
 }
 
-function resultCard(r, compact, calc) {
+function resultCard(r, calc) {
     const lead = calc === "all" ? "ours" : calc;
     const own = lead === "ours";
     const head = danHead(danOf(r, lead), own ? null : CALCS.find((c) => c.id === lead).name);
     // the analyser's patterns in the General / Detailed mode: by family, or by the catalogue's kinds
     const detailed = isDetailed();
     const primary = `<div class="primary">${escape(patternLabel(r.primary, detailed) ?? "—")}</div>`;
-    if (compact) return head + primary;
 
     const confidence = own
         ? `<div class="confidence">${escape(t("analysis.confidence", { confidence: confidenceOf(r), spread: r.halfWidth.toFixed(1) }))}</div>`
@@ -108,9 +107,9 @@ function resultCard(r, compact, calc) {
     return head + confidence + starsLine(r) + primary + `<div class="bars">${bars}</div>` + `<div class="chips">${chips}</div>`;
 }
 
-function resultView(r, compact, calc) {
+function resultView(r, calc) {
     switch (r.kind) {
-        case "ok": return resultCard(r, compact, calc);
+        case "ok": return resultCard(r, calc);
         case "not-rice":
             if (r.reason === "mode") return message(t("analysis.notMania"));
             return message(r.reason === "ln" ? t("analysis.ln") : t("analysis.notFourKey", { keys: r.keys ?? "?" }));
@@ -121,11 +120,11 @@ function resultView(r, compact, calc) {
 
 // client: the osu! tosu reads ("stable" | "lazer" | null); lazer's "updated?" hint is its own;
 // interlude: an Interlude folder is linked, so the waiting card says a chart can be picked from it
-export function renderView(view, { compact, calc = "ours", client = null, interlude = false }) {
+export function renderView(view, { calc = "ours", client = null, interlude = false } = {}) {
     const chosen = CALCS.some((c) => c.id === calc) ? calc : "ours";
     switch (view?.screen) {
         case "loading": return message(t("analysis.loading"));
-        case "result": return resultView(view.result, compact, chosen);
+        case "result": return resultView(view.result, chosen);
         case "tosu-failed": return message(t("analysis.tosuFailed", { reason: view.reason }));
         case "external-info": return externalInfo(view.info);
         case "osu-updated": return message(t(client === "lazer" ? "analysis.lazerUpdated" : "analysis.osuUpdated"));

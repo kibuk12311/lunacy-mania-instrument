@@ -11,7 +11,14 @@ contextBridge.exposeInMainWorld("danApi", {
     // { client: "stable" | "lazer" | null }: which osu! tosu is reading
     onOsuClient: (cb) => ipcRenderer.on("osu-client", (_e, payload) => cb(payload)),
     toggleAlwaysOnTop: () => ipcRenderer.send("toggle-always-on-top"),
-    toggleCompact: () => ipcRenderer.send("toggle-compact"),
+    // the Settings page (app/renderer/settingsPage.js, app/settingsIpc.js): the update check, what only main knows,
+    // the places it opens, the caches; the tray's «Настройки…» opens it
+    toggleAutoUpdate: () => ipcRenderer.send("toggle-auto-update"),
+    checkUpdates: () => ipcRenderer.invoke("check-updates"),
+    onOpenSettings: (cb) => ipcRenderer.on("open-settings", () => cb()),
+    settingsInfo: () => ipcRenderer.invoke("settings-info"),
+    settingsOpen: (target) => ipcRenderer.invoke("settings-open", { target }),
+    settingsClearCache: (which) => ipcRenderer.invoke("settings-clear-cache", { which }),
     setTab: (tab) => ipcRenderer.send("tab", tab),
     pathForFile: (file) => webUtils.getPathForFile(file),
     // >>> shared
@@ -115,6 +122,7 @@ contextBridge.exposeInMainWorld("danApi", {
     sessionLibraryPause: () => ipcRenderer.invoke("session-library-pause"),
     sessionLibraryResume: () => ipcRenderer.invoke("session-library-resume"),
     sessionLibraryPick: () => ipcRenderer.invoke("session-library-pick"),
+    sessionLibraryClear: () => ipcRenderer.invoke("session-library-clear"),
     // { phase, paused, songsDir, interlude, counts, … } on every step of the scan
     onSessionLibrary: (cb) => ipcRenderer.on("session-library", (_e, status) => cb(status)),
     // { job, phase, i, n } while a session is built or exported
@@ -202,5 +210,7 @@ contextBridge.exposeInMainWorld("danApi", {
     overlayOpenSettings: () => ipcRenderer.send("overlay-open-settings"),
     // { settings, edit } on every change, wherever it was made (the tray, the hotkey, the settings window)
     onOverlaySettings: (cb) => ipcRenderer.on("overlay-settings", (_e, payload) => cb(payload)),
+    // the profile in use, for the Dan widget's "for you": { skill } (skill null without one)
+    overlayProfile: (p) => ipcRenderer.send("overlay-profile", p),
     // <<< overlay
 });

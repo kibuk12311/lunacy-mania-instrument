@@ -450,16 +450,44 @@
     <section id="analysis-tab">
         <main id="card"></main>
         <footer>
-            <select id="calc" title="Какой калькулятор показывать" data-i18n-title="html.analysis.calcTitle"></select>
             <span id="osu-client" class="osu-client" hidden></span>
-            <button id="interlude-toggle" class="ov-button il-toggle" title="Interlude: папка и библиотека" data-i18n-title="interlude.html.toggleTitle" aria-expanded="false">IL</button>
-            <button id="overlay-toggle" class="ov-button" title="Оверлей в игре" data-i18n-title="html.analysis.overlayTitle" aria-expanded="false">OV</button>
-            <button id="lang" title="Язык: русский / English — Language" data-i18n-title="html.analysis.langTitle">RU</button>
-            <button id="pin" title="Поверх всех окон" data-i18n-title="html.analysis.pinTitle">📌</button>
-            <button id="compact" title="Компактный режим" data-i18n-title="html.analysis.compactTitle">▭</button>
+            <button id="interlude-toggle" class="ov-button il-toggle" hidden title="Interlude: папка и библиотека" data-i18n-title="interlude.html.toggleTitle">IL</button>
+            <button id="settings-open" class="settings-open" title="Настройки" data-i18n-title="settings.html.openTitle">⚙</button>
         </footer>
-        <div id="overlay-panel" class="overlay-panel" hidden></div>
-        <div id="interlude-panel" class="overlay-panel interlude-panel" hidden></div>
+    </section>
+    <section id="settings-page" class="settings-page" hidden>
+        <header class="st-head">
+            <button id="settings-back" class="st-back" type="button" data-i18n="settings.html.back">← Назад</button>
+            <h2 data-i18n="settings.html.title">Настройки</h2>
+        </header>
+        <div class="st-body">
+            <section class="st-group" id="st-analysis">
+                <h3 data-i18n="settings.html.analysis">Анализ</h3>
+                <label class="st-row"><span data-i18n="settings.html.calc">Калькулятор на карточке</span>
+                    <select id="calc" title="Какой калькулятор показывать" data-i18n-title="html.analysis.calcTitle"></select></label>
+            </section>
+            <section class="st-group" id="st-window">
+                <h3 data-i18n="settings.html.window">Окно и язык</h3>
+                <div class="st-row"><span data-i18n="settings.html.lang">Язык / Language</span><span id="st-lang" class="st-seg"></span></div>
+                <label class="st-check"><input type="checkbox" id="pin"> <span data-i18n="settings.html.pin">📌 Поверх всех окон</span></label>
+            </section>
+            <section class="st-group" id="st-overlay">
+                <h3 data-i18n="overlay.set.heading">Оверлей в игре</h3>
+                <div id="overlay-panel" class="st-panel overlay-panel"></div>
+            </section>
+            <section class="st-group" id="st-interlude">
+                <h3>Interlude</h3>
+                <div id="interlude-panel" class="st-panel overlay-panel interlude-panel"></div>
+            </section>
+            <section class="st-group" id="st-profile"></section>
+            <section class="st-group" id="st-folders"></section>
+            <section class="st-group" id="st-updates"></section>
+            <section class="st-group" id="st-osu"></section>
+            <section class="st-group" id="st-caches"></section>
+            <section class="st-group" id="st-about"></section>
+            <div id="st-author" class="st-author"></div>
+        </div>
+        <div id="st-toast" class="st-toast" hidden></div>
     </section>
     <section id="create-tab" hidden>
         <div id="create-mode" class="chips" hidden>

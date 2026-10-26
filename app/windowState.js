@@ -1,9 +1,10 @@
-// Window position/size, the two toggles, the language and the automatic update check, kept in a small JSON file in userData.
+// Window position/size, always on top, the language and the automatic update check, kept in a small JSON file in userData.
+// The compact mode is gone (0.9.6, the in-game overlay does its job): a window.json saved in it opens at the normal size.
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { LANGS } from "../src/i18n/i18n.js";
 
-export const DEFAULT_WINDOW = { width: 320, height: 380, alwaysOnTop: false, compact: false, autoUpdate: true };
+export const DEFAULT_WINDOW = { width: 320, height: 380, alwaysOnTop: false, autoUpdate: true };
 
 function centred(size, displays) {
     const area = displays[0].workArea;
@@ -24,11 +25,12 @@ export function loadWindowState(file, displays) {
     } catch {
         saved = {};
     }
+    const height = Number.isFinite(saved.height) ? saved.height : DEFAULT_WINDOW.height;
     const state = {
         width: Number.isFinite(saved.width) ? saved.width : DEFAULT_WINDOW.width,
-        height: Number.isFinite(saved.height) ? saved.height : DEFAULT_WINDOW.height,
+        // saved in the old compact mode: the strip's height, not the window's
+        height: saved.compact === true ? Math.max(height, DEFAULT_WINDOW.height) : height,
         alwaysOnTop: saved.alwaysOnTop === true,
-        compact: saved.compact === true,
         lang: LANGS.includes(saved.lang) ? saved.lang : null,
         // on unless turned off: a window.json from before this setting has no field and checks
         autoUpdate: saved.autoUpdate !== false,
@@ -40,6 +42,6 @@ export function loadWindowState(file, displays) {
 
 export function saveWindowState(file, state) {
     mkdirSync(path.dirname(file), { recursive: true });
-    const { x, y, width, height, alwaysOnTop, compact, lang = null, autoUpdate = true } = state;
-    writeFileSync(file, JSON.stringify({ x, y, width, height, alwaysOnTop, compact, lang, autoUpdate: autoUpdate !== false }), "utf8");
+    const { x, y, width, height, alwaysOnTop, lang = null, autoUpdate = true } = state;
+    writeFileSync(file, JSON.stringify({ x, y, width, height, alwaysOnTop: alwaysOnTop === true, lang, autoUpdate: autoUpdate !== false }), "utf8");
 }

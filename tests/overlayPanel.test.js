@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { fakeDom, fire, textOf } from "./helpers/fakeDom.js";
 import { setLang } from "../src/i18n/i18n.js";
 import { applyPatch, normalizeOverlaySettings, WIDGETS } from "../src/overlay/settings.js";
-import { initOverlayPanel } from "../app/renderer/overlayPanel.js";
+import { initOverlayPanel, profileForOverlay } from "../app/renderer/overlayPanel.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -41,13 +41,9 @@ function mount(lang = "ru") {
     const fake = fakeOverlayApi();
     const { $ } = fakeDom(fake.api);
     globalThis.document.addEventListener = () => {};
-    const button = $("overlay-toggle");
     const panel = $("overlay-panel");
-    panel.hidden = true;
-    panel.contains = () => false;
-    button.setAttribute = () => {};
-    const view = initOverlayPanel({ button, panel, api: fake.api });
-    return { fake, button, panel, view };
+    const view = initOverlayPanel({ panel, api: fake.api });
+    return { fake, panel, view };
 }
 
 const boxes = (panel) => {
@@ -70,7 +66,7 @@ const find = (panel, tag, cls) => {
 };
 
 test("main window overlay block: on/off, a box per widget (NPS among them), the move mode and the settings link", async () => {
-    const { fake, button, panel } = mount("ru");
+    const { fake, panel } = mount("ru");
     await flush();
     const [enabled, ...perWidget] = boxes(panel);
     assert.equal(perWidget.length, WIDGETS.length);
@@ -78,14 +74,9 @@ test("main window overlay block: on/off, a box per widget (NPS among them), the 
     assert.equal(enabled.checked, false, "the overlay starts off");
     assert.ok(perWidget.every((b) => b.checked));
     const text = textOf(panel);
-    for (const word of ["Оверлей в игре", "Показывать во время игры", "NPS карты", "Линии нажатий", "Двигать окна (Ctrl+Shift+O)", "Все настройки…"]) {
+    for (const word of ["Показывать во время игры", "Дан", "NPS карты", "Линии нажатий", "Двигать окна (Ctrl+Shift+O)", "Все настройки…"]) {
         assert.ok(text.includes(word), word);
     }
-    // the button opens and closes it
-    assert.equal(panel.hidden, true);
-    await fire(button, "click", { stopPropagation() {} });
-    assert.equal(panel.hidden, false);
-
     enabled.checked = true;
     await fire(enabled, "change");
     assert.deepEqual(fake.calls.at(-1), ["set", { enabled: true }]);
@@ -118,11 +109,34 @@ test("main window overlay block: a change from the tray, the hotkey or the setti
     setLang("ru");
 });
 
-test("the OV button sits in the analysis footer, the panel right after it; compact mode hides both", () => {
+test("the overlay block is on the Settings page, not under the card; no compact mode anywhere", () => {
     const html = readFileSync(path.join(root, "app/renderer/index.html"), "utf8");
     const footer = html.slice(html.indexOf("<footer>"), html.indexOf("</footer>"));
-    assert.match(footer, /id="overlay-toggle"[^>]*>OV</);
-    assert.match(html, /<\/footer>\s*<div id="overlay-panel" class="overlay-panel" hidden><\/div>/);
+    assert.ok(!footer.includes("overlay-toggle") && !footer.includes("id=\"lang\"") && !footer.includes("id=\"pin\"") && !footer.includes("id=\"calc\""));
+    assert.match(footer, /id="settings-open"[^>]*>⚙</);
+    const page = html.slice(html.indexOf("id=\"settings-page\""), html.indexOf("id=\"st-author\""));
+    for (const id of ["overlay-panel", "interlude-panel", "calc", "pin", "st-lang"]) assert.ok(page.includes(`id="${id}"`), id);
     const css = readFileSync(path.join(root, "app/renderer/styles.css"), "utf8");
-    assert.match(css, /body\.compact \.ov-button, body\.compact \.overlay-panel \{ display: none; \}/);
+    assert.ok(!/body\.compact/.test(css) && !html.includes("id=\"compact\""));
+});
+
+test("the panel tells main the profile in use for the Dan widget's \"for you\": at once and on every change, null without one", () => {
+    setLang("ru");
+    const fake = fakeOverlayApi();
+    const told = [];
+    fake.api.overlayProfile = (p) => told.push(p);
+    const { $ } = fakeDom(fake.api);
+    globalThis.document.addEventListener = () => {};
+    const panel = $("overlay-panel");
+    let listener = null;
+    const skill = { overall: 12, tiles: { stamina: 12.2 } };
+    initOverlayPanel({
+        panel, api: fake.api,
+        profile: { getProfile: () => ({ state: "loading" }), onProfile: (cb) => { listener = cb; } },
+    });
+    assert.deepEqual(told, [{ skill: null }]);
+    listener({ state: "ready", player: { username: "x" }, skill });
+    listener({ state: "none", local: true, skill: { overall: null } });
+    assert.deepEqual(told, [{ skill: null }, { skill }, { skill: null }]);
+    assert.deepEqual(profileForOverlay({ state: "ready", skill: "nope" }), { skill: null });
 });

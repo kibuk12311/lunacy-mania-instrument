@@ -84,6 +84,7 @@ export function readInterludeFrame(msg) {
         hash: typeof chart?.hash === "string" && chart.hash ? chart.hash : null,
         keys: num(chart?.keys),
         rate: rate > 0 ? rate : 1,
+        mods: [],
         liveMs: num(play?.timeMs),
         paused: play?.paused === true,
         playId: num(play?.playId),

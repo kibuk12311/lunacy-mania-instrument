@@ -1,6 +1,6 @@
 // Analysis results by (chart text, rate): LRU in memory, one JSON file per key on disk.
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function cacheKey(osuText, rate) {
@@ -38,5 +38,10 @@ export function createCache({ dir, max = 500 }) {
             await writeFile(fileFor(key), JSON.stringify(value), "utf8");
         },
         memorySize: () => memory.size,
+        // everything gone (the Settings page): what is asked for next is worked out again
+        async clear() {
+            memory.clear();
+            await rm(dir, { recursive: true, force: true });
+        },
     };
 }

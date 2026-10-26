@@ -1,8 +1,9 @@
-// Run with: npx electron tests/smoke/electron-ui.mjs <out.png> [compact] [calc=<id>] [lang=en] — renders the card with a sample view.
+// Run with: npx electron tests/smoke/electron-ui.mjs <out.png> [calc=<id>] [lang=en] — renders the card with a sample view.
 // [details]: the analysis tab's blocks under the card too (difficulty line, strip, "for you", the ladder folded;
 // [ladder] opens it); exits 1 when the card scrolls sideways. [detailed]: the card and the strip in the Detailed mode
-// (the «Общие / Подробно» switch clicked), with finder sub-types in the sample. [overlay]: the footer's OV panel opened
-// (the in-game overlay on, KPS off, as if set in the tray); exits 1 when it is missing or spills out of the window.
+// (the «Общие / Подробно» switch clicked), with finder sub-types in the sample. [overlay]: the Settings page opened by ⚙
+// at its overlay block (the in-game overlay on, KPS off, as if set in the tray); exits 1 when it is missing or spills
+// out of the window.
 // [client=lazer|stable]: main says which osu! tosu reads; the footer must name it (exits 1 otherwise).
 // [updated]: the "osu! updated?" screen instead of the card (with client=lazer, lazer's own hint).
 // [above]: every dan of the sample 8.5 higher (the card at 21.3, the ladder and the profile past Kappa high), so
@@ -17,7 +18,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.join(here, "..", "..", "app");
 const outPng = path.resolve(process.argv.find((a) => a.endsWith(".png")));
 app.setPath("userData", path.join(path.dirname(outPng), "user-data-ui"));
-const compact = process.argv.includes("compact");
 const create = process.argv.includes("create");
 const calc = process.argv.find((a) => a.startsWith("calc="))?.slice(5);
 // >>> analysis v2: details
@@ -74,11 +74,11 @@ app.whenReady().then(async () => {
     ipcMain.handle("overlay-set", (_e, patch) => (overlay = { ...overlay, settings: applyPatch(overlay.settings, patch) }));
     ipcMain.on("overlay-edit", (_e, on) => { overlay = { ...overlay, edit: on }; });
     ipcMain.on("overlay-open-settings", () => {});
-    const win = new BrowserWindow({ width: create ? 460 : 320, height: create ? 760 : compact ? 130 : detailedMode ? 640 : 380, show: false, backgroundColor: "#14121c",
+    const win = new BrowserWindow({ width: create ? 460 : 320, height: create ? 760 : detailedMode ? 640 : 380, show: false, backgroundColor: "#14121c",
         webPreferences: { preload: path.join(appDir, "preload.cjs"), contextIsolation: true, sandbox: true } });
     win.webContents.on("console-message", (_e, level, msg) => console.log("console", level, msg));
     await win.loadFile(path.join(appDir, "renderer", "index.html"));
-    win.webContents.send("settings", { alwaysOnTop: true, compact });
+    win.webContents.send("settings", { alwaysOnTop: true });
     win.webContents.send("view", updated ? { screen: "osu-updated" } : view);
     if (client) win.webContents.send("osu-client", { client });
     // >>> analysis v2: details — the view with its key, its details and a loaded player, as main sends them
@@ -128,18 +128,18 @@ app.whenReady().then(async () => {
     if (overlayPanel) {
         await new Promise((r) => setTimeout(r, 200));
         const seen = await win.webContents.executeJavaScript(`(() => {
-            const b = document.getElementById("overlay-toggle");
-            if (b.offsetParent) b.click();
+            const b = document.getElementById("settings-open");
+            b.click();
+            document.getElementById("st-overlay").scrollIntoView({ block: "start" });
             const p = document.getElementById("overlay-panel");
             const r = p.getBoundingClientRect();
-            return { button: Boolean(b.offsetParent), open: !p.hidden && p.getClientRects().length > 0, text: p.innerText,
+            return { button: Boolean(b.offsetParent), open: !document.getElementById("settings-page").hidden && p.getClientRects().length > 0, text: p.innerText,
                 checked: [...p.querySelectorAll("input")].map((i) => i.checked),
                 inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
                 sideways: document.documentElement.scrollWidth - innerWidth };
         })()`);
         console.log("SMOKE overlay", JSON.stringify(seen));
-        // compact mode has no room for it: the button and the panel stay out of the way
-        const ok = compact ? !seen.button && !seen.open : seen.open && seen.inside && seen.checked.join() === "true,true,false,true,true";
+        const ok = seen.button && seen.open && seen.inside && seen.checked.join() === "true,true,false,true,true,true";
         if (!ok || seen.sideways > 0) process.exitCode = 1;
         // a hidden window does not paint by itself: a 1 px resize makes it draw the open panel
         const [w, h] = win.getSize();
@@ -152,7 +152,7 @@ app.whenReady().then(async () => {
         const badge = await win.webContents.executeJavaScript(`(() => { const b = document.getElementById("osu-client");
             return { shown: !b.hidden && b.getClientRects().length > 0, text: b.textContent, title: b.title, card: document.getElementById("card").innerText }; })()`);
         console.log("SMOKE client", JSON.stringify(badge));
-        if (!compact && !(badge.shown && badge.text === client && badge.title.includes(`osu! ${client}`))) process.exitCode = 1;
+        if (!(badge.shown && badge.text === client && badge.title.includes(`osu! ${client}`))) process.exitCode = 1;
         if (updated && client === "lazer" && !badge.card.includes("lazer")) process.exitCode = 1;
         // a hidden window does not paint by itself: a 1 px resize makes it draw the new texts
         const [w, h] = win.getSize();

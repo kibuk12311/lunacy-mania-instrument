@@ -11,22 +11,20 @@ const OK = {
 };
 
 test("result card shows label, confidence, bars and chips", () => {
-    const html = renderView({ screen: "result", result: OK }, { compact: false });
+    const html = renderView({ screen: "result", result: OK }, {});
     for (const s of ["Gamma low/mid", "12.8", "уверенность высокая · разброс ±0.3", "Jumpstream", "46%", "22%", "15%", "Tech", "200 BPM", "2:41", "×1.5"]) {
         assert.ok(html.includes(s), s);
     }
 });
 
-test("compact mode drops confidence and bars", () => {
+test("the old compact flag changes nothing: the compact mode is gone (0.9.6)", () => {
     const html = renderView({ screen: "result", result: OK }, { compact: true });
-    assert.ok(html.includes("Gamma low/mid"));
-    assert.ok(html.includes("Jumpstream"));
-    assert.ok(!html.includes("уверенность"));
-    assert.ok(!html.includes("46%"));
+    assert.equal(html, renderView({ screen: "result", result: OK }, {}));
+    assert.ok(html.includes("уверенность"));
 });
 
 test("no Tech chip and no rate chip at 1x without tech", () => {
-    const html = renderView({ screen: "result", result: { ...OK, tech: false, rate: 1 } }, { compact: false });
+    const html = renderView({ screen: "result", result: { ...OK, tech: false, rate: 1 } }, {});
     assert.ok(!html.includes(">Tech<"));
     assert.ok(!html.includes("×"));
 });
@@ -42,11 +40,11 @@ test("state texts", () => {
         [{ screen: "tosu-failed", reason: "порт занят" }, "Не удалось запустить tosu: порт занят"],
         [{ screen: "osu-updated" }, "osu! обновилась? Нужна новая версия приложения"],
     ];
-    for (const [view, text] of cases) assert.ok(renderView(view, { compact: false }).includes(text), text);
+    for (const [view, text] of cases) assert.ok(renderView(view, {}).includes(text), text);
 });
 
 test("html is escaped", () => {
-    const html = renderView({ screen: "result", result: { kind: "error", message: "<b>x</b>" } }, { compact: false });
+    const html = renderView({ screen: "result", result: { kind: "error", message: "<b>x</b>" } }, {});
     assert.ok(!html.includes("<b>x</b>"));
 });
 
@@ -57,7 +55,7 @@ test("formatDuration", () => {
 });
 
 test("non-mania text", () => {
-    const html = renderView({ screen: "result", result: { kind: "not-rice", reason: "mode", keys: 4 } }, { compact: false });
+    const html = renderView({ screen: "result", result: { kind: "not-rice", reason: "mode", keys: 4 } }, {});
     assert.ok(html.includes("Не osu!mania"));
 });
 
@@ -76,7 +74,7 @@ test("CALCS lists ours first, the five dan calculators and the comparison", asyn
 });
 
 test("MSD and Sunny star line under our dan", () => {
-    const t = text(renderView({ screen: "result", result: FULL }, { compact: false }));
+    const t = text(renderView({ screen: "result", result: FULL }, {}));
     assert.ok(t.includes("MSD 26.20"), t);
     assert.ok(t.includes("Sunny ★6.34"), t);
     assert.ok(t.includes("Gamma low/mid 12.8"));
@@ -84,7 +82,7 @@ test("MSD and Sunny star line under our dan", () => {
 });
 
 test("a chosen calculator replaces the big dan and keeps ours for comparison", () => {
-    const t = text(renderView({ screen: "result", result: FULL }, { compact: false, calc: "daniel" }));
+    const t = text(renderView({ screen: "result", result: FULL }, { calc: "daniel" }));
     assert.ok(t.startsWith(" Gamma low 12.7 Daniel") || t.includes("Gamma low 12.7 Daniel"), t);
     assert.ok(t.includes("общий: Gamma low/mid 12.8"), t);
     assert.ok(!t.includes("уверенность"));
@@ -92,12 +90,12 @@ test("a chosen calculator replaces the big dan and keeps ours for comparison", (
 });
 
 test("a calculator with no estimate says so", () => {
-    const t = text(renderView({ screen: "result", result: FULL }, { compact: false, calc: "roxy" }));
+    const t = text(renderView({ screen: "result", result: FULL }, { calc: "roxy" }));
     assert.ok(t.includes("— нет оценки Roxy"), t);
 });
 
 test("comparison lists every calculator and all MSD skillsets", () => {
-    const html = renderView({ screen: "result", result: FULL }, { compact: false, calc: "all" });
+    const html = renderView({ screen: "result", result: FULL }, { calc: "all" });
     const t = text(html);
     for (const s of ["Общий Gamma low/mid 12.8", "Mixed Gamma mid/high 13.2", "Daniel Gamma low 12.7", "Azusa Gamma mid 13.0",
         "Roxy — нет оценки", "Companella Beta low 11.6", "Stream 24.1", "JS 25.9", "HS 17.0", "Stamina 24.0",
@@ -106,18 +104,11 @@ test("comparison lists every calculator and all MSD skillsets", () => {
     assert.ok(t.includes("Jumpstream"));
 });
 
-test("compact mode shows the chosen calculator's dan only", () => {
-    const t = text(renderView({ screen: "result", result: FULL }, { compact: true, calc: "mixed" }));
-    assert.ok(t.includes("Gamma mid/high 13.2"), t);
-    assert.ok(!t.includes("MSD") && !t.includes("общий"));
-    assert.ok(text(renderView({ screen: "result", result: FULL }, { compact: true, calc: "all" })).includes("Gamma low/mid 12.8"));
-});
-
 test("old results without calculators still render, unknown choice falls back to ours", () => {
-    const t = text(renderView({ screen: "result", result: OK }, { compact: false, calc: "mixed" }));
+    const t = text(renderView({ screen: "result", result: OK }, { calc: "mixed" }));
     assert.ok(t.includes("— нет оценки Mixed"), t);
     assert.ok(!t.includes("MSD"));
-    assert.ok(text(renderView({ screen: "result", result: FULL }, { compact: false, calc: "nope" })).includes("уверенность высокая"));
+    assert.ok(text(renderView({ screen: "result", result: FULL }, { calc: "nope" })).includes("уверенность высокая"));
 });
 
 // English interface
@@ -145,7 +136,7 @@ test("English: state texts", () => inEnglish(() => {
         [{ screen: "osu-updated" }, "Did osu! update? You need a new version of the app"],
     ];
     for (const [view, expected] of cases) {
-        const html = renderView(view, { compact: false });
+        const html = renderView(view, {});
         assert.ok(html.includes(expected.replace("'", "&#39;")), `${expected}: ${html}`);
         assert.ok(!CYRILLIC.test(html), html);
     }
@@ -153,39 +144,39 @@ test("English: state texts", () => inEnglish(() => {
 
 test("English: result card, chosen calculator and comparison", () => inEnglish(() => {
     const result = FULL;
-    const own = text(renderView({ screen: "result", result }, { compact: false }));
+    const own = text(renderView({ screen: "result", result }, {}));
     assert.ok(own.includes("Gamma low/mid 12.8") && own.includes("confidence high · spread ±0.3"), own);
-    const daniel = text(renderView({ screen: "result", result }, { compact: false, calc: "daniel" }));
+    const daniel = text(renderView({ screen: "result", result }, { calc: "daniel" }));
     assert.ok(daniel.includes("Gamma low 12.7 Daniel") && daniel.includes("overall: Gamma low/mid 12.8"), daniel);
-    assert.ok(text(renderView({ screen: "result", result }, { compact: false, calc: "roxy" })).includes("— no estimate Roxy"));
-    const all = renderView({ screen: "result", result }, { compact: false, calc: "all" });
+    assert.ok(text(renderView({ screen: "result", result }, { calc: "roxy" })).includes("— no estimate Roxy"));
+    const all = renderView({ screen: "result", result }, { calc: "all" });
     for (const s of ["Overall Gamma low/mid 12.8", "Roxy — no estimate", "Daniel Gamma low 12.7"]) assert.ok(text(all).includes(s), s);
     for (const html of [own, daniel, all]) assert.ok(!CYRILLIC.test(html), html);
 }));
 
 test("English: a result worded in Russian (cache, or analysed before the switch) reads in English", () => inEnglish(() => {
     const cached = { ...FULL, label: "ниже 1 дана", numeric: 0.3, confidence: "высокая", confidenceLevel: "high" };
-    const own = text(renderView({ screen: "result", result: cached }, { compact: false }));
+    const own = text(renderView({ screen: "result", result: cached }, {}));
     assert.ok(own.includes("below dan 1 0.3") && own.includes("confidence high · spread ±0.3"), own);
-    const daniel = text(renderView({ screen: "result", result: cached }, { compact: false, calc: "daniel" }));
+    const daniel = text(renderView({ screen: "result", result: cached }, { calc: "daniel" }));
     assert.ok(daniel.includes("overall: below dan 1 0.3"), daniel);
-    const all = text(renderView({ screen: "result", result: cached }, { compact: false, calc: "all" }));
+    const all = text(renderView({ screen: "result", result: cached }, { calc: "all" }));
     assert.ok(all.includes("Overall below dan 1 0.3"), all);
     for (const html of [own, daniel, all]) assert.ok(!CYRILLIC.test(html), html);
 }));
 
 test("English: an old cached result without confidenceLevel is worded from its half width", () => inEnglish(() => {
     for (const [halfWidth, word] of [[0.34, "high"], [0.5, "medium"], [0.9, "low"]]) {
-        const html = text(renderView({ screen: "result", result: { ...OK, halfWidth } }, { compact: false }));
+        const html = text(renderView({ screen: "result", result: { ...OK, halfWidth } }, {}));
         assert.ok(html.includes(`confidence ${word} · spread`), html);
     }
 }));
 
 test("a result worded in English reads in Russian again", () => {
     const cached = { ...FULL, label: "above Kappa", numeric: 20.6, confidence: "medium", confidenceLevel: "medium", halfWidth: 0.5 };
-    const own = text(renderView({ screen: "result", result: cached }, { compact: false }));
+    const own = text(renderView({ screen: "result", result: cached }, {}));
     assert.ok(own.includes("выше Kappa 20.6") && own.includes("уверенность средняя · разброс ±0.5"), own);
-    assert.ok(text(renderView({ screen: "result", result: cached }, { compact: false, calc: "mixed" })).includes("общий: выше Kappa 20.6"));
+    assert.ok(text(renderView({ screen: "result", result: cached }, { calc: "mixed" })).includes("общий: выше Kappa 20.6"));
 });
 
 test("calculator names follow the language", () => {

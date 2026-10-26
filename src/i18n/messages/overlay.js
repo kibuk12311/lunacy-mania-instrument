@@ -39,11 +39,17 @@ export default {
     "overlay.set.scale": { ru: "Размер", en: "Size" },
     "overlay.set.styles": { ru: "Все стили (пример с выдуманными числами)", en: "All styles (a sample with made-up numbers)" },
 
-    // the four widgets
+    "overlay.set.danNote": {
+        ru: "Дан — тот же, что на карточке (наш общий расчёт), для карты и рейта этой игры; считается один раз, пока карта выбрана. Линия — сложность по ходу карты (по линии сложности с карточки, в данах вокруг дана карты: это прикидка, а не дан каждого куска), «сейчас» — у позиции игры. «Для тебя» — разница с твоим уровнем по главному паттерну (источник профиля — как в «Подборе»). «Эта игра» — дан твоей игры по модели «Моего профиля» на экране результатов, если запись игр включена.",
+        en: "The dan is the card's (our combined estimate) for this play's map and rate, worked out once while the map is selected. The line is how hard the map gets along it (from the card's difficulty line, in dans around the map's dan: an estimate, not a dan of each part), “now” is at the play position. “For you” is the gap to your level for the main pattern (the profile source is the one in Picks). “This play” is your play's dan by the My profile model on the results screen, when recording plays is on.",
+    },
+
+    // the five widgets
     "overlay.widget.judgements": { ru: "Попадания", en: "Judgements" },
     "overlay.widget.kps": { ru: "KPS", en: "KPS" },
     "overlay.widget.nps": { ru: "NPS карты", en: "Map NPS" },
     "overlay.widget.keys": { ru: "Линии нажатий", en: "Key lines" },
+    "overlay.widget.dan": { ru: "Дан", en: "Dan" },
 
     // what each widget can show
     "overlay.show.counts": { ru: "Счёт: MAX, 300, 200, 100, 50, мимо", en: "Counts: MAX, 300, 200, 100, 50, miss" },
@@ -58,6 +64,11 @@ export default {
     "overlay.show.npsGraph": { ru: "График всей карты с бегунком", en: "Graph of the whole map with a playhead" },
     "overlay.show.lines": { ru: "Линии нажатий", en: "Press lines" },
     "overlay.show.keyCounts": { ru: "Нажатия на каждую клавишу", en: "Presses per key" },
+    "overlay.show.danMap": { ru: "Дан карты на этом рейте и уверенность", en: "The map's dan at this rate and how sure" },
+    "overlay.show.danPattern": { ru: "Главный паттерн", en: "Main pattern" },
+    "overlay.show.danLive": { ru: "Сложность по ходу карты и «сейчас»", en: "Difficulty along the map and “now”" },
+    "overlay.show.danForYou": { ru: "Для тебя: разница с твоим уровнем", en: "For you: the gap to your level" },
+    "overlay.show.danPlay": { ru: "После игры: дан этой игры (Мой профиль)", en: "After the play: this play's dan (My profile)" },
 
     // the styles
     "overlay.style.minimal": { ru: "Минимал", en: "Minimal" },
@@ -73,5 +84,17 @@ export default {
     "overlay.label.kpsNow": { ru: "KPS", en: "KPS" },
     "overlay.label.npsNow": { ru: "NPS", en: "NPS" },
     "overlay.label.peak": { ru: "пик", en: "peak" },
+    // the Dan widget (src/overlay/dan.js)
+    "overlay.dan.counting": { ru: "считаем…", en: "working out…" },
+    "overlay.dan.notMania": { ru: "не mania", en: "not mania" },
+    "overlay.dan.not4k": { ru: "не 4K", en: "not 4K" },
+    "overlay.dan.ln": { ru: "LN-карта, без дана", en: "LN map, no dan" },
+    "overlay.dan.short": { ru: "слишком короткая", en: "too short" },
+    "overlay.dan.none": { ru: "нет оценки", en: "no estimate" },
+    "overlay.dan.confidence": { ru: "уверенность: {word}", en: "confidence: {word}" },
+    "overlay.dan.now": { ru: "сейчас: {label}", en: "now: {label}" },
+    "overlay.dan.nowBreak": { ru: "сейчас: перерыв", en: "now: break" },
+    "overlay.dan.forYou": { ru: "{delta} к твоему уровню", en: "{delta} vs your level" },
+    "overlay.dan.play": { ru: "эта игра: {label}", en: "this play: {label}" },
     "overlay.edit.badge": { ru: "тащи · уголок — размер", en: "drag · corner resizes" },
 };

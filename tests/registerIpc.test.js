@@ -17,13 +17,14 @@ import { registerInterludeIpc } from "../app/interludeIpc.js";
 import { registerLocalProfileIpc } from "../app/localProfileIpc.js";
 import { registerSessionIpc } from "../app/sessionIpc.js";
 import { registerSkinIpc } from "../app/skinIpc.js";
+import { registerSettingsIpc } from "../app/settingsIpc.js";
 import { OVERLAY_CHANNELS } from "../app/overlay/overlayManager.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (file) => stripComments(readFileSync(path.join(root, file), "utf8"));
-const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerLocalProfileIpc, registerSessionIpc, registerSkinIpc };
+const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerLocalProfileIpc, registerSessionIpc, registerSkinIpc, registerSettingsIpc };
 // deps whose use means I/O (worker, network, disk, the window, shell); none may be called while registering
-const IO_DEPS = ["worker", "analysis", "resultCache", "trackerApi", "recommender", "downloader", "profile", "tosu", "shell", "ffmpegPath", "renderPng", "send", "generatorClient", "generatedStore", "interlude", "dialog", "card", "localProfile"];
+const IO_DEPS = ["worker", "analysis", "resultCache", "trackerApi", "recommender", "downloader", "profile", "tosu", "shell", "ffmpegPath", "renderPng", "send", "generatorClient", "generatedStore", "interlude", "dialog", "card", "localProfile", "styleCatalog"];
 
 // Any property of a stub is another stub, any call is recorded under its path; as text a stub reads "stub:<path>".
 function stubDeps(ipcMain) {
@@ -79,8 +80,11 @@ test("the base channels are all there", () => {
         "generate-map", "detect-timing", "export-set", "song-tags", "remap-load", "remap-create",
     ];
     assert.deepEqual(base.filter((c) => !ipcMain.handled.includes(c)), []);
-    for (const own of ["open-map"]) assert.ok(mainHandled.includes(own), own);
-    for (const own of ["get-lang", "set-lang", "toggle-always-on-top", "toggle-compact", "tab", "show-map"]) assert.ok(mainListened.includes(own), own);
+    assert.deepEqual(["settings-info", "settings-open", "settings-clear-cache", "session-library-clear"].filter((c) => !ipcMain.handled.includes(c)), []);
+    for (const own of ["open-map", "check-updates"]) assert.ok(mainHandled.includes(own), own);
+    for (const own of ["get-lang", "set-lang", "toggle-always-on-top", "toggle-auto-update", "tab", "show-map"]) assert.ok(mainListened.includes(own), own);
+    // the compact mode is gone (0.9.6)
+    assert.ok(!mainListened.includes("toggle-compact"));
 });
 
 test("registering does no I/O: no worker, tracker, downloader or other service is called", () => {

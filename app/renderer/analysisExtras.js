@@ -210,10 +210,10 @@ function ladderBlock({ result, ladder, ladderOpen, fit }) {
     return `<div class="an-ladder open">${head}<div class="an-lrows">${ladderRows(rows, { currentRate: current, growthRate: growth })}</div></div>`;
 }
 
-// state: { view, compact, details (for view.key, or null), profile (getProfile()), ladder: Map rate → row, ladderOpen }
+// state: { view, details (for view.key, or null), profile (getProfile()), ladder: Map rate → row, ladderOpen }
 export function renderExtras(state) {
     const result = state?.view?.screen === "result" ? state.view.result : null;
-    if (state?.compact || result?.kind !== "ok") return "";
+    if (result?.kind !== "ok") return "";
     const profile = state.profile ?? { state: "idle" };
     const fit = profile.state === "ready" ? fitForSkill(result, profile.skill) : null;
     // the ladder asks main by the map's key: a view without one cannot have it

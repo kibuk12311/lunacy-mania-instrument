@@ -103,7 +103,9 @@ test("live: a map tosu changed under the play is not analysed from the wrong .os
     assert.equal(bom.a.calls[0][0], md5(bomText));
 
     const off = await service();
+    assert.equal(await off.s.recording(), true, "recording is on by default (the overlay's Dan widget asks)");
     await off.s.setRecord(false);
+    assert.equal(await off.s.recording(), false);
     await playLive(off.s, md5(off.text));
     assert.equal((await off.store.plays()).length, 0);
     assert.equal((await off.s.status()).settings.record, false);

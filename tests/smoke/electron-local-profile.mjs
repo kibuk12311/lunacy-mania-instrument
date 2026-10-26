@@ -5,7 +5,8 @@
 // (the real service, the real analyzer in-process), then one live play fed as tosu frames; «Мой профиль» (summary,
 // patterns, history chart, top and recent plays), the mania-tracker page over the fixtures in tests/fixtures/mt,
 // Picks with «Мой профиль» as its source (real handlers, the tracker's search from the fixture) and Picks' progress
-// over the local plays. Checks the tab bar fits at 320 px. Every http(s) request is cancelled and fails the run.
+// over the local plays; the dan pictures (skill scale, spider chart, pattern bars, the history's dan scale) on both
+// pages. Checks the tab bar fits at 320 px. Every http(s) request is cancelled and fails the run.
 // userData lives in <out-dir>/user-data. Exits 1 on any failed check.
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
@@ -226,10 +227,32 @@ app.whenReady().then(async () => {
     check(card.includes("Speed") && card.includes("±"), "the summary has the axes with a ± range");
     check((await sideways("profile-tab")) <= 0, "the profile page fits the window");
     await shot("2-profile-local.png");
+    // the dan pictures under the summary: the scale (a row a skill, the ± band, the overall's line), a tap names the
+    // row, then the spider chart; both fit the window
+    check(await js(`document.querySelectorAll("#prof-local-card .prof-viz-row").length === 4 && Boolean(document.querySelector("#prof-local-card .prof-viz-overall-line"))`), "the skill scale: four rows and the overall");
+    check(await js(`document.querySelectorAll("#prof-local-card .prof-viz-band").length >= 3`), "the skill scale: ± bands");
+    const vizText = await js(`document.querySelector("#prof-local-card .prof-viz-legend").textContent`);
+    console.log("legend:", vizText);
+    check(/^\d+\.\d\d = /.test(vizText), "the legend explains the number");
+    await js(`document.querySelector("#prof-local-card .prof-viz-row[data-key=speed] .prof-viz-hit").dispatchEvent(new MouseEvent("click", { bubbles: true })); true`);
+    const vizTip = await js(`document.querySelector("#prof-local-card .prof-viz-tip").textContent`);
+    console.log("tip:", vizTip);
+    check(vizTip.startsWith("Speed: ") && vizTip.includes("±"), "a tap on a row names its dan");
+    await scrollTo("#prof-local-card .prof-viz");
+    check((await sideways("profile-tab")) <= 0, "the skill scale fits the window");
+    await shot("2a-skill-scale.png");
+    await clickChip("prof-local-card .prof-viz-modes", t("profile.chart.radar"));
+    await sleep(200);
+    check(await js(`Boolean(document.querySelector("#prof-local-card .prof-viz-shape"))`), "the spider chart is drawn");
+    check((await sideways("profile-tab")) <= 0, "the spider chart fits the window");
+    await shot("2b-skill-radar.png");
+    await clickChip("prof-local-card .prof-viz-modes", t("profile.chart.scale"));
+    await sleep(200);
     await scrollTo("#prof-local-patterns");
     const table = await text("prof-local-patterns");
     console.log("patterns:", table.replace(/\n/g, " | "));
     check(table.includes(t("recommend.pattern.jumpstream")) && table.includes(t("profile.local.fewPlays")), "the pattern table: dans and «not enough plays»");
+    check(await js(`document.querySelectorAll("#prof-local-patterns .prof-bar").length >= 1 && document.querySelectorAll("#prof-local-patterns .prof-bars-axis span").length >= 2`), "the pattern bars on a dan axis");
     await shot("3-profile-patterns.png");
     // the history chart over a year, Speed
     await clickChip("prof-local-days", t("recommend.progress.days", { n: 365 }));
@@ -237,6 +260,9 @@ app.whenReady().then(async () => {
     await clickChip("prof-local-axes", "Speed");
     await sleep(300);
     check(await js(`Boolean(document.querySelector("#prof-local-chart svg path"))`), "the history chart is drawn");
+    const yLabels = await js(`[...document.querySelectorAll("#prof-local-chart .prof-chart-label")].map((n) => n.textContent).join(" | ")`);
+    console.log("history scale:", yLabels);
+    check(/(\d|Alpha|Beta|Gamma|Delta|Epsilon|Zeta|Eta|Theta|Iota|Kappa) (low|mid|high)/.test(yLabels), "the history chart's scale is in dans");
     await scrollTo("#prof-local-days");
     await shot("4-profile-history.png");
     await scrollTo("#prof-top-axis");
@@ -258,8 +284,15 @@ app.whenReady().then(async () => {
     await js(`document.getElementById("prof-tracker-site").click(); true`);
     await sleep(200);
     check(opened[0] === "https://mania-tracker.com/player/1234567", `the site link (${opened[0]})`);
+    check(await js(`document.querySelectorAll("#prof-tracker-card .prof-viz-dot").length === 4`), "the tracker's four skills on the dan scale");
     await scrollTo("#profile-tab");
     await shot("7-profile-tracker.png");
+    await scrollTo("#prof-tracker-card .prof-viz");
+    await shot("7a-tracker-scale.png");
+    await clickChip("prof-tracker-card .prof-viz-modes", t("profile.chart.radar"));
+    await sleep(200);
+    await shot("7b-tracker-radar.png");
+    await clickChip("prof-tracker-card .prof-viz-modes", t("profile.chart.scale"));
     await scrollTo("#prof-tracker-more");
     await shot("8-profile-tracker-more.png");
     // the compare block on my profile now that a tracker profile is loaded
@@ -316,12 +349,15 @@ app.whenReady().then(async () => {
         check(narrow.over <= 0 && narrow.cut.length === 0, `the tab bar fits at ${width} px (${narrow.over}, cut: ${narrow.cut.join(", ") || "none"})`);
         if (width === 240) await shot("11-narrow.png");
     }
-    // compact mode: the tab bar goes, as for every tab
-    win.setContentSize(320, 900);
-    win.webContents.send("settings", { alwaysOnTop: false, compact: true, lang });
+    // a wider window: the charts grow with it
+    win.setContentSize(560, 900);
     await sleep(300);
-    check(await js(`getComputedStyle(document.querySelector(".tabs")).display === "none"`), "compact mode hides the tab bar");
-    win.webContents.send("settings", { alwaysOnTop: false, compact: false, lang });
+    await clickChip("prof-pages", t("profile.page.local"));
+    await sleep(500);
+    await scrollTo("#prof-local-card .prof-viz");
+    check((await sideways("profile-tab")) <= 0, "the charts fit a 560 px window");
+    await shot("13-wide-charts.png");
+    win.setContentSize(320, 900);
     await sleep(200);
     await tab("profile");
     await scrollTo("#prof-local-days");

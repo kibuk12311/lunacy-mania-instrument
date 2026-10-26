@@ -21,7 +21,7 @@
 | **Create** (Create map) | Maps a song for you: detects BPM and offset (also songs with several BPMs, 1/3 and 1/6 snaps), finds the song's parts and lets you give each part its own dan and patterns. Several variants, a preview player with a playfield, locking a part and regenerating the rest, a whole mapset or a dan ladder in one click, rate versions, metadata and background. It can also remap an existing map one dan up or down. |
 | **Skin** | An osu!mania 4K skin editor and builder: open one of your osu! skins (as a copy), an `.osk`, or make one from scratch (note shape, column colours, keys, holds, stage, judgements, lighting — all drawn by the app, @1x and @2x). Edit the [Mania] 4K values and pictures with a live playfield preview, undo / redo, and save an `.osk` that osu! stable and lazer import; a skin made from scratch also exports for Interlude. |
 
-The interface is in Russian and English (the RU/EN button under the card, or the tray menu).
+The interface is in Russian and English (on the Settings page — ⚙ under the card — or the tray menu).
 
 ## Download
 
@@ -53,10 +53,16 @@ The app isn't code-signed, so Windows may show "Windows protected your PC". Clic
 ## How to use
 
 1. Start osu! and the app, go to song select. The card shows the selected map's dan.
-2. 📌 keeps the window on top, ▭ is the compact mode. Both are also in the tray icon's menu, next to the language and "Check for updates".
+2. **⚙** under the card opens the **Settings** page (also "Settings…" in the tray): the calculator, the language, 📌 always on top, the overlay, Interlude, the profile source and "Record my plays", folders, updates, osu!/tosu, caches and About. 📌, the language and "Check for updates" are in the tray icon's menu too. (The old compact mode is gone since 0.9.6 — the in-game overlay does that job.)
 3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them (on osu! lazer they come as an .osz instead, see above). Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania` (if you have the folder of an older version, `Sneezey's dan calculator` or `Анализатор данов`, the app keeps using it), and finished `.osz` files are opened in osu! so the game imports them.
 
 More detail for friends: [docs/for-friends.md](docs/for-friends.md).
+
+## In-game overlay
+
+Small windows of their own over the game (nothing is injected; osu! in windowed or borderless mode), click-through while you play, for osu! stable, lazer and Interlude: **Judgements** (counts, MAX:300, accuracy, UR), **KPS** (now, max, a 10 s graph), **Map NPS** (the map's density at the play position, its peak, the whole map with a playhead), **Key lines** (presses per lane) and **Dan**. They show while a play runs (and on the results screen if asked), in five styles (Minimal, Card, Neon, osu! classic, Compact) with opacity, size and position each; Ctrl+Shift+O (or the tray, or the Settings page) moves them. Turn them on in the tray's «Overlay» menu, the overlay block of the **Settings** page (⚙ under the card), or the overlay settings window.
+
+**Dan** shows the map's dan at the play's rate — the card's own estimate, label and number (e.g. «Gamma mid · 13.0») with its confidence and main pattern —, a line of how hard the map gets along it (from the card's difficulty line, in dans around the map's dan: an estimate, not a model dan per part) with a playhead and "now: …", "+0.8 vs your level" against the profile chosen in Picks (mania-tracker, hand-set or My profile), and on the results screen "this play: …", your play's dan by the local profile's model (while recording plays is on). Every line can be turned off. The map is analysed once per map and rate (the card's result when it showed the map; tosu's map file or Interlude's library chart otherwise), never during the play; until then it says "working out…", and not-4K, LN and non-mania maps say so.
 
 ## Profile
 
@@ -128,3 +134,5 @@ Full list and licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 ## License
 
 [MIT](LICENSE) © 2026 Sneezey. Bundled third-party programs keep their own licenses.
+
+Author: Sneezey · Discord: sneezey123

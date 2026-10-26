@@ -285,7 +285,7 @@ test("onResult gets every fresh result once, cache hits and errors included", as
     frame("A", 1.2);
     await flush();
     assert.equal(results.length, 1);
-    assert.deepEqual(results[0], { key: cacheKey("text-A", 1.2), text: "text-A", rate: 1.2, result: { kind: "ok", text: "text-A", rate: 1.2 } });
+    assert.deepEqual(results[0], { key: cacheKey("text-A", 1.2), text: "text-A", rate: 1.2, result: { kind: "ok", text: "text-A", rate: 1.2 }, checksum: "A" });
     frame("B");
     await flush();
     frame("A", 1.2); // from the cache

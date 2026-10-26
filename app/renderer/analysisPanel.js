@@ -83,7 +83,7 @@ export function createAnalysisPanel({
     setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
     const state = {
-        key: null, rate: null, compact: false, details: null, profile: profile.getProfile(), ladder: new Map(),
+        key: null, rate: null, details: null, profile: profile.getProfile(), ladder: new Map(),
         ladderOpen: readOpen(storage),
     };
     let lastDetails = null; // the last analysis-details payload, kept in case it comes before its card
@@ -123,7 +123,7 @@ export function createAnalysisPanel({
 
     // starts the ladder when it is open, can be seen and is not done yet; a delay of 0 starts it at once
     function maybeLadder(delayMs) {
-        if (!state.key || !state.ladderOpen || state.compact || state.key === staleKey) {
+        if (!state.key || !state.ladderOpen || state.key === staleKey) {
             stopLadder();
             return;
         }
@@ -136,14 +136,13 @@ export function createAnalysisPanel({
         const key = state.key;
         ladderTimer = setTimer(() => {
             ladderTimer = null;
-            if (state.key === key && state.ladderOpen && !state.compact) startLadder();
+            if (state.key === key && state.ladderOpen) startLadder();
         }, delayMs);
     }
 
-    function follow(view, compact) {
+    function follow(view) {
         const result = view?.screen === "result" ? view.result : null;
         const key = result?.kind === "ok" && typeof view.key === "string" && view.key ? view.key : null;
-        state.compact = Boolean(compact);
         if (key !== state.key) {
             stopLadder();
             staleKey = null;
@@ -207,10 +206,10 @@ export function createAnalysisPanel({
     }
 
     return {
-        html(view, opts = {}) {
-            follow(view, opts?.compact);
+        html(view) {
+            follow(view);
             return renderExtras({
-                view, compact: state.compact, details: state.details, profile: state.profile, ladder: state.ladder, ladderOpen: state.ladderOpen,
+                view, details: state.details, profile: state.profile, ladder: state.ladder, ladderOpen: state.ladderOpen,
             });
         },
         state,

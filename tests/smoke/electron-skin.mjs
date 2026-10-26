@@ -1,7 +1,7 @@
 // Run with: npx electron tests/smoke/electron-skin.mjs <out-dir> [lang=en]   (SMOKE_LANG=en works too)
 // The Skin tab through the real window, fully offline, over fixture folders made here only (<out-dir>/osu with a
 // Skins folder, <out-dir>/docs as Documents, <out-dir>/user-data): the tab bar with seven tabs at 320 px and
-// narrower (and gone in compact mode); a skin made from scratch with the builder; an edit in the editor (the hit
+// narrower; a skin made from scratch with the builder; an edit in the editor (the hit
 // position) that the preview and the working copy's skin.ini follow; upscroll; undo; the .osk export (opened with a
 // stub instead of osu!) and the Interlude .isk; an osu! skin of the fixture Skins folder opened as a copy (its
 // original untouched), the user's own pictures dropped on thumbnails (a note for all columns, a WebP judgement,
@@ -112,7 +112,7 @@ app.whenReady().then(async () => {
     await js("localStorage.clear(); true");
     await win.loadFile(path.join(appDir, "renderer", "index.html"));
 
-    // ---- the tab bar: seven tabs at the default 320 px, narrower, and compact mode ----
+    // ---- the tab bar: seven tabs at the default 320 px and narrower ----
     const barAt = () => js(`(() => { const n = document.querySelector(".tabs"); return { over: n.scrollWidth - n.clientWidth, labels: [...n.children].map((b) => b.textContent), heights: [...n.children].map((b) => b.offsetHeight), cut: [...n.children].filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent) }; })()`);
     const bar = await barAt();
     console.log("tabs:", JSON.stringify(bar));
@@ -129,10 +129,6 @@ app.whenReady().then(async () => {
         if (width === 220) await shot(`2-tabs-220-${lang}.png`);
     }
     win.setContentSize(320, 900);
-    win.webContents.send("settings", { alwaysOnTop: false, compact: true, lang });
-    await sleep(300);
-    check(await js(`getComputedStyle(document.querySelector(".tabs")).display === "none"`), "compact mode hides the tab bar");
-    win.webContents.send("settings", { alwaysOnTop: false, compact: false, lang });
     await sleep(200);
 
     // ---- the Skin tab at the size the app gives the other tabs ----

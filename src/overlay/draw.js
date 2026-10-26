@@ -1,4 +1,4 @@
-// Geometry of the drawn parts, kept pure so it can be tested: the key-lines bars and the KPS and NPS graphs.
+// Geometry of the drawn parts, kept pure so it can be tested: the key-lines bars, the KPS and NPS graphs, the Dan line.
 // Colours per style live here too, since the canvas needs them as values.
 
 // Lane colours (K1–K4), the KPS graph colour and the NPS map graph colour per style.
@@ -77,4 +77,32 @@ export function easeToward(current, target, dtMs, tauMs) {
 export function holdRounded(shown, value, band = 0.7) {
     if (!Number.isFinite(value)) return 0;
     return Number.isFinite(shown) && Math.abs(value - shown) < band ? shown : Math.round(value);
+}
+
+// The Dan widget's line: the dan along the map (sections, null in breaks) → polyline points in width × height, the
+// y of the map's own dan (a guide line) and the x of the playhead. The scale runs from a little under the lowest
+// section to a little over the highest (and the map's dan), at least `span` dans tall so a flat map stays flat;
+// a break sits on the bottom edge.
+export function danSparkGeometry(sections, { width, height, mapDan = null, progress = 0, pad = 2, span = 2 }) {
+    const list = Array.isArray(sections) ? sections : [];
+    const known = list.filter((v) => Number.isFinite(v));
+    if (Number.isFinite(mapDan)) known.push(mapDan);
+    if (!known.length) return { points: [], refY: null, playX: 0, lo: 0, hi: 0 };
+    let lo = Math.min(...known);
+    let hi = Math.max(...known);
+    if (hi - lo < span) {
+        const mid = (hi + lo) / 2;
+        lo = mid - span / 2;
+        hi = mid + span / 2;
+    }
+    const y = (v) => pad + (height - 2 * pad) * (1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo));
+    const stepX = list.length > 1 ? width / (list.length - 1) : 0;
+    const points = list.map((v, i) => ({ x: i * stepX, y: Number.isFinite(v) ? y(v) : height - pad }));
+    return {
+        points,
+        refY: Number.isFinite(mapDan) ? y(mapDan) : null,
+        playX: Math.round(Math.min(1, Math.max(0, Number(progress) || 0)) * width),
+        lo,
+        hi,
+    };
 }

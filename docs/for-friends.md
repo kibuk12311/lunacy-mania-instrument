@@ -1,5 +1,14 @@
 # Lunacy mania — how to use it
 
+## What's new in 0.9.6
+
+- **The overlay has a "Dan" window now.** While you play it shows the map's dan at your rate (the same number as the card, e.g. "Gamma mid · 13.0") with how sure it is and the main pattern, a small line of how hard the map gets with a marker where you are and "now: Gamma high", and "+0.8 vs your level" against your profile (the one chosen in Picks). On the results screen it shows "this play: …" — the dan of your play by My profile (when "Record my plays" is on). Turn it on or off in the tray, the OV panel or the overlay settings, where each line can be switched off too. While the map is being worked out it says "working out…"; not-4K, LN and non-mania maps say so.
+
+- **All the settings are on one page now.** Press **⚙** under the card (or "Settings…" in the tray menu): the calculator, the language, 📌 always on top, the overlay (with the new Dan window), Interlude (folder, following the game live, its library), your profile source and "Record my plays", folders, updates ("Check now"), osu!/tosu, clearing caches and About. "← Back" (or Esc) returns to the card. With an Interlude folder linked, the small **IL** under the card opens its library there.
+- **The compact mode (▭) is gone** — use the in-game overlay instead (the Dan window shows the map's dan right in the game). If you had it on, the app simply opens in the normal window.
+- The author: Sneezey · Discord: sneezey123 (at the bottom of the Settings page; click the name to copy it).
+- **The Profile tab shows your dans as a chart**, so "13.00 ±0.43" is easy to read: your Speed / Jack / Stamina / Tech on a dan scale (Beta, Gamma, Delta …), the band around each dot is the ± (fainter = less sure), the gold line is your overall dan. "Radar" shows the same as a spider chart. Hover or tap a skill to see it in words. The patterns are bars on the same scale, and the history chart's scale is in dans too. Works on both pages, My profile and mania-tracker.
+
 ## What's new in 0.9.5
 
 - **Mapper style is easier to use.** On the Create tab the "Mapper style" list now shows the styles of the model you picked straight away (XGBoost v3 or a neural net), with real mapper names, the ones with the most maps first and a search box to find one. The Classic model has no styles — the list says so. The map's card tells you which style it was made with. A style changes the notes only a little on XGBoost v3 and a bit more on the neural nets.
@@ -53,11 +62,11 @@ There are now two files on the [releases page](https://github.com/kibuk12311/lun
 1. Download `Lunacy-mania-Portable-<version>.exe` and run it. Nothing to install.
 2. If Windows shows a blue "Windows protected your PC" window, click "More info" → "Run anyway". The app isn't signed, so this can happen.
 3. Open osu! (stable) and go to song select. The window shows the dan, the confidence and the patterns of the selected map. 4K rice only. DT and HT are taken into account.
-4. Move and resize the window as you like. 📌 keeps it on top, ▭ is the compact mode. Both are also in the tray icon's menu.
+4. Move and resize the window as you like. 📌 "Always on top" is on the Settings page (⚙ under the card) and in the tray icon's menu.
 5. Close it with the window's × or "Exit" in the tray.
 6. If it says "osu! updated? This app needs a new version", ask for a new version of the app.
 7. Under the card you can pick the calculator: "Overall" (ours, combines them all), Mixed, Daniel, Azusa, Roxy, Companella, or "All" to see every dan side by side with the MSD of each skillset. The "MSD · Sunny ★" line is the map's MinaCalc difficulty and Sunny star rating.
-8. Language: the RU/EN button under the card, or "Язык / Language" in the tray menu.
+8. Language: on the Settings page (⚙ under the card), or "Язык / Language" in the tray menu.
 
 ## Picks
 

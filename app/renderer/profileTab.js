@@ -19,6 +19,7 @@ import { getTrackerProfile, ensureTrackerProfile, onProfile, manualChanged, refr
 import {
     LOCAL_AXES, localAxisName, localChangeText, localAxesText, lineChart, skillSummary, patternTable, playRow, whenText,
 } from "./profileViews.js";
+import { skillChart } from "./danCharts.js";
 
 export const PAGES = ["tracker", "local"];
 export const SOURCES = ["tracker", "manual", "local"];
@@ -134,7 +135,7 @@ function renderTracker(p) {
     box.querySelector?.(".prof-head")?.prepend(avatar);
     const msd = Object.entries(p.skill.msd ?? {}).filter(([k, v]) => Number.isFinite(v) && HISTORY_AXES.includes(k));
     const ratings = el("div", "prof-msd", msd.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · "));
-    card.replaceChildren(box, ...(msd.length ? [el("div", "flabel", t("profile.tracker.msd")), ratings] : []));
+    card.replaceChildren(box, ...[skillChart(p.skill)].filter(Boolean), ...(msd.length ? [el("div", "flabel", t("profile.tracker.msd")), ratings] : []));
 }
 
 async function loadTracker(query) {
@@ -271,7 +272,7 @@ function renderLocal() {
     const k = local.skill;
     $("prof-record").checked = local.settings?.record !== false;
     $("prof-local-counts").textContent = countsText(local.counts);
-    $("prof-local-card").replaceChildren(skillSummary(k, { name: t("profile.local.name"), tag: t("profile.local.tag") }));
+    $("prof-local-card").replaceChildren(skillSummary(k, { name: t("profile.local.name"), tag: t("profile.local.tag") }), ...[skillChart(k)].filter(Boolean));
     $("prof-local-patterns").replaceChildren(patternTable(k));
     renderTop();
     const now = Date.now();
@@ -390,7 +391,9 @@ export function initProfileTab() {
     });
     // a play kept while the page is open: the page follows it
     let pendingRefresh = null;
-    api.onLocalProfileChanged?.(() => {
+    api.onLocalProfileChanged?.((p) => {
+        // «Записывать мои игры» changed elsewhere (the Settings page): the box follows at once
+        if (typeof p?.record === "boolean") $("prof-record").checked = p.record;
         if ($("profile-tab").hidden || view.page !== "local") return;
         clearTimeout(pendingRefresh);
         pendingRefresh = setTimeout(() => { void showLocal(); }, 400);

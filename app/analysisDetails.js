@@ -9,13 +9,14 @@
 import { validRate } from "./validate.js";
 import { t } from "../src/i18n/i18n.js";
 
-// bumped when the details' shape changes, so an older cached shape is never served
+// bumped when the details' shape changes, so an older cached shape is never served; the overlay's Dan widget reads the
+// same cache entries (app/overlay/danSource.js)
 const DETAILS_VERSION = 2;
-const detailsKey = (key) => `${key}#details${DETAILS_VERSION}`;
+export const detailsKey = (key) => `${key}#details${DETAILS_VERSION}`;
 const MAX_KEY = 80;
 const KINDS = ["not-rice", "too-short", "error"];
 
-const looksLikeDetails = (d) => d?.v === DETAILS_VERSION && Array.isArray(d.strain) && Array.isArray(d.families) && Array.isArray(d.flavourBins);
+export const looksLikeDetails = (d) => d?.v === DETAILS_VERSION && Array.isArray(d.strain) && Array.isArray(d.families) && Array.isArray(d.flavourBins);
 
 export function createDetailsService({
     analysis, worker, cache, send, log = () => {}, delayMs = 300, setTimer = setTimeout, clearTimer = clearTimeout,

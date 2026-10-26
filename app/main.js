@@ -22,9 +22,10 @@ import { registerCreateIpc } from "./createIpc.js";
 import { registerExportIpc } from "./exportIpc.js";
 import { createGeneratedStore } from "./generatedStore.js";
 import { createPngRenderer } from "./renderPng.js";
-import { loadWindowState, saveWindowState, DEFAULT_WINDOW } from "./windowState.js";
+import { loadWindowState, saveWindowState } from "./windowState.js";
 import { createUpdater, isPortableRun, updateMode } from "./updater.js";
 import { createOverlay } from "./overlay/overlayManager.js";
+import { makeDanAnalyzer } from "./overlay/danSource.js";
 import { createCache } from "../src/core/cache.js";
 import { createInterludeClient } from "./interludeClient.js";
 import { registerInterludeIpc } from "./interludeIpc.js";
@@ -35,13 +36,14 @@ import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { chartTimeNotes } from "../src/overlay/interludeData.js";
 import { registerSessionIpc } from "./sessionIpc.js";
 import { registerSkinIpc } from "./skinIpc.js";
+import { registerSettingsIpc } from "./settingsIpc.js";
+import { createStyleCatalog } from "./modelStyles.js";
 import { setLang, getLang, langForLocale, LANGS, LANG_NAMES, t } from "../src/i18n/i18n.js";
 import appTexts from "../src/i18n/messages/app.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const version = JSON.parse(readFileSync(path.join(here, "..", "package.json"), "utf8")).version;
 const TITLE = `Lunacy mania ${version}`;
-const COMPACT_HEIGHT = 64;
 const TOSU_WATCHDOG_MS = 20_000;
 
 let win = null;
@@ -56,7 +58,6 @@ const CREATE_TAB_SIZE = { width: 480, height: 880 }; // the tab scrolls past thi
 let state = null;
 let lastView = { screen: "waiting-osu" };
 let quitting = false;
-let fullHeight = null;
 let tosuFailure = null; // () → why tosu failed, in the current language (the window asks again after a language switch)
 let updater = null; // app/updater.js: GitHub Releases updates (the tray's two update items)
 let overlay = null; // app/overlay/overlayManager.js: the in-game overlay widgets (the tray's «Overlay» submenu)
@@ -66,6 +67,8 @@ let interludeReader = null; // app/interludeReader.js: the reader of the running
 let interludeLive = null; // app/interludeLive.js: what its lines do (the card, the overlay, the live state)
 let readerDownload = false; // the reader running was started with --allow-download
 let interlude = null; // app/interludeClient.js (made in main(); the overlay reads Interlude's charts through it)
+let danAnalyze = null; // the overlay's Dan widget analysis (app/overlay/danSource.js), once the shared services exist
+let localProfileRef = null; // the local profile, for the Dan widget's "this play"
 
 const stateFile = () => path.join(app.getPath("userData"), "window.json");
 
@@ -131,8 +134,9 @@ function send(channel, payload) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+// what the window shows of main's own settings (the Settings page, the tray has the same)
 function settings() {
-    return { alwaysOnTop: state.alwaysOnTop, compact: state.compact, lang: getLang() };
+    return { alwaysOnTop: state.alwaysOnTop, autoUpdate: state.autoUpdate !== false, lang: getLang(), version };
 }
 
 function persist() {
@@ -144,15 +148,6 @@ function persist() {
 function toggle(key) {
     state[key] = !state[key];
     if (key === "alwaysOnTop") win.setAlwaysOnTop(state.alwaysOnTop);
-    if (key === "compact") {
-        const [width, height] = win.getContentSize();
-        if (state.compact) {
-            fullHeight = height;
-            win.setContentSize(width, COMPACT_HEIGHT);
-        } else {
-            win.setContentSize(width, Math.max(fullHeight ?? 0, DEFAULT_WINDOW.height - 40));
-        }
-    }
     persist();
     send("settings", settings());
     buildTray();
@@ -162,13 +157,13 @@ function buildTray() {
     const menu = Menu.buildFromTemplate([
         { label: t("app.tray.show"), click: () => { win.show(); win.focus(); } },
         { label: t("app.tray.alwaysOnTop"), type: "checkbox", checked: state.alwaysOnTop, click: () => toggle("alwaysOnTop") },
-        { label: t("app.tray.compact"), type: "checkbox", checked: state.compact, click: () => toggle("compact") },
         ...(overlay?.trayItems() ?? []),
         {
             // both languages at once ("Язык / Language"), so it can be found whichever one is on
             label: LANGS.map((l) => appTexts["app.tray.language"][l]).join(" / "),
             submenu: LANGS.map((l) => ({ label: LANG_NAMES[l], type: "radio", checked: getLang() === l, click: () => switchLang(l) })),
         },
+        { label: t("app.tray.settings"), click: () => openSettingsPage() },
         { type: "separator" },
         { label: t("app.tray.checkUpdates"), click: () => void updater?.check({ manual: true }) },
         { label: t("app.tray.autoUpdate"), type: "checkbox", checked: state.autoUpdate, click: () => toggle("autoUpdate") },
@@ -176,6 +171,15 @@ function buildTray() {
         { label: t("app.tray.quit"), click: () => app.quit() },
     ]);
     tray.setContextMenu(menu);
+}
+
+// The window to the front with its Settings page open (the tray's «Настройки…»).
+function openSettingsPage() {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    send("open-settings", {});
 }
 
 // The whole window reloads in the new language; main and the worker switch with it.
@@ -257,6 +261,11 @@ async function main() {
             const osu = await interlude?.library.osuFor(hash);
             return osu ? chartTimeNotes(parseManiaNotes(osu.text)) : null;
         },
+        // the Dan widget: the card's analysis and details (the shared cache, the worker's background line), Interlude's
+        // chart text, and whether the local profile records plays (made below, asked for only once a play needs it)
+        danAnalyze: (request) => danAnalyze?.(request) ?? null,
+        interludeText: async (hash) => (await interlude?.library.osuFor(hash))?.text ?? null,
+        recording: async () => (await localProfileRef?.recording?.()) === true,
     });
     tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", "icon.png")).resize({ width: 32, height: 32, quality: "best" }));
     tray.setToolTip(TITLE);
@@ -284,6 +293,7 @@ async function main() {
     // Versioned, so a new build with a retrained model never serves old dans.
     const resultCache = createCache({ dir: path.join(userData, `results-${version}`) });
     const analysis = createAnalysisService({ worker: workerClient, cache: resultCache, log });
+    danAnalyze = makeDanAnalyzer({ analysis, worker: workerClient, cache: resultCache, log });
     // Interlude: a folder the user links, a chart picked from its library, maps sent to it (app/interludeClient.js)
     interlude = createInterludeClient({
         store: createJsonStore({ file: path.join(userData, "interlude.json"), fallback: { folder: null } }),
@@ -300,6 +310,7 @@ async function main() {
     const localProfile = createLocalProfile({
         userData, analysis, interlude, port: TOSU_PORT, log, send, tosuProfile: () => fetchProfile(TOSU_PORT),
     });
+    localProfileRef = localProfile;
     // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked, and every
     // map in the local profile's history
     const recommender = createRecommender({
@@ -350,6 +361,8 @@ async function main() {
         // the create tab: its own worker and the generated maps it hands out by id
         generatorClient,
         generatedStore: createGeneratedStore({ max: 24 }),
+        // the mapper styles of the model files (the create tab), cleared from the Settings page
+        styleCatalog: createStyleCatalog({ cacheFile: path.join(userData, "model-styles.json") }),
     });
     registerProfileIpc(deps);
     // >>> tabs v2: one register call per tab (frozen)
@@ -363,6 +376,7 @@ async function main() {
     registerLocalProfileIpc(deps);
     registerSessionIpc(deps);
     registerSkinIpc(deps);
+    registerSettingsIpc(deps);
     // <<< tabs v2
 
     ipcMain.handle("open-map", (_e, file) => (insideMaps(file) ? shell.openPath(file) : t("app.noSuchFile")));
@@ -380,13 +394,24 @@ async function main() {
 
     ipcMain.on("set-lang", (_e, lang) => switchLang(lang));
     ipcMain.on("toggle-always-on-top", () => toggle("alwaysOnTop"));
-    ipcMain.on("toggle-compact", () => toggle("compact"));
+    ipcMain.on("toggle-auto-update", () => toggle("autoUpdate"));
+    // "Check now" on the Settings page: the tray's manual check, its outcome told back ("latest", "available", …)
+    ipcMain.handle("check-updates", async () => {
+        try {
+            return { ok: true, outcome: (await updater?.check({ manual: true })) ?? "error" };
+        } catch (error) {
+            return { ok: false, message: String(error?.message ?? error) };
+        }
+    });
 
     const controller = createSelectionController({
         fetchOsu: () => fetchCurrentOsu(TOSU_PORT),
         analyze: workerClient.analyze,
         cache: resultCache,
-        onResult: (r) => hooks.emit("result", r),
+        onResult: (r) => {
+            hooks.emit("result", r);
+            overlay?.onCardResult(r);
+        },
         onView: (view) => {
             lastView = view;
             log(`view ${view.screen}${view.result ? ` ${view.result.kind} ${view.result.label ?? view.result.message ?? ""}` : ""}${view.reason ? ` ${view.reason}` : ""}`);

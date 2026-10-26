@@ -333,9 +333,18 @@ export function createLocalProfileService({
         importInterlude: () => runImport("interlude"),
         cancelImport: () => { if (job) job.cancelled = true; return { ok: true }; },
         importing: () => (job ? { source: job.source, ...(job.progress ?? {}) } : null),
+        // whether live plays are recorded (the overlay's Dan widget shows a play's own dan only then)
+        recording: async () => {
+            try {
+                return (await store.settings()).record === true;
+            } catch {
+                return false;
+            }
+        },
         setRecord: async (on) => {
             const s = await store.updateSettings((x) => ({ ...x, record: Boolean(on) }));
-            emit("local-profile-changed", { skill: await skill() });
+            // the Profile tab's box and the Settings page's follow it
+            emit("local-profile-changed", { skill: await skill(), record: s.record });
             return { ok: true, record: s.record };
         },
         exportBundle: () => store.exportBundle(),

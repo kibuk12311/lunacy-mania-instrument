@@ -18,8 +18,13 @@ const SHOW_TEXT = {
 };
 // the key widget's "counts" is per key; the NPS widget's lines are about the map
 const NPS_TEXT = { now: "overlay.show.npsNow", peak: "overlay.show.peak", graph: "overlay.show.npsGraph" };
+const DAN_TEXT = {
+    map: "overlay.show.danMap", pattern: "overlay.show.danPattern", live: "overlay.show.danLive",
+    forYou: "overlay.show.danForYou", play: "overlay.show.danPlay",
+};
 const showText = (widget, key) => {
     if (widget === "keys" && key === "counts") return "overlay.show.keyCounts";
+    if (widget === "dan") return DAN_TEXT[key];
     return widget === "nps" ? NPS_TEXT[key] : SHOW_TEXT[key];
 };
 
@@ -102,6 +107,7 @@ function buildCard(widget) {
     controls.append(el("div", "", t("overlay.set.style")), styleRow, opacity.row, scale.row, shows);
     if (widget === "keys") controls.append(el("p", "hint", t("overlay.set.keysNote")));
     if (widget === "nps") controls.append(el("p", "hint", t("overlay.set.npsNote")));
+    if (widget === "dan") controls.append(el("p", "hint", t("overlay.set.danNote")));
     const stage = el("div", "stage");
     card.append(title, controls, stage);
     $("widgets").append(card);

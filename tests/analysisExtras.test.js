@@ -1,5 +1,5 @@
 // The blocks under the analysis card as HTML: the difficulty line, the pattern strip and its legend, "for you"
-// and the ladder of rates, in both languages; nothing in compact mode or for maps without a dan.
+// and the ladder of rates, in both languages; nothing for maps without a dan.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -17,7 +17,7 @@ const DETAILS = { v: 1, durationSec: 120, strain, hardest: [{ fromSec: 60, toSec
 const SKILL = { overall: 12.5, tiles: { speed: 13.1, stamina: 12.6, tech: 11.9, jack: null }, msd: { Jumpstream: 24.9 } };
 const READY = { state: "ready", player: { id: 1, username: "Мира", avatarUrl: "" }, skill: SKILL };
 const state = (over = {}) => ({
-    view: { screen: "result", result: RESULT, key: "k@1.000" }, compact: false, details: DETAILS, profile: READY,
+    view: { screen: "result", result: RESULT, key: "k@1.000" }, details: DETAILS, profile: READY,
     ladder: new Map(), ladderOpen: false, ...over,
 });
 // the text a reader sees: tags dropped
@@ -31,8 +31,7 @@ const inLang = (lang, fn) => {
     }
 };
 
-test("nothing is drawn in compact mode, for results that are not ok, or for other screens", () => {
-    assert.equal(renderExtras(state({ compact: true })), "");
+test("nothing is drawn for results that are not ok, or for other screens", () => {
     for (const result of [{ kind: "not-rice", reason: "keys", keys: 7 }, { kind: "too-short" }, { kind: "error", message: "x" }]) {
         assert.equal(renderExtras(state({ view: { screen: "result", result, key: "k" } })), "");
     }
