@@ -36,7 +36,17 @@ const PARTS = [
     { startMs: 5000, endMs: 120_000, kind: "outro" },
 ];
 
-function setup({ answer } = {}) {
+// The styles per model choice, as app/modelStyles.js answers them (0.9.5): the classic model has none.
+const STYLES_BY_SIZE = {
+    auto: [],
+    xgb3: [{ key: "mapperA", name: "Mapper A", user: null, maps: 40 }],
+    s: [{ key: "mapperA", name: "Mapper A", user: null, maps: 40 }, { key: "u:77", name: null, user: "77", maps: 12 }],
+    m: [{ key: "mapperA", name: "Mapper A", user: null, maps: 40 }],
+    l: [],
+};
+const fakeCatalog = (by = STYLES_BY_SIZE) => ({ calls: 0, async bySize() { this.calls += 1; if (by instanceof Error) throw by; return by; } });
+
+function setup({ answer, styleCatalog = fakeCatalog() } = {}) {
     const handlers = {};
     const ipcMain = { handle: (channel, fn) => { handlers[channel] = fn; }, on: (channel, fn) => { handlers[channel] = fn; } };
     const sent = [];
@@ -61,7 +71,7 @@ function setup({ answer } = {}) {
     };
     const generatedStore = createGeneratedStore();
     const logs = [];
-    registerCreateIpc({ ipcMain, generatorClient, generatedStore, log: (line) => logs.push(line) });
+    registerCreateIpc({ ipcMain, generatorClient, generatedStore, log: (line) => logs.push(line), styleCatalog });
     const generate = (req) => handlers["generate-map"](event, req);
     const detect = (req) => handlers["detect-timing"](event, req);
     return { handlers, generate, detect, sent, calls, generatedStore, logs };
@@ -494,26 +504,50 @@ test("candidates 1..20, repeats, a null style and every model size pass", async 
     }
 });
 
-test("a style passes once the worker has named it in a generate answer", async () => {
-    const styles = [{ key: "mapperA", name: "Mapper A", maps: 40 }];
-    assert.equal((await setup().generate(request({ over: { style: "mapperA" } }))).code, "badRequest");
-    const { generate, calls } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, modelInfo: { kind: "nn-v2", styles } }) });
-    await generate(request());
-    const answer = await generate(request({ over: { style: "mapperA" } }));
-    assert.equal(answer.ok, true, answer.message);
+test("a style is checked against the styles of the model picked (modelSize), not of the model that last ran", async () => {
+    const answer = () => ({ kind: "generated", osuText: "o", version: "v", result: {}, modelInfo: { kind: "nn-v2", styles: [{ key: "mapperC", name: "C", maps: 1 }] } });
+    const { generate, calls } = setup({ answer });
+    const code = async (over) => (await generate(request({ over }))).code ?? "ok";
+    assert.equal(await code({ style: "mapperA" }), "badRequest", "no modelSize: the classic model, which has no styles");
+    assert.equal(await code({ style: "mapperA", modelSize: "auto" }), "badRequest");
+    assert.equal(await code({ style: "mapperA", modelSize: "xgb3" }), "ok");
     assert.equal(calls.generate.at(-1).request.style, "mapperA");
-    assert.equal((await generate(request({ over: { style: "mapperB" } }))).code, "badRequest");
+    assert.equal(await code({ style: "u:77", modelSize: "xgb3" }), "badRequest", "XGBoost v3 here has no u:77");
+    assert.equal(await code({ style: "u:77", modelSize: "s" }), "ok");
+    // the worker last named mapperC: that does not make it a style of any model choice
+    assert.equal(await code({ style: "mapperC", modelSize: "s" }), "badRequest");
+    assert.equal(await code({ style: null, modelSize: "auto" }), "ok");
 });
 
-test("a style passes once detect-timing's model info has named it", async () => {
+test("when the model files cannot be read, the styles of the model that last answered are the fallback", async () => {
     const handlers = {};
     const generatorClient = {
         generate: async () => ({ kind: "generated", osuText: "o", version: "v", result: {} }),
         detectTiming: async () => ({ kind: "timing", timing: { sections: [{ timeMs: 0, bpm: 120, meter: 4 }], bpm: 120, offsetMs: 0 }, modelInfo: { kind: "xgb-v3", styles: [{ key: "s1", name: "S1", maps: 9 }] } }),
     };
-    registerCreateIpc({ ipcMain: { handle: (c, fn) => { handlers[c] = fn; }, on() {} }, generatorClient, generatedStore: createGeneratedStore(), log() {} });
+    registerCreateIpc({ ipcMain: { handle: (c, fn) => { handlers[c] = fn; }, on() {} }, generatorClient, generatedStore: createGeneratedStore(), log() {}, styleCatalog: fakeCatalog(new Error("no disk")) });
+    assert.equal((await handlers["generate-map"]({ sender: { send() {} } }, request({ over: { style: "s1", modelSize: "xgb3" } }))).code, "badRequest");
     await handlers["detect-timing"]({}, { envelope: { values: [1], hopSec: 0.01 } });
-    assert.equal((await handlers["generate-map"]({ sender: { send() {} } }, request({ over: { style: "s1" } }))).ok, true);
+    assert.equal((await handlers["generate-map"]({ sender: { send() {} } }, request({ over: { style: "s1", modelSize: "xgb3" } }))).ok, true);
+});
+
+test("the answer names the style the map was made with, or the one asked for that the model which ran did not use", async () => {
+    let used = "u:77";
+    const { generate, generatedStore } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, ...(used ? { style: used } : {}) }) });
+    const made = await generate(request({ over: { style: "u:77", modelSize: "s" } }));
+    assert.equal(made.ok, true, made.message);
+    assert.deepEqual(made.style, { key: "u:77", name: null, user: "77" });
+    assert.equal(made.styleAsked, null);
+    assert.equal(generatedStore.get(made.id).style, "u:77");
+    // the nn-v2 model had no stems and the classic model ran: no style in the worker's answer
+    used = null;
+    const fell = await generate(request({ over: { style: "mapperA", modelSize: "s" } }));
+    assert.equal(fell.style, null);
+    assert.deepEqual(fell.styleAsked, { key: "mapperA", name: "Mapper A", user: null });
+    assert.equal(generatedStore.get(fell.id).style, null);
+    const plain = await generate(request());
+    assert.equal(plain.style, null);
+    assert.equal(plain.styleAsked, null);
 });
 
 test("the renderer's personal model, deadline and critic weights are ignored; main adds personal: null and the deadline", async () => {
@@ -548,6 +582,7 @@ test("the critic and the structure pass through; the critic's features stay in t
 test("generator-info: the model files there, the sizes, the critic, and the styles the worker last named; no file written", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "gen-info-"));
     await writeFile(path.join(dir, "mapper-nn2-m.json"), "{}");
+    // the styles per choice come from the catalog
     await writeFile(path.join(dir, "critic.json"), "{}");
     const before = process.env.LUNACY_MODEL_DIR;
     process.env.LUNACY_MODEL_DIR = dir;
@@ -560,12 +595,44 @@ test("generator-info: the model files there, the sizes, the critic, and the styl
         assert.ok(first.modelInfo.engines.includes("neural"));
         assert.deepEqual(first.modelInfo.styles, []);
         assert.deepEqual(first.modelInfo.modelSizes, ["auto", "xgb3", "s", "m", "l"]);
+        assert.deepEqual(first.modelInfo.stylesBySize, STYLES_BY_SIZE);
         const { generate, handlers } = setup({ answer: () => ({ kind: "generated", osuText: "o", version: "v", result: {}, modelInfo: { kind: "nn-v2", grid: "snap-v2", maps: 5, styles } }) });
         await generate(request());
         const after = await handlers["generator-info"]({});
         assert.deepEqual(after.modelInfo.styles, styles);
         assert.equal(after.modelInfo.kind, "nn-v2");
         assert.deepEqual((await readdir(dir)).sort(), ["critic.json", "mapper-nn2-m.json"]);
+    } finally {
+        if (before === undefined) delete process.env.LUNACY_MODEL_DIR;
+        else process.env.LUNACY_MODEL_DIR = before;
+    }
+});
+
+test("generator-info's stylesBySize reads the model files once: per choice, named from XGBoost v3, cached in userData", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "gen-styles-"));
+    const userData = await mkdtemp(path.join(tmpdir(), "gen-styles-ud-"));
+    await writeFile(path.join(dir, "mapper-xgb3.json"), JSON.stringify({ kind: "xgb-v3", pattern: { a: [1, 2] }, styles: [{ key: "n:abc", name: "Abc", maps: 3 }, { key: "u:7", name: "u:7", maps: 9 }] }));
+    await writeFile(path.join(dir, "mapper-nn2-s.json"), JSON.stringify({ kind: "nn-v2", styles: [{ key: "n:abc", name: "n:abc", maps: 3 }, { key: "n:zed", name: "n:zed", maps: 1 }] }));
+    const before = process.env.LUNACY_MODEL_DIR;
+    process.env.LUNACY_MODEL_DIR = dir;
+    try {
+        const handlers = {};
+        registerCreateIpc({ ipcMain: { handle: (c, fn) => { handlers[c] = fn; }, on() {} }, generatorClient: {}, generatedStore: createGeneratedStore(), log() {}, paths: { userData, docsDir: userData } });
+        const { modelInfo } = await handlers["generator-info"]({}, { gpu: false });
+        assert.deepEqual(modelInfo.stylesBySize.xgb3, [{ key: "u:7", name: null, user: "7", maps: 9 }, { key: "n:abc", name: "Abc", user: null, maps: 3 }]);
+        assert.deepEqual(modelInfo.stylesBySize.s, [{ key: "n:abc", name: "Abc", user: null, maps: 3 }, { key: "n:zed", name: "zed", user: null, maps: 1 }]);
+        assert.deepEqual(modelInfo.stylesBySize.auto, []);
+        assert.ok((await readdir(userData)).includes("model-styles.json"));
+        assert.deepEqual((await readdir(dir)).sort(), ["mapper-nn2-s.json", "mapper-xgb3.json"]);
+        // the request is checked against the same lists
+        const generatorClient = { generate: async () => ({ kind: "generated", osuText: "o", version: "v", result: {}, style: "n:zed" }) };
+        const h2 = {};
+        registerCreateIpc({ ipcMain: { handle: (c, fn) => { h2[c] = fn; }, on() {} }, generatorClient, generatedStore: createGeneratedStore(), log() {}, paths: { userData, docsDir: userData } });
+        const send = { sender: { send() {} } };
+        assert.equal((await h2["generate-map"](send, request({ over: { style: "n:zed", modelSize: "xgb3" } }))).code, "badRequest");
+        const made = await h2["generate-map"](send, request({ over: { style: "n:zed", modelSize: "s" } }));
+        assert.equal(made.ok, true, made.message);
+        assert.deepEqual(made.style, { key: "n:zed", name: "zed", user: null });
     } finally {
         if (before === undefined) delete process.env.LUNACY_MODEL_DIR;
         else process.env.LUNACY_MODEL_DIR = before;

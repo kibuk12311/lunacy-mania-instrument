@@ -249,3 +249,20 @@ test("under the cards: the ratings count, «Using your ratings» once active, an
         setLang("ru");
     }
 });
+
+test("the card names the mapper style the map was made with, and says so when the one asked for was not used", () => {
+    try {
+        setLang("en");
+        const used = cardLines({ ...BASE, style: { key: "n:magikarp1234", name: "Magikarp1234", user: null }, styleAsked: null }, RANGE);
+        assert.ok(used.some((l) => l.text === "Mapper style: Magikarp1234" && l.cls === "muted"), used.map((l) => l.text).join(" | "));
+        const user = cardLines({ ...BASE, style: { key: "u:5", name: null, user: "5" } }, RANGE).map((l) => l.text);
+        assert.ok(user.includes("Mapper style: mapper #5"), user.join(" | "));
+        const unused = cardLines({ ...BASE, style: null, styleAsked: { key: "n:dani", name: "Dani", user: null } }, RANGE);
+        assert.ok(unused.some((l) => l.text === "Style “Dani” not used — the model that made the map has no styles" && l.cls === "warn"));
+        assert.ok(!cardLines(BASE, RANGE).some((l) => /style/i.test(l.text)), "no style asked: no line");
+        setLang("ru");
+        assert.ok(cardLines({ ...BASE, style: { key: "n:dani", name: "Dani", user: null } }, RANGE).some((l) => l.text === "Стиль маппера: Dani"));
+    } finally {
+        setLang("ru");
+    }
+});

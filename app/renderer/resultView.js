@@ -13,7 +13,7 @@ import { rangeText } from "./timeline.js";
 import { isDetailed, patternsInMode } from "./patternMode.js";
 import { flavourName } from "../../src/gen/flavours.js";
 import { createRatingBar, newRating } from "./ratingBar.js";
-import { sizeName, MODEL_SIZES, EXPERIMENTAL } from "./genOptions.js";
+import { sizeName, styleName, MODEL_SIZES, EXPERIMENTAL } from "./genOptions.js";
 
 export const MAX_CARDS = 6;
 const SHOWN_ISSUES = 5;
@@ -151,6 +151,9 @@ export function cardLines(answer, range, { detailed = isDetailed() } = {}) {
     else if (answer.engine === "rules" || info?.kind === "rules") add(t("create.result.rules"));
     const note = sizeNoteText(info?.sizeNote);
     if (note) add(note, "warn");
+    // the mapper style the map was made with, or the one asked for that the model which ran did not have
+    if (answer.style?.key) add(t("create.result.style", { name: styleName(answer.style) }));
+    else if (answer.styleAsked?.key) add(t("create.result.styleUnused", { name: styleName(answer.styleAsked) }), "warn");
     const critic = criticLine(answer.critic);
     if (critic) lines.push({ text: critic, cls: "muted ml-critic", title: t("create.ml.critic.hint") });
     if (answer.retries?.blocks > 0) add(t("create.retry.blocks", { n: answer.retries.blocks }));

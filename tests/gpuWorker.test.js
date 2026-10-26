@@ -234,11 +234,13 @@ test("generatorJobs: no backend, a null one or a failing one → the generator's
 });
 
 // ---- generator-info ----
+// the model styles are not this test's business: no catalog that would write userData\model-styles.json
+const NO_STYLES = { bySize: async () => ({ auto: [], xgb3: [], s: [], m: [], l: [] }) };
 test("generator-info: modelInfo.gpu carries the capability (outside Electron: unavailable, with the reason)", async () => {
     const handlers = {};
     registerCreateIpc({
         ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; }, on() {} },
-        generatorClient: {}, generatedStore: {}, log: () => {}, paths: { userData: "x", docsDir: "y" },
+        generatorClient: {}, generatedStore: {}, log: () => {}, paths: { userData: "x", docsDir: "y" }, styleCatalog: NO_STYLES,
     });
     const info = await handlers["generator-info"]({});
     assert.equal(info.ok, true);
@@ -250,7 +252,7 @@ test("generator-info with { gpu: false } does not start the GPU renderer: gpu is
     const handlers = {};
     registerCreateIpc({
         ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; }, on() {} },
-        generatorClient: {}, generatedStore: {}, log: () => {}, paths: { userData: "x", docsDir: "y" },
+        generatorClient: {}, generatedStore: {}, log: () => {}, paths: { userData: "x", docsDir: "y" }, styleCatalog: NO_STYLES,
     });
     const before = await handlers["generator-info"]({}, { gpu: false });
     assert.equal(before.ok, true);

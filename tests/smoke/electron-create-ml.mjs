@@ -8,11 +8,18 @@
 // 👎 + a tag reach rate-variant; then it captures the model picker, the first card with its rating bar and the timeline
 // (create-ml-<part>-<lang>.png) and lists whatever sticks out of the tab sideways. Exits 1 when the tab scrolls
 // sideways or a check fails. User data stays in outDir.
+// The mapper style (0.9.5): generator-info's stylesBySize comes from the real model files in models/ when they are
+// there (app/modelStyles.js, as main reads them), else from two made-up styles. Before any run it checks that Classic
+// leaves the style list off and says why, that XGBoost v3 shows its styles at once (most maps first, «Name · N карт»),
+// that the search box finds one and Enter picks it, and that Neural net S keeps it with a proper name (not "n:…");
+// it captures the three (create-ml-style-<classic|xgb3|nn-s>-<lang>.png), and the card names the style used.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { clickTrack } from "../fixtures/clickTrack.js";
+import { createStyleCatalog } from "../../app/modelStyles.js";
+import { listModelFiles, modelDirs } from "../../app/generatorJobs.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.join(here, "..", "..", "app");
@@ -53,8 +60,15 @@ async function until(win, expr, ms = 15000) {
     return false;
 }
 
-const STYLES = [{ key: "mapperA", name: "Mapper A", maps: 48 }, { key: "mapperB", name: "Mapper B", maps: 31 }];
+const STYLES = [{ key: "mapperA", name: "Mapper A", maps: 48 }, { key: "u:4242", name: null, user: "4242", maps: 31 }];
 const MODEL_INFO = { kind: "nn-v2", grid: "snap-v2", maps: 81234, size: "s", styles: STYLES, critic: "critic-v1", stems: true };
+// the styles per model choice: the real model files' when they are here, else the two above for every experimental one
+const realFiles = await listModelFiles(modelDirs({ env: {} })).catch(() => []);
+const realStyles = realFiles.includes("mapper-xgb3.json")
+    ? await createStyleCatalog({ dirs: modelDirs({ env: {} }), cacheFile: path.join(outDir, "user-data", "model-styles.json") }).bySize(realFiles).catch(() => null)
+    : null;
+const STYLES_BY_SIZE = realStyles ?? { auto: [], xgb3: STYLES, s: STYLES, m: STYLES, l: STYLES };
+const SEARCH = realStyles ? "crz" : "4242";
 
 app.whenReady().then(async () => {
     ipcMain.on("get-lang", (event) => { event.returnValue = lang; });
@@ -65,7 +79,7 @@ app.whenReady().then(async () => {
     ipcMain.handle("generator-info", async () => ({
         ok: true,
         modelInfo: {
-            ...MODEL_INFO, engines: ["neural", "learned", "rules"], modelSizes: ["auto", "xgb3", "s", "m", "l"],
+            ...MODEL_INFO, engines: ["neural", "learned", "rules"], modelSizes: ["auto", "xgb3", "s", "m", "l"], stylesBySize: STYLES_BY_SIZE,
             sizes: { auto: true, xgb3: true, s: true, m: true, l: false, distilled: false },
             files: ["mapper-nn2-m.json", "mapper-nn2-s.json", "mapper-xgb3.json", "mapper.json", "critic.json"],
         },
@@ -90,6 +104,9 @@ app.whenReady().then(async () => {
             ...fixture, id: `smoke-${made}`, planSeed: req.request.planSeed, noteSeed: req.request.noteSeed,
             patternScore: [0.84, 0.79][k], result: { ...fixture.result, numeric: [13.04, 12.86][k] }, range: req.request.range,
             modelInfo: MODEL_INFO, ms: 3400, ...(parts.length ? { parts } : {}),
+            // the style used, as main names it
+            style: (() => { const s = Object.values(STYLES_BY_SIZE).flat().find((x) => x.key === req.request.style); return s ? { key: s.key, name: s.name ?? null, user: s.user ?? null } : null; })(),
+            styleAsked: null,
             critic: { kind: "critic-v1", score: 1.2, human: [0.83, 0.77][k], fun: [0.31, -0.12][k], play: [-0.2, -0.45][k], personal: null, style: null, picked: 4, of: req.request.candidates ?? 1, analysed: 3, ms: 960 },
             structure: {
                 phrases: Array.from({ length: 8 }, (_, p) => ({ startMs: 312 + p * 11034, bars: 8 })),
@@ -143,8 +160,6 @@ app.whenReady().then(async () => {
     // the picker before any run: what each size says here
     const picker = await win.webContents.executeJavaScript(`(() => [...document.querySelectorAll("#gen-options .ml-size")].map((b) => ({
         size: b.dataset.size, on: b.classList.contains("sel"), disabled: b.disabled, text: b.textContent })))()`);
-    const styleOptions = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#gen-options select option")].map((o) => o.textContent)`);
-
     const shots = {};
     const capture = async (name, selector) => {
         const rect = await win.webContents.executeJavaScript(`(() => {
@@ -162,6 +177,54 @@ app.whenReady().then(async () => {
         shots[name] = file;
     };
     await capture("picker-default", "#gen-options");
+
+    // the mapper style per model, before any run: Classic, XGBoost v3 (search + Enter), Neural net S
+    const styleState = () => win.webContents.executeJavaScript(`(() => {
+        const sel = document.querySelector("#gen-options [data-role=style]");
+        const filter = document.querySelector("#gen-options [data-role=style-filter]");
+        const hint = document.querySelector("#gen-options [data-role=style-hint]");
+        return { disabled: sel.disabled, value: sel.value, options: [...sel.options].map((o) => o.textContent), filterShown: !filter.hidden && filter.offsetParent !== null,
+            hint: hint.hidden ? "" : hint.textContent };
+    })()`);
+    const pickSize = (size) => win.webContents.executeJavaScript(`document.querySelector('#gen-options .ml-size[data-size="${size}"]').click(); true`);
+    const styleClassic = await styleState();
+    await capture("style-classic", ".ml-style-field");
+    await pickSize("xgb3");
+    await sleep(100);
+    const styleXgb = await styleState();
+    // the search box: type, then Enter takes the first match
+    await win.webContents.executeJavaScript(`(() => {
+        const f = document.querySelector("#gen-options [data-role=style-filter]");
+        f.focus();
+        f.value = ${JSON.stringify(SEARCH)};
+        f.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+    })()`);
+    await sleep(100);
+    const styleSearch = await styleState();
+    await capture("style-xgb3", ".ml-style-field");
+    await win.webContents.executeJavaScript(`(() => {
+        const f = document.querySelector("#gen-options [data-role=style-filter]");
+        f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        f.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        return true;
+    })()`);
+    await sleep(100);
+    const stylePicked = await styleState();
+    await pickSize("s");
+    await sleep(100);
+    const styleNn = await styleState();
+    await capture("style-nn-s", ".ml-style-field");
+    const styleOptions = styleNn.options;
+    const ruOrEn = lang === "en" ? / · \d+ maps?$/ : / · \d+ карт[аы]?$/;
+    const styleOk = styleClassic.disabled && !styleClassic.filterShown && styleClassic.options.length === 1
+        && styleClassic.hint === (lang === "en" ? "the classic model has no styles — pick XGBoost v3 or a neural net" : "у классической модели нет стилей — выбери XGBoost v3 или нейросеть")
+        && !styleXgb.disabled && styleXgb.filterShown && styleXgb.options.length === 1 + STYLES_BY_SIZE.xgb3.length
+        && styleXgb.options.slice(1).every((o) => ruOrEn.test(o))
+        && styleSearch.options.length >= 2 && styleSearch.options.length < styleXgb.options.length
+        && stylePicked.value !== "" && styleNn.value === stylePicked.value
+        && !styleNn.options.some((o) => o.startsWith("n:") || o.startsWith("u:"));
+    for (const [name, st] of Object.entries({ styleClassic, styleXgb, styleSearch, stylePicked, styleNn })) console.log(name, JSON.stringify({ ...st, options: st.options.slice(0, 4), count: st.options.length }));
     // 12 candidates on the slider (the default is 1: no critic)
     const defaultCandidates = await win.webContents.executeJavaScript(`document.querySelector("#gen-options [data-role=candidates]").value`);
     await win.webContents.executeJavaScript(`(() => {
@@ -213,6 +276,7 @@ app.whenReady().then(async () => {
             rateBar: document.querySelector(".cr-card .ml-rate")?.textContent,
             ratingsLine: document.querySelector(".ml-ratings")?.textContent,
             partButtons: [...document.querySelectorAll("#part-editor button")].map((b) => b.textContent),
+            cardStyle: [...document.querySelectorAll(".cr-card div")].map((n) => n.textContent).find((x) => /^(Стиль маппера|Mapper style): /.test(x)) ?? null,
         };
     })()`);
     const first = requests[0] ?? null;
@@ -222,9 +286,10 @@ app.whenReady().then(async () => {
     } : null;
     const pickerOk = picker.length === 5 && picker.find((p) => p.size === "auto")?.on === true && picker.find((p) => p.size === "l")?.disabled === true
         && picker.filter((p) => p.size !== "l").every((p) => !p.disabled) && defaultCandidates === "1";
-    const ok = pickerOk && loaded && generated && regenerated && report.cards === 3 && made === 3 && sent?.stems && sent.candidates === 12 && sent.repeats === true
+    const styleLine = report.cardStyle;
+    const ok = pickerOk && styleOk && sent?.modelSize === "s" && sent?.style === stylePicked.value && Boolean(styleLine) && loaded && generated && regenerated && report.cards === 3 && made === 3 && sent?.stems && sent.candidates === 12 && sent.repeats === true
         && first.request.parts?.length === 2 && onlyLock?.fromId === "smoke-1" && JSON.stringify(onlyLock?.parts) === "[1]"
         && rated.length >= 2 && rated[0].vote === -1 && rated.at(-1).tags.includes("tooJacky") && report.critic.length === report.cards;
-    console.log(JSON.stringify({ lang, loaded, loadMs, generated, made, sent, rated, picker, pickerOk, defaultCandidates, styleOptions, regenerated, onlyLock, ...report, ok, shots, problems: problems.slice(0, 10) }, null, 2));
+    console.log(JSON.stringify({ lang, loaded, loadMs, generated, made, sent, rated, picker, pickerOk, defaultCandidates, styleOk, styleLine, styleOptions: styleOptions.slice(0, 6), regenerated, onlyLock, ...report, ok, shots, problems: problems.slice(0, 10) }, null, 2));
     app.exit(report.wide.length || report.scrollWidth > report.clientWidth || !ok ? 1 : 0);
 });

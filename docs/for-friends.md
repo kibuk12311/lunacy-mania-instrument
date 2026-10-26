@@ -1,5 +1,9 @@
 # Lunacy mania — how to use it
 
+## What's new in 0.9.5
+
+- **Mapper style is easier to use.** On the Create tab the "Mapper style" list now shows the styles of the model you picked straight away (XGBoost v3 or a neural net), with real mapper names, the ones with the most maps first and a search box to find one. The Classic model has no styles — the list says so. The map's card tells you which style it was made with. A style changes the notes only a little on XGBoost v3 and a bit more on the neural nets.
+
 ## What's new in 0.9.4
 
 - **New "Skin" tab — make or edit an osu!mania 4K skin.** "From scratch": pick the note shape (circles, bars, arrows, diamonds), the column colours (1-2-2-1 and other presets, or your own per column), sizes, hold notes, keys, the stage, the judgement font and the lighting, then "Make the skin". "My osu! skins" opens a copy of one of your skins (your original isn't touched), ".osk file" opens a skin file. Then change anything of its 4K part — column width, hit position, colours, every picture (click a thumbnail or drop a PNG / JPG / WebP on it to use your own picture — the normal and @2x size are made for you; "Reset" brings back the old one, "Apply to all columns" does all four at once) — and watch it in the preview with notes falling, holds and key presses (downscroll or upscroll). ↶ / ↷ undo and redo. "Save an .osk and open it in osu!" puts the skin in `Documents\Lunacy mania\скины` and osu! (stable or lazer) imports it. For **Interlude**, a skin made from scratch can also be saved as an `.isk`: drag it onto Interlude's window. (Your own existing skin goes into Interlude through Interlude's own skin editor and import.)

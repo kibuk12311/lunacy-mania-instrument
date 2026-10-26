@@ -9,6 +9,7 @@ import { fakeDom, fire, textOf } from "../helpers/fakeDom.js";
 import { setLang } from "../../src/i18n/i18n.js";
 import {
     createGenOptions, sizeChoices, autoPick, sizeLine, loadOptions, CARDS_WITH_CRITIC, DEFAULT_CANDIDATES, STORE_KEY, MODEL_SIZES, EXPERIMENTAL,
+    stylesOf, styleName, styleOptionText, styleMatches,
 } from "../../app/renderer/genOptions.js";
 
 const all = (n) => [n, ...n.children.flatMap(all)];
@@ -186,7 +187,7 @@ test("the style list comes from generator-info and follows it when it is asked a
         setInfo(INFO);
         await opts.refresh();
         assert.equal(style.disabled, false);
-        assert.deepEqual(style.children.map((o) => [o.value, o.textContent]), [["", "No style"], ["mapperA", "Mapper A (40)"], ["mapperB", "Mapper B (31)"]]);
+        assert.deepEqual(style.children.map((o) => [o.value, o.textContent]), [["", "No style"], ["mapperA", "Mapper A · 40 maps"], ["mapperB", "Mapper B · 31 maps"]]);
         style.value = "mapperA";
         await fire(style, "change");
         assert.equal(opts.request().style, "mapperA");
@@ -259,4 +260,125 @@ test("with probeAtStart false, generator-info is asked with gpu: false until ask
     assert.equal(sizeButton(root, "l").disabled, false, "the worker's GPU counts");
     await opts.refresh();
     assert.deepEqual(asks.at(-1), { gpu: true });
+});
+
+// ---- 0.9.5: the style list of the model picked, before anything was generated ----
+
+// generator-info's stylesBySize as main sends it (app/modelStyles.js); the nn-v2 lists carry raw keys as names
+const XGB = [
+    { key: "n:dani", name: "Dani", maps: 185 }, { key: "n:magikarp1234", name: "Magikarp1234", maps: 288 },
+    { key: "u:13747903", name: "[Crz]hinako1804", maps: 230 }, { key: "u:77", name: null, user: "77", maps: 1 },
+];
+const NN = [{ key: "n:magikarp1234", name: "Magikarp1234", maps: 288 }, { key: "n:-beajek-", name: "n:-beajek-", maps: 115 }];
+const BY_SIZE = { ...INFO, styles: [], stylesBySize: { auto: [], xgb3: XGB, s: NN, m: NN, l: NN } };
+const optionTexts = (style) => style.children.map((o) => o.textContent);
+
+test("Classic has no styles: the list is off and says why; XGBoost v3 and the nn show their own lists at once", async () => {
+    setLang("en");
+    try {
+        const { root, opts } = await options({ gpu: true, info: BY_SIZE });
+        const style = byRole(root, "style");
+        const hint = byRole(root, "style-hint");
+        assert.equal(style.disabled, true);
+        assert.equal(byRole(root, "style-filter").hidden, true);
+        assert.equal(hint.textContent, "the classic model has no styles — pick XGBoost v3 or a neural net");
+        await fire(sizeButton(root, "xgb3"));
+        assert.equal(style.disabled, false);
+        assert.deepEqual(optionTexts(style), ["No style", "Magikarp1234 · 288 maps", "[Crz]hinako1804 · 230 maps", "Dani · 185 maps", "mapper #77 · 1 map"], "most maps first");
+        assert.ok(hint.textContent.includes("on XGBoost v3 a style does little"), hint.textContent);
+        await fire(sizeButton(root, "s"));
+        assert.deepEqual(optionTexts(style), ["No style", "Magikarp1234 · 288 maps", "-beajek- · 115 maps"], "the n: prefix goes");
+        assert.ok(hint.textContent.includes("gently moves the notes"), hint.textContent);
+        assert.equal(opts.request().style, null);
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("another model keeps the style when it has it, else «Без стиля» with a note; the request carries the model's own", async () => {
+    setLang("en");
+    try {
+        const { root, opts } = await options({ gpu: true, info: BY_SIZE });
+        const style = byRole(root, "style");
+        await fire(sizeButton(root, "xgb3"));
+        style.value = "n:magikarp1234";
+        await fire(style, "change");
+        assert.deepEqual(opts.request(), { modelSize: "xgb3", candidates: 1, style: "n:magikarp1234", repeats: true });
+        await fire(sizeButton(root, "m"));
+        assert.equal(opts.request().style, "n:magikarp1234", "M has it too");
+        assert.equal(style.value, "n:magikarp1234");
+        await fire(sizeButton(root, "xgb3"));
+        style.value = "n:dani";
+        await fire(style, "change");
+        await fire(sizeButton(root, "s"));
+        assert.equal(opts.request().style, null);
+        assert.equal(opts.chosen.style, null);
+        assert.equal(style.value, "");
+        const note = byRole(root, "style-hint").textContent;
+        assert.ok(note.startsWith("“Neural net S (experimental, fast)” has no “Dani” style"), note);
+        await fire(sizeButton(root, "xgb3"));
+        assert.ok(!byRole(root, "style-hint").textContent.includes("has no"), "the note goes with the next pick");
+        // to Classic: nothing to keep
+        style.value = "n:dani";
+        await fire(style, "change");
+        await fire(sizeButton(root, "auto"));
+        assert.equal(opts.request().style, null);
+        assert.ok(byRole(root, "style-hint").textContent.includes("“Classic” has no “Dani” style"));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("the search box filters the list (name or key, any case), Enter takes the first match, Esc clears it", async () => {
+    setLang("en");
+    try {
+        const many = Array.from({ length: 121 }, (_, i) => ({ key: `n:m${i}`, name: `Mapper ${i}`, maps: 200 - i }));
+        const { root, opts } = await options({ gpu: true, info: { ...BY_SIZE, stylesBySize: { ...BY_SIZE.stylesBySize, xgb3: [...XGB, ...many] } } });
+        await fire(sizeButton(root, "xgb3"));
+        const style = byRole(root, "style");
+        const filter = byRole(root, "style-filter");
+        assert.equal(filter.hidden, false);
+        assert.equal(style.children.length, 1 + 125);
+        filter.value = "CRZ";
+        await fire(filter, "input");
+        assert.deepEqual(optionTexts(style), ["No style", "[Crz]hinako1804 · 230 maps"]);
+        assert.ok(byRole(root, "style-hint").textContent.includes("1 of 125 found"));
+        filter.value = "mapper 12";
+        await fire(filter, "input");
+        assert.deepEqual(optionTexts(style).slice(0, 3), ["No style", "Mapper 12 · 188 maps", "Mapper 120 · 80 maps"]);
+        await fire(filter, "keydown", { key: "Enter" });
+        assert.equal(opts.request().style, "n:m12");
+        // the chosen style stays in the list whatever the search
+        filter.value = "zzz";
+        await fire(filter, "input");
+        assert.deepEqual(optionTexts(style), ["No style", "Mapper 12 · 188 maps"]);
+        assert.ok(byRole(root, "style-hint").textContent.includes("nothing found — clear the search"));
+        await fire(filter, "keydown", { key: "Enter" });
+        assert.equal(opts.request().style, "n:m12", "Enter with no match changes nothing");
+        await fire(filter, "keydown", { key: "Escape" });
+        assert.equal(filter.value, "");
+        assert.equal(style.children.length, 1 + 125);
+        let focused = false;
+        style.focus = () => { focused = true; };
+        await fire(filter, "keydown", { key: "ArrowDown" });
+        assert.equal(focused, true, "the down arrow goes into the list");
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("style names and the option text: plural maps in ru, «маппер #id» for an osu! user without a name; an older main's styles", () => {
+    setLang("ru");
+    assert.equal(styleOptionText({ key: "n:a", name: "A", maps: 1 }), "A · 1 карта");
+    assert.equal(styleOptionText({ key: "n:a", name: "A", maps: 3 }), "A · 3 карты");
+    assert.equal(styleOptionText({ key: "n:a", name: "A", maps: 288 }), "A · 288 карт");
+    assert.equal(styleOptionText({ key: "n:a", name: "A", maps: 11 }), "A · 11 карт");
+    assert.equal(styleName({ key: "u:5", name: null, user: "5" }), "маппер #5");
+    assert.ok(styleMatches({ key: "u:5", user: "5" }, "маппер #5"));
+    assert.ok(styleMatches({ key: "n:dani", name: "Dani" }, "n:da"));
+    assert.ok(!styleMatches({ key: "n:dani", name: "Dani" }, "x"));
+    // an older main: no stylesBySize, the last model's styles for every choice
+    assert.deepEqual(stylesOf({ styles: [{ key: "k", name: "K", maps: 2 }] }, "xgb3"), [{ key: "k", name: "K", user: null, maps: 2 }]);
+    assert.deepEqual(stylesOf({ styles: [{ key: "k", name: "K", maps: 2 }], stylesBySize: { auto: [] } }, "auto"), []);
+    assert.deepEqual(stylesOf(null, "s"), []);
 });

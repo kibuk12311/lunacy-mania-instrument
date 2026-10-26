@@ -8,11 +8,18 @@
 // - L needs a graphics card (WebGPU in this window, or generator-info's `gpu` once the worker reports one) and its
 //   model file (still training: it comes in a later update); every experimental choice needs its file. A choice that
 //   cannot be picked is greyed out with the reason, and a remembered choice that became impossible is sent as "auto".
+// - The mapper style (0.9.5): the list is the one of the model picked above, from generator-info's stylesBySize (an
+//   older main: the styles of the model that last ran), most maps first, «Name · N карт», with a search box over it
+//   (Enter takes the first match, the down arrow goes to the list, Esc clears it). Picking another model keeps the
+//   style when that model has it, else sets «Без стиля» with a note. The classic model has none: the list is off and
+//   says so. A line under it says what a style does with the picked engine (measured: little on XGBoost v3, gently on
+//   the nn-v2).
 // - Repeats need the song's stems (the worker builds the structure from them): without them the box is off, with a hint.
 // - Everything picked is remembered in localStorage; so are the measured times per choice and per candidate.
 // request() → { modelSize, candidates, style, repeats } for generate-map; variants(n) → how many cards a run of one
 // range makes: CARDS_WITH_CRITIC when the critic picks each card from several candidates, else n.
-import { t } from "../../src/i18n/i18n.js";
+import { t, plural } from "../../src/i18n/i18n.js";
+import { displayStyles } from "../../src/gen/styleNames.js";
 
 export const MODEL_SIZES = ["auto", "xgb3", "s", "m", "l"];
 export const EXPERIMENTAL = Object.freeze(["xgb3", "s", "m", "l"]);
@@ -31,6 +38,29 @@ const HINT_KEYS = {
 export const DEFAULTS = Object.freeze({ modelSize: "auto", candidates: DEFAULT_CANDIDATES, style: null, repeats: true });
 
 export const sizeName = (size) => t(SIZE_KEYS[size] ?? SIZE_KEYS.auto);
+
+const OPTION_KEYS = { ru: ["create.ml.styleOption.one", "create.ml.styleOption.few", "create.ml.styleOption.many"], en: ["create.ml.styleOption.one", "create.ml.styleOption.many"] };
+// A style's name as shown: its name, «маппер #<id>» for an osu! user without one, else the key.
+export const styleName = (s) => (s?.name ? s.name : s?.user ? t("create.ml.styleUser", { id: s.user }) : String(s?.key ?? ""));
+// «Magikarp1234 · 288 карт»
+export const styleOptionText = (s) => {
+    const maps = Math.max(0, Math.round(Number(s?.maps) || 0));
+    return t(plural(maps, OPTION_KEYS), { name: styleName(s), maps });
+};
+
+// The styles shown for a model choice: generator-info's stylesBySize[size] (0.9.5), or, from an older main without it,
+// the styles of the model that last ran; named and sorted as src/gen/styleNames.js says.
+export function stylesOf(info, size) {
+    const by = info?.stylesBySize;
+    const list = by && typeof by === "object" ? by[size] : info?.styles;
+    return displayStyles(Array.isArray(list) ? list : []);
+}
+
+// Whether a style matches the search text (its shown name or its key, any case).
+export function styleMatches(s, query) {
+    const q = String(query ?? "").trim().toLowerCase();
+    return !q || styleName(s).toLowerCase().includes(q) || String(s?.key ?? "").toLowerCase().includes(q);
+}
 
 const clampCandidates = (n) => Math.max(1, Math.min(MAX_CANDIDATES, Math.round(Number(n)) || DEFAULT_CANDIDATES));
 
@@ -162,8 +192,21 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
 
     const style = el("select");
     style.dataset.role = "style";
-    const styleRow = el("label", "ml-style");
-    styleRow.append(el("span", "", t("create.ml.style")), style);
+    style.setAttribute?.("aria-label", t("create.ml.style"));
+    const filter = el("input", "ml-style-filter");
+    filter.type = "search";
+    filter.dataset.role = "style-filter";
+    filter.placeholder = t("create.ml.styleFilter");
+    filter.setAttribute?.("aria-label", t("create.ml.styleFilterLabel"));
+    filter.autocomplete = "off";
+    filter.spellcheck = false;
+    const styleRow = el("div", "ml-style");
+    const stylePick = el("div", "ml-style-pick");
+    stylePick.append(filter, style);
+    styleRow.append(el("span", "", t("create.ml.style")), stylePick);
+    const styleHint = el("div", "muted ml-hint ml-style-hint");
+    styleHint.dataset.role = "style-hint";
+    let styleNote = ""; // why the style was just set to none (another model was picked)
 
     const repeats = el("input");
     repeats.type = "checkbox";
@@ -174,8 +217,8 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
     const repeatsHint = el("div", "muted ml-hint");
 
     const choices = () => sizeChoices(info, { gpu: gpuNow() });
-    const styles = () => (Array.isArray(info?.styles) ? info.styles.filter((s) => typeof s?.key === "string" && s.key) : []);
     const effectiveSize = () => (choices().find((c) => c.size === chosen.modelSize)?.ok ? chosen.modelSize : "auto");
+    const styles = () => stylesOf(info, effectiveSize());
 
     function renderSizes() {
         const effective = effectiveSize();
@@ -190,9 +233,17 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
             option.append(el("b", "ml-size-name", sizeName(choice.size)), el("span", "ml-size-line", sizeLine(choice, { info, times })));
             option.addEventListener("click", () => {
                 if (!choice.ok) return;
+                const before = chosen.style ? styles().find((s) => s.key === chosen.style) ?? null : null;
                 chosen.modelSize = choice.size;
+                // another model: the style stays when it has it, else «Без стиля» and a note why
+                styleNote = "";
+                if (before && info && !styles().some((s) => s.key === before.key)) {
+                    chosen.style = null;
+                    styleNote = t("create.ml.styleReset", { model: sizeName(effectiveSize()), style: styleName(before) });
+                }
                 save();
                 renderSizes();
+                renderStyle();
             });
             return option;
         }));
@@ -206,19 +257,44 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
         else countHint.textContent = t("create.ml.candidatesPlain");
     }
 
+    // the list as the search box leaves it: «Без стиля» and the chosen style always, then the matches
     function renderStyle() {
         const list = styles();
+        const keep = list.some((s) => s.key === chosen.style) ? chosen.style : "";
+        const query = list.length ? filter.value : "";
+        const shown = list.filter((s) => s.key === keep || styleMatches(s, query));
         const none = el("option", "", t("create.ml.styleNone"));
         none.value = "";
-        style.replaceChildren(none, ...list.map((s) => {
-            const option = el("option", "", t("create.ml.styleOption", { name: s.name ?? s.key, maps: Number(s.maps) || 0 }));
+        style.replaceChildren(none, ...shown.map((s) => {
+            const option = el("option", "", styleOptionText(s));
             option.value = s.key;
+            option.title = s.key;
             return option;
         }));
-        const keep = list.some((s) => s.key === chosen.style) ? chosen.style : "";
         style.value = keep;
         style.disabled = !list.length;
-        styleRow.title = list.length ? "" : t("create.ml.styleEmpty");
+        filter.disabled = !list.length;
+        filter.hidden = !list.length;
+        const size = effectiveSize();
+        const lines = [];
+        if (styleNote) lines.push(styleNote);
+        if (!list.length) {
+            if (info) lines.push(t(size === "auto" ? "create.ml.styleClassic" : "create.ml.styleEmpty"));
+        } else {
+            lines.push(t(size === "xgb3" ? "create.ml.styleHint.xgb3" : "create.ml.styleHint.nn"));
+            const matches = list.filter((s) => styleMatches(s, query)).length;
+            if (query.trim()) lines.push(matches ? t("create.ml.styleFound", { n: matches, all: list.length }) : t("create.ml.styleNoMatch"));
+        }
+        styleHint.textContent = lines.join(" · ");
+        styleHint.hidden = !lines.length;
+        styleRow.title = list.length ? "" : lines.at(-1) ?? "";
+    }
+
+    function pickStyle(key) {
+        chosen.style = key || null;
+        styleNote = "";
+        save();
+        renderStyle();
     }
 
     function renderRepeats() {
@@ -246,9 +322,22 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
         save();
         renderCount();
     });
-    style.addEventListener("change", () => {
-        chosen.style = style.value || null;
-        save();
+    style.addEventListener("change", () => pickStyle(style.value));
+    filter.addEventListener("input", () => renderStyle());
+    // Enter: the first match; the down arrow: into the list; Esc: the search cleared
+    filter.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault?.();
+            const first = styles().find((s) => styleMatches(s, filter.value));
+            if (first && filter.value.trim()) pickStyle(first.key);
+        } else if (event.key === "ArrowDown") {
+            event.preventDefault?.();
+            style.focus?.();
+        } else if (event.key === "Escape" && filter.value) {
+            event.preventDefault?.();
+            filter.value = "";
+            renderStyle();
+        }
     });
     repeats.addEventListener("change", () => {
         if (repeats.disabled) return;
@@ -256,7 +345,9 @@ export function createGenOptions({ root, api = () => globalThis.window?.danApi, 
         save();
     });
 
-    box.append(sizeField, countRow, countHint, styleRow, repeatsRow, repeatsHint);
+    const styleField = el("div", "ml-field ml-style-field");
+    styleField.append(styleRow, styleHint);
+    box.append(sizeField, countRow, countHint, styleField, repeatsRow, repeatsHint);
     root.append(box);
     root.hidden = false;
     render();

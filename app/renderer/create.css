@@ -94,9 +94,18 @@
 .ml-candidates { grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 24px; }
 .ml-count { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .ml-hint { margin-top: -4px; overflow-wrap: anywhere; }
-.ml-style { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #cccccc; min-width: 0; }
-.ml-style select { flex: 1; min-width: 0; padding: 3px 6px; font-size: 12px; }
+/* the mapper style: its search box beside the list, wrapping under the label on a narrow window */
+.ml-style { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; color: #cccccc; min-width: 0; }
+.ml-style-pick { display: flex; flex: 1 1 240px; gap: 6px; min-width: 0; }
+.ml-style select { flex: 1 1 60%; min-width: 0; padding: 3px 6px; font-size: 12px; }
 .ml-style select:disabled { opacity: 0.5; }
+.ml-style-filter {
+    flex: 1 1 40%; min-width: 0; padding: 3px 6px; font-size: 12px; user-select: text;
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+}
+.ml-style-filter:focus, .ml-style select:focus { outline: none; border-color: var(--blue); }
+.ml-style-filter[hidden] { display: none; }
+.ml-style-hint[hidden] { display: none; }
 /* on a card: the critic line, the 👍/👎 bar and its tags; under the cards the ratings line */
 .cr-card .ml-critic { color: #b9b4c9; }
 .ml-rate { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-top: 5px; border-top: 1px solid var(--line); }

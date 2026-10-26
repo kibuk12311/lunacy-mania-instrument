@@ -8,7 +8,10 @@ import { flavoursOf } from "../src/gen/flavours.js";
 import { parseRows } from "../src/gen/mapRows.js";
 import { checkStemsTransfer } from "../src/audio/stems.js";
 import { audioNameFor } from "./mapExport.js";
+import path from "node:path";
 import { MODEL_SIZES, listModelFiles, generatorInfoOf } from "./generatorJobs.js";
+import { createStyleCatalog } from "./modelStyles.js";
+import { displayStyles } from "../src/gen/styleNames.js";
 import { registerRatingsIpc } from "./ratingsIpc.js";
 import { registerGpuWorkerHost } from "./gpuWorkerHost.js";
 import { t } from "../src/i18n/i18n.js";
@@ -139,7 +142,7 @@ function checkStems(stems, envelope) {
 }
 
 // The whole generate-map message → its checked parts (timing normalised to sections). `styles`: the style keys of
-// the model the worker last reported (a style it never named is refused).
+// the model file the request's modelSize loads (0.9.5; a style that model does not have is refused).
 export function checkGenerate(req, { styles = new Set() } = {}) {
     if (!isObject(req)) bad("request");
     if (req.jobId !== undefined && (typeof req.jobId !== "string" || req.jobId.length > MAX_JOB_ID)) bad("jobId");
@@ -183,17 +186,34 @@ export function registerCreateIpc(deps) {
     const ratings = registerRatingsIpc(deps);
     // stream W: the hidden GPU renderer (started on first use) and its ports for the generator worker
     const gpuHost = registerGpuWorkerHost(deps);
-    // the model info the worker last answered with (generate-map or detect-timing): its styles, for checking a
-    // request's style and for generator-info
+    // the model info the worker last answered with (generate-map or detect-timing), for generator-info
     let lastModelInfo = null;
     const remember = (info) => { if (isObject(info)) lastModelInfo = info; };
-    const knownStyles = () => new Set((Array.isArray(lastModelInfo?.styles) ? lastModelInfo.styles : []).map((s) => s?.key).filter((k) => typeof k === "string"));
+    // the styles of every model file, per picker choice (app/modelStyles.js), cached in userData; deps.styleCatalog
+    // replaces it in tests
+    const userData = deps.paths?.userData;
+    const catalog = deps.styleCatalog ?? createStyleCatalog({ cacheFile: userData ? path.join(userData, "model-styles.json") : null });
+    const stylesBySize = async () => catalog.bySize(await listModelFiles());
+    // the style keys of the file a model choice loads; when the files cannot be read, the last model's
+    const knownStyles = async (modelSize) => {
+        const size = MODEL_SIZES.includes(modelSize) ? modelSize : "auto";
+        const list = await stylesBySize().then((by) => by[size], () => (Array.isArray(lastModelInfo?.styles) ? lastModelInfo.styles : []));
+        return new Set((list ?? []).map((s) => s?.key).filter((k) => typeof k === "string"));
+    };
+    // the style a map was made with, as the card names it: { key, name, user } (styleNames.js), from any model's list
+    const describeStyle = async (key) => {
+        if (typeof key !== "string" || !key) return null;
+        const by = await stylesBySize().catch(() => ({}));
+        const found = Object.values(by).flat().find((s) => s?.key === key) ?? displayStyles([{ key }])[0];
+        return { key, name: found.name ?? null, user: found.user ?? null };
+    };
 
     ipcMain.handle("generate-map", async (event, raw) => {
         const started = Date.now();
         let req;
         try {
-            req = checkGenerate(raw, { styles: knownStyles() });
+            const style = raw?.request?.style;
+            req = checkGenerate(raw, { styles: typeof style === "string" ? await knownStyles(raw.request.modelSize) : new Set() });
         } catch (error) {
             if (error instanceof BadRequest) return badRequest(error.what);
             return { ok: false, code: "failed", message: String(error?.message ?? error) };
@@ -232,6 +252,8 @@ export function registerCreateIpc(deps) {
             }
             remember(out.modelInfo);
             const critic = isObject(out.critic) ? out.critic : null;
+            // the style the generator really used (none when the model that ran has no styles, e.g. a fallback)
+            const styleUsed = typeof out.style === "string" && out.style === request.style ? out.style : null;
             const knob = out.knob ?? out.offset ?? out.lambda ?? null;
             const planSeed = out.planSeed ?? request.planSeed ?? request.seed;
             const noteSeed = out.noteSeed ?? request.noteSeed ?? request.seed;
@@ -242,7 +264,7 @@ export function registerCreateIpc(deps) {
                 // a later lock is checked against the parts the map was really made with
                 parts: parts.length ? parts.map(({ startMs, endMs, kind }) => ({ startMs, endMs, kind })) : (request.parts ?? []),
                 knob, planSeed, noteSeed, engine: out.engine, result: out.result, range,
-                critic, style: request.style ?? null, candidates: request.candidates ?? 1,
+                critic, style: styleUsed, candidates: request.candidates ?? 1,
             });
             const ms = Date.now() - started;
             log(`generated ${id} got ${out.result?.numeric} reachable ${out.reachable} in ${ms} ms`);
@@ -256,6 +278,8 @@ export function registerCreateIpc(deps) {
                 retries: out.retries ?? { blocks: 0, dan: null }, grid: out.grid ?? Q4_GRID, ms,
                 ...(critic ? { critic: publicCritic(critic) } : {}),
                 ...(isObject(out.structure) ? { structure: out.structure } : {}),
+                // { key, name, user } of the style used, and of the one asked for when the model that ran had none
+                style: await describeStyle(styleUsed), styleAsked: styleUsed ? null : await describeStyle(request.style),
             };
         } catch (error) {
             log(`generate failed: ${error?.message}`);
@@ -289,7 +313,8 @@ export function registerCreateIpc(deps) {
     });
 
     // What the generator can do here: the model files found (the app's models/ and LUNACY_MODEL_DIR), so the engines,
-    // nn-v2 sizes and the critic; the styles and model kind from the worker's last answer. Reads no model file.
+    // nn-v2 sizes and the critic; stylesBySize (0.9.5): per picker choice the styles of the file it loads, read once
+    // per file change (app/modelStyles.js); the model kind and `styles` from the worker's last answer.
     // gpu (stream W): { gpuAvailable, adapter, reason, decoder } of the GPU renderer, started here on first ask.
     // { gpu: false } (the create tab's picker before the tab was ever shown, stream U): the renderer is not started for
     // it; then gpu is what is known already, or null. null also while the renderer is still starting (unknown, not "no").
@@ -297,7 +322,9 @@ export function registerCreateIpc(deps) {
         try {
             if (askGpu) await gpuHost.info();
             const known = gpuHost.capability();
-            return { ok: true, modelInfo: { ...generatorInfoOf(await listModelFiles(), lastModelInfo), gpu: known ? publicGpu(known) : null } };
+            const files = await listModelFiles();
+            const bySize = await catalog.bySize(files).catch(() => null);
+            return { ok: true, modelInfo: { ...generatorInfoOf(files, lastModelInfo), ...(bySize ? { stylesBySize: bySize } : {}), gpu: known ? publicGpu(known) : null } };
         } catch (error) {
             return { ok: false, message: String(error?.message ?? error) };
         }
