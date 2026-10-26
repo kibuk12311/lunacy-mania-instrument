@@ -1,11 +1,16 @@
 // Run with: npx electron tests/smoke/electron-ui.mjs <out.png> [compact] [calc=<id>] [lang=en] — renders the card with a sample view.
 // [details]: the analysis tab's blocks under the card too (difficulty line, strip, "for you", the ladder folded;
 // [ladder] opens it); exits 1 when the card scrolls sideways. [detailed]: the card and the strip in the Detailed mode
-// (the «Общие / Подробно» switch clicked), with finder sub-types in the sample. User data goes next to <out.png>.
+// (the «Общие / Подробно» switch clicked), with finder sub-types in the sample. [overlay]: the footer's OV panel opened
+// (the in-game overlay on, KPS off, as if set in the tray); exits 1 when it is missing or spills out of the window.
+// [client=lazer|stable]: main says which osu! tosu reads; the footer must name it (exits 1 otherwise).
+// [updated]: the "osu! updated?" screen instead of the card (with client=lazer, lazer's own hint).
+// User data goes next to <out.png>.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { applyPatch, normalizeOverlaySettings } from "../../src/overlay/settings.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.join(here, "..", "..", "app");
@@ -18,6 +23,9 @@ const calc = process.argv.find((a) => a.startsWith("calc="))?.slice(5);
 const details = process.argv.includes("details");
 const ladder = process.argv.includes("ladder");
 const detailedMode = process.argv.includes("detailed");
+const overlayPanel = process.argv.includes("overlay");
+const client = process.argv.find((a) => a.startsWith("client="))?.slice(7) ?? null;
+const updated = process.argv.includes("updated");
 const SMOKE_KEY = "smoke@1.500";
 const strain = Array.from({ length: 120 }, (_, i) => Math.round((0.35 + 0.25 * Math.sin(i / 9) + (i > 70 && i < 84 ? 0.4 : 0)) * 1000) / 1000);
 const peak = Math.max(...strain);
@@ -57,12 +65,19 @@ app.whenReady().then(async () => {
         });
     }
     // <<< analysis v2
+    // the overlay's channels, as app/overlay/overlayManager.js answers them
+    let overlay = { settings: applyPatch(normalizeOverlaySettings(null), { enabled: true, widgets: { kps: { enabled: false } } }), edit: false };
+    ipcMain.handle("overlay-get", () => overlay);
+    ipcMain.handle("overlay-set", (_e, patch) => (overlay = { ...overlay, settings: applyPatch(overlay.settings, patch) }));
+    ipcMain.on("overlay-edit", (_e, on) => { overlay = { ...overlay, edit: on }; });
+    ipcMain.on("overlay-open-settings", () => {});
     const win = new BrowserWindow({ width: create ? 460 : 320, height: create ? 760 : compact ? 130 : detailedMode ? 640 : 380, show: false, backgroundColor: "#14121c",
         webPreferences: { preload: path.join(appDir, "preload.cjs"), contextIsolation: true, sandbox: true } });
     win.webContents.on("console-message", (_e, level, msg) => console.log("console", level, msg));
     await win.loadFile(path.join(appDir, "renderer", "index.html"));
     win.webContents.send("settings", { alwaysOnTop: true, compact });
-    win.webContents.send("view", view);
+    win.webContents.send("view", updated ? { screen: "osu-updated" } : view);
+    if (client) win.webContents.send("osu-client", { client });
     // >>> analysis v2: details — the view with its key, its details and a loaded player, as main sends them
     if (details) {
         win.webContents.send("view", { ...view, key: SMOKE_KEY });
@@ -107,6 +122,41 @@ app.whenReady().then(async () => {
     if (create) await new Promise((r) => setTimeout(r, 500));
     if (create) await win.webContents.executeJavaScript(`document.querySelector('[data-tab=create]').click();
         document.querySelector('#patterns span:nth-child(4)').click();`);
+    if (overlayPanel) {
+        await new Promise((r) => setTimeout(r, 200));
+        const seen = await win.webContents.executeJavaScript(`(() => {
+            const b = document.getElementById("overlay-toggle");
+            if (b.offsetParent) b.click();
+            const p = document.getElementById("overlay-panel");
+            const r = p.getBoundingClientRect();
+            return { button: Boolean(b.offsetParent), open: !p.hidden && p.getClientRects().length > 0, text: p.innerText,
+                checked: [...p.querySelectorAll("input")].map((i) => i.checked),
+                inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+                sideways: document.documentElement.scrollWidth - innerWidth };
+        })()`);
+        console.log("SMOKE overlay", JSON.stringify(seen));
+        // compact mode has no room for it: the button and the panel stay out of the way
+        const ok = compact ? !seen.button && !seen.open : seen.open && seen.inside && seen.checked.join() === "true,true,false,true,true";
+        if (!ok || seen.sideways > 0) process.exitCode = 1;
+        // a hidden window does not paint by itself: a 1 px resize makes it draw the open panel
+        const [w, h] = win.getSize();
+        win.setSize(w + 1, h);
+        await new Promise((r) => setTimeout(r, 150));
+        win.setSize(w, h);
+    }
+    if (client) {
+        await new Promise((r) => setTimeout(r, 200));
+        const badge = await win.webContents.executeJavaScript(`(() => { const b = document.getElementById("osu-client");
+            return { shown: !b.hidden && b.getClientRects().length > 0, text: b.textContent, title: b.title, card: document.getElementById("card").innerText }; })()`);
+        console.log("SMOKE client", JSON.stringify(badge));
+        if (!compact && !(badge.shown && badge.text === client && badge.title.includes(`osu! ${client}`))) process.exitCode = 1;
+        if (updated && client === "lazer" && !badge.card.includes("lazer")) process.exitCode = 1;
+        // a hidden window does not paint by itself: a 1 px resize makes it draw the new texts
+        const [w, h] = win.getSize();
+        win.setSize(w + 1, h);
+        await new Promise((r) => setTimeout(r, 150));
+        win.setSize(w, h);
+    }
     await new Promise((r) => setTimeout(r, 400));
     writeFileSync(outPng, (await win.webContents.capturePage()).toPNG());
     app.exit(process.exitCode ?? 0);

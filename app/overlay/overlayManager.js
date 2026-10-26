@@ -1,8 +1,10 @@
-// The in-game overlay: three small windows of their own (judgements, KPS, key lines) over osu!, nothing injected.
+// The in-game overlay: four small windows of their own (judgements, KPS, map NPS, key lines) over osu!, nothing injected.
 // Each is transparent, frameless, always on top at the screen-saver level and click-through while you play;
 // the edit mode (the hotkey or the tray) lets them be dragged and resized by their corner. They show while osu! is
 // playing (and on the results screen if asked), fed by their own tosu sockets: /websocket/v2 for the judgements
 // and the clock, /websocket/v2/precise for the key counters. Settings live in userData\overlay.json.
+// Showing and hiding go through a gate with hysteresis (src/overlay/visibility.js): one stray frame of another state
+// (song select, a score opened from the leaderboard, a reconnect) never flashes the windows.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -10,6 +12,7 @@ import { connectTosu } from "../tosuClient.js";
 import { readPlayFrame, readPreciseFrame } from "../../src/overlay/tosuData.js";
 import { createOverlaySession } from "../../src/overlay/session.js";
 import { parseManiaNotes } from "../../src/overlay/maniaNotes.js";
+import { createVisibilityGate } from "../../src/overlay/visibility.js";
 import {
     EDIT_HOTKEY, WIDGETS, applyPatch, hotkeyLabel, normalizeOverlaySettings, placeWidget, widgetSize,
 } from "../../src/overlay/settings.js";
@@ -40,7 +43,7 @@ export function saveOverlaySettings(file, settings) {
 // electron: { BrowserWindow, ipcMain, globalShortcut, screen }; headless (the smoke test): windows are never put on
 // the screen, only marked shown, so their pages can still be captured.
 export function createOverlay({
-    electron, userData, port, t, log = () => {}, onChange = () => {}, icon,
+    electron, userData, port, t, log = () => {}, onChange = () => {}, icon, mainWindow = () => null,
     fetchImpl = globalThis.fetch, WebSocketImpl = globalThis.WebSocket, now = () => performance.now(), headless = false,
 }) {
     const { BrowserWindow, ipcMain, globalShortcut, screen } = electron;
@@ -48,6 +51,8 @@ export function createOverlay({
     let settings = loadOverlaySettings(file);
     let edit = false;
     let session = createOverlaySession();
+    const gate = createVisibilityGate();
+    let gateTimer = null;
     const windows = new Map(); // widget → BrowserWindow
     const shown = new Map(); // widget → bool
     let settingsWin = null;
@@ -77,8 +82,11 @@ export function createOverlay({
         return { widget, style: w.style, opacity: w.opacity, scale: w.scale, show: w.show, edit, hotkey: hotkeyLabel() };
     };
 
+    // the settings window and the main window's overlay block show the same state
     function sendSettings() {
-        if (alive(settingsWin)) settingsWin.webContents.send("overlay-settings", { settings, edit });
+        for (const target of [settingsWin, mainWindow()]) {
+            if (alive(target)) target.webContents.send("overlay-settings", { settings, edit });
+        }
     }
 
     // ---- tosu ----
@@ -160,26 +168,43 @@ export function createOverlay({
         return win;
     }
 
-    const wanted = (widget) => {
+    // the play side, through the gate: "playing" that lasts and moves, or the results screen if asked
+    function playOn() {
+        const phase = session.phase();
+        const want = phase === "playing" || (phase === "results" && settings.showOnResults);
+        const at = now();
+        const on = gate.update({ want, advancing: phase === "results" || session.advancing(), now: at });
+        clearTimeout(gateTimer);
+        gateTimer = null;
+        const wait = gate.pending(at);
+        if (wait !== null && !disposed) gateTimer = setTimeout(updateVisibility, wait + 5);
+        return on;
+    }
+
+    const wanted = (widget, play) => {
         const w = settings.widgets[widget];
         if (!w.enabled) return false;
         if (edit) return true;
-        if (!settings.enabled) return false;
-        const phase = session.phase();
-        return phase === "playing" || (phase === "results" && settings.showOnResults);
+        return settings.enabled && play;
     };
 
     function updateVisibility() {
         if (disposed) return;
+        const play = playOn();
         for (const widget of WIDGETS) {
-            const want = wanted(widget);
+            const want = wanted(widget, play);
             let win = windows.get(widget);
             if (want && !alive(win)) win = makeWindow(widget);
             if (!alive(win) || shown.get(widget) === want) continue;
             shown.set(widget, want);
             if (headless) continue;
-            if (want) win.showInactive();
-            else win.hide();
+            if (want) {
+                // the page gets the play of now before it is shown, so the last play's frame never flashes up
+                win.webContents.send("overlay-state", session.snapshot(now()));
+                win.showInactive();
+            } else {
+                win.hide();
+            }
         }
         const anyShown = [...shown.values()].some(Boolean);
         if (anyShown && !pushTimer) pushTimer = setInterval(push, PUSH_MS);
@@ -244,7 +269,7 @@ export function createOverlay({
         }
         updateVisibility();
         sendSettings();
-        if (before.enabled !== settings.enabled) onChange();
+        if (before.enabled !== settings.enabled || WIDGETS.some((w) => before.widgets[w].enabled !== settings.widgets[w].enabled)) onChange();
         return settings;
     }
 
@@ -291,6 +316,11 @@ export function createOverlay({
                 { label: t("overlay.tray.enabled"), type: "checkbox", checked: settings.enabled, click: () => apply({ enabled: !settings.enabled }) },
                 { label: t("overlay.tray.edit", { hotkey: hotkeyLabel() }), type: "checkbox", checked: edit, click: () => setEdit(!edit) },
                 { type: "separator" },
+                ...WIDGETS.map((widget) => ({
+                    label: t(`overlay.widget.${widget}`), type: "checkbox", checked: settings.widgets[widget].enabled,
+                    click: () => apply({ widgets: { [widget]: { enabled: !settings.widgets[widget].enabled } } }),
+                })),
+                { type: "separator" },
                 { label: t("overlay.tray.settings"), click: () => openSettings() },
             ],
         }],
@@ -312,6 +342,7 @@ export function createOverlay({
         settingsWindow: () => settingsWin,
         dispose() {
             disposed = true;
+            clearTimeout(gateTimer);
             clearInterval(pushTimer);
             pushTimer = null;
             if (saveTimer) {

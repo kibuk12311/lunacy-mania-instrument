@@ -1,5 +1,6 @@
 /* The rate tab's own rules (tabs v2). Classes start with .rate- only; colours come from the tokens in styles.css :root. */
 #rate-tab [hidden] { display: none; }
+.rate-lazer-note { font-size: 11px; }
 #rate-tab button.small:disabled { opacity: 0.4; cursor: default; }
 #rate-tab select { min-width: 0; }
 

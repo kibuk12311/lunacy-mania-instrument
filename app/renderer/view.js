@@ -109,13 +109,14 @@ function resultView(r, compact, calc) {
     }
 }
 
-export function renderView(view, { compact, calc = "ours" }) {
+// client: the osu! tosu reads ("stable" | "lazer" | null); lazer's "updated?" hint is its own
+export function renderView(view, { compact, calc = "ours", client = null }) {
     const chosen = CALCS.some((c) => c.id === calc) ? calc : "ours";
     switch (view?.screen) {
         case "loading": return message(t("analysis.loading"));
         case "result": return resultView(view.result, compact, chosen);
         case "tosu-failed": return message(t("analysis.tosuFailed", { reason: view.reason }));
-        case "osu-updated": return message(t("analysis.osuUpdated"));
+        case "osu-updated": return message(t(client === "lazer" ? "analysis.lazerUpdated" : "analysis.osuUpdated"));
         default: return message(t("analysis.waiting"));
     }
 }

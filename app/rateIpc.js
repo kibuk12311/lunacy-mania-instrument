@@ -2,9 +2,12 @@
 // at once, rate-changed difficulties in its folder (mirrored and without holds if asked) and saved presets.
 // Every handler answers instead of throwing. One rate job (search, batch, copy) runs at a time; a job reads the map's
 // path from tosu once, at its start, and is cancelled by a flag looked at between its steps.
+// osu! lazer has no Songs folder (its maps are hashed files nothing may be written next to), so there the copies are
+// made from a copy of the map in Documents\<app>\lazer and handed to lazer as one .osz it imports (lazerMaps.js).
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createRateMap, mapInfo } from "./rateCreate.js";
+import { createLazerRates, lazerDirOf } from "./lazerMaps.js";
 import { createJsonStore } from "./jsonStore.js";
 import { validRate, validDiff, MIN_DAN, MAX_DAN } from "./validate.js";
 import { rateForDan } from "../src/rate/rateForDan.js";
@@ -31,8 +34,29 @@ function batchRow(rate, bpm, result) {
     return row;
 }
 
-export function createRateHandlers({ beatmapPath, readText, stat: statFile, analysis, createRateMap: makeCopy, ffmpegPath, presets, progress, log, rateForDan: findRate }) {
+// beatmap() → tosu's { client, path, audioPath, backgroundPath } (with beatmapPath() alone the map is osu! stable's);
+// lazerRates(args) → createLazerRates() with its folders filled in; openPath(file) → "" or why it could not be opened.
+export function createRateHandlers({
+    beatmapPath, beatmap = null, readText, stat: statFile, analysis, createRateMap: makeCopy, ffmpegPath, presets, progress, log,
+    rateForDan: findRate, lazerRates = null, openPath = async () => "",
+}) {
     let current = null; // the running job: { cancelled }
+    const selected = async () => (beatmap ? await beatmap() : { client: "stable", path: await beatmapPath() });
+
+    // lazer: the copies made from the map copied out of lazer, packed into one .osz, opened so lazer imports it
+    async function forLazer({ source, text, rates, opts, key, isCancelled }) {
+        const out = await lazerRates({
+            ffmpeg: await ffmpegPath(), source, osuText: text, rates, options: opts, isCancelled, log,
+            onRate: ({ index, total, rate }) => { if (total > 1) progress({ job: "create", key, index, total, rate }); },
+        });
+        let opened = false;
+        if (out.file) {
+            const problem = await openPath(out.file);
+            opened = !problem;
+            log(`rate lazer osz ${out.file}${problem ? ` not opened: ${problem}` : " opened"}`);
+        }
+        return { ...out, opened };
+    }
 
     // The map's key: its path and when it last changed, so an edited map counts as another one.
     async function keyOf(file) {
@@ -50,10 +74,11 @@ export function createRateHandlers({ beatmapPath, readText, stat: statFile, anal
         const self = { cancelled: false };
         current = self;
         try {
-            const file = await beatmapPath();
+            const source = await selected();
+            const file = source.path;
             const text = await readText(file);
             const key = await keyOf(file);
-            return await work({ file, text, key, isCancelled: () => self.cancelled });
+            return await work({ file, source, text, key, isCancelled: () => self.cancelled });
         } catch (error) {
             log(`rate ${name} failed: ${message(error)}`);
             return { ok: false, message: message(error) };
@@ -73,12 +98,12 @@ export function createRateHandlers({ beatmapPath, readText, stat: statFile, anal
     return {
         async info() {
             try {
-                const file = await beatmapPath();
-                const text = await readText(file);
+                const source = await selected();
+                const text = await readText(source.path);
                 const mania = /^Mode:\s*3/m.test(text);
                 return {
                     ok: true, info: mapInfo(text), mania, keys: Number(/^CircleSize:\s*([\d.]+)/m.exec(text)?.[1]),
-                    lnShare: lnShare(text), key: await keyOf(file),
+                    lnShare: lnShare(text), key: await keyOf(source.path), client: source.client ?? "stable",
                 };
             } catch (error) {
                 return { ok: false, message: message(error) };
@@ -102,7 +127,12 @@ export function createRateHandlers({ beatmapPath, readText, stat: statFile, anal
             const od = diffOf(req?.od);
             const hp = diffOf(req?.hp);
             if (!validRate(rate) || !validDiff(od) || !validDiff(hp)) return { ok: false, message: t("app.rate.checkInput") };
-            return job("create", async ({ file, text }) => {
+            return job("create", async ({ file, source, text, key, isCancelled }) => {
+                if (source.client === "lazer" && lazerRates) {
+                    const out = await forLazer({ source, text, rates: [rate], opts: { pitch: Boolean(req.pitch), od, hp, ...options(req) }, key, isCancelled });
+                    if (!out.file) return { ok: false, message: out.failed[0]?.message ?? t("rate.err.cancelled") };
+                    return { ok: true, version: out.made[0].version, file: out.file, client: "lazer", opened: out.opened };
+                }
                 try {
                     const out = await makeCopy({ ffmpeg: await ffmpegPath(), beatmapPath: file, rate, pitch: Boolean(req.pitch), od, hp, ...options(req), osuText: text });
                     log(`rate map ${out.osuPath}${out.reusedAudio ? " (audio reused)" : ""}`);
@@ -178,8 +208,15 @@ export function createRateHandlers({ beatmapPath, readText, stat: statFile, anal
             const hp = diffOf(req?.hp);
             if (!validDiff(od) || !validDiff(hp)) return { ok: false, message: t("app.rate.checkInput") };
             const opts = { pitch: req?.pitch === true, od, hp, ...options(req) };
-            return job("create", async ({ file, text, key, isCancelled }) => {
+            return job("create", async ({ file, source, text, key, isCancelled }) => {
                 const started = Date.now();
+                if (source.client === "lazer" && lazerRates) {
+                    const out = await forLazer({ source, text, rates, opts, key, isCancelled });
+                    const made = out.made.map((m) => ({ rate: m.rate, version: m.version, file: out.file }));
+                    log(`rate batch create (lazer) made ${made.length}, failed ${out.failed.length} of ${rates.length}, ${Date.now() - started} ms`);
+                    const answer = { ok: true, key, made, failed: out.failed, client: "lazer", osz: out.file, opened: out.opened };
+                    return out.cancelled ? { ...answer, cancelled: true } : answer;
+                }
                 const ffmpeg = await ffmpegPath();
                 const made = [];
                 const failed = [];
@@ -227,12 +264,15 @@ export function createRateHandlers({ beatmapPath, readText, stat: statFile, anal
     };
 }
 
-export function registerRateIpc({ ipcMain, tosu, analysis, ffmpegPath, paths, send, log }) {
+export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, paths, send, log }) {
     // made on first use: registering touches nothing on disk
     let store = null;
     const presetStore = () => (store ??= createJsonStore({ file: path.join(paths.userData, "rate-presets.json"), normalize: normalizePresets, fallback: [] }));
     const handlers = createRateHandlers({
         beatmapPath: () => tosu.beatmapPath(),
+        beatmap: tosu.beatmap ? () => tosu.beatmap() : null,
+        lazerRates: (args) => createLazerRates({ ...args, lazerDir: lazerDirOf(paths.docsDir), outDir: paths.mapsDir, makeCopy: createRateMap }),
+        openPath: async (file) => (shell ? shell.openPath(file) : ""),
         readText: (file) => readFile(file, "utf8"),
         stat: (file) => stat(file),
         analysis,

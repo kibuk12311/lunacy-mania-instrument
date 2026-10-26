@@ -411,6 +411,7 @@ export function registerRecommendIpc({ ipcMain, shell, send, log, tosu, analysis
         cardFor: recommend.cardFor,
         onAdded: (card) => recommend.journal(card, "fav"),
         onExported: (file) => recommend.allowShow(file),
+        client: () => tosu?.client?.() ?? null,
     });
     const progressHandlers = createProgressHandlers({ store, trackerApi, recommender, log });
     ipcMain.handle("rec-player", (_e, query) => recommend.player(query));

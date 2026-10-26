@@ -27,17 +27,22 @@ The interface is in Russian and English (the RU/EN button under the card, or the
 Get it from the [latest release](https://github.com/kibuk12311/lunacy-mania-instrument/releases/latest):
 
 - **`Lunacy-mania-Setup-<version>.exe`** — the installer. Installs for your Windows user only (no admin), adds Start menu and desktop shortcuts, and **updates itself**: when a new version is out it downloads it in the background and asks to restart.
-- **`Lunacy-mania-<version>.exe`** — portable, nothing to install. It tells you when a new version is out and opens the download page.
+- **`Lunacy-mania-Portable-<version>.exe`** — portable, nothing to install. It tells you when a new version is out and opens the download page.
 
 The app isn't code-signed, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
 
-**Needs:** Windows 10 or 11 (64-bit) and **osu! stable**. The app reads the selected map through [tosu](https://github.com/tosuapp/tosu), which comes bundled and starts by itself. Picks, downloads and update checks need the internet; everything else works offline.
+**Needs:** Windows 10 or 11 (64-bit) and **osu! stable or osu! lazer**. The app reads the selected map through [tosu](https://github.com/tosuapp/tosu), which comes bundled and starts by itself (the footer shows which one it is connected to). Picks, downloads and update checks need the internet; everything else works offline.
+
+**On osu! lazer** a few things work differently, because lazer keeps its maps in its own file store instead of a Songs folder:
+- **Rate**, **remap** and **«+ selected in osu!»** in Marathon work on a copy of the map in Documents\Lunacy mania\lazer; nothing is ever written into lazer's folder. Rate copies and remaps are packed into an .osz (in Documents\Lunacy mania\карты) and opened, so lazer imports them as a **separate beatmap set** (no F5 needed; if lazer doesn't open it, drag the .osz into its window).
+- **Collections:** lazer can't take a collection.db. The export still writes one (for stable) and, with lazer connected, a list of the maps with links next to it, so you can add them to a collection in lazer yourself.
+- Lazer's own speeds (DT/HT at any speed, Rate Adjust) are read as the rate everywhere, and the overlay's key lines use lazer's real key presses. Run lazer in **Borderless** or **Windowed** mode for the overlay. tosu downloads what it needs for each new lazer version by itself; right after a lazer update that can take a moment.
 
 ## How to use
 
 1. Start osu! and the app, go to song select. The card shows the selected map's dan.
 2. 📌 keeps the window on top, ▭ is the compact mode. Both are also in the tray icon's menu, next to the language and "Check for updates".
-3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them. Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania` (if you have the folder of an older version, `Sneezey's dan calculator` or `Анализатор данов`, the app keeps using it), and finished `.osz` files are opened in osu! so the game imports them.
+3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them (on osu! lazer they come as an .osz instead, see above). Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania` (if you have the folder of an older version, `Sneezey's dan calculator` or `Анализатор данов`, the app keeps using it), and finished `.osz` files are opened in osu! so the game imports them.
 
 More detail for friends: [docs/for-friends.md](docs/for-friends.md).
 

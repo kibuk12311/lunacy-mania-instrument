@@ -3,13 +3,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { formatAccuracy, formatCount, formatKps, formatRatio, formatUr, maniaAccuracy, unstableRate } from "../src/overlay/format.js";
-import { createKpsMeter } from "../src/overlay/kps.js";
+import { createKpsMeter, smoothRate } from "../src/overlay/kps.js";
 import { readPlayFrame, readPreciseFrame, totalHits } from "../src/overlay/tosuData.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { createLaneTracker, TAP_MS } from "../src/overlay/lanes.js";
-import { createOverlaySession } from "../src/overlay/session.js";
+import { createOverlaySession, LEAVE_MS } from "../src/overlay/session.js";
 import { applyPatch, hotkeyLabel, normalizeOverlaySettings, placeWidget, STYLES, WIDGETS, widgetSize } from "../src/overlay/settings.js";
-import { graphPoints, laneColor, laneRects, PALETTE } from "../src/overlay/draw.js";
+import { easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, PALETTE } from "../src/overlay/draw.js";
+import { createNpsTrack, PROFILE_POINTS } from "../src/overlay/nps.js";
+import { createVisibilityGate } from "../src/overlay/visibility.js";
 import { fakeSnapshot } from "../src/overlay/fake.js";
 
 // ---- format ----
@@ -48,37 +50,56 @@ test("unstable rate is ten standard deviations of the hit errors", () => {
 
 // ---- KPS ----
 
-test("KPS counts presses in the last second and keeps the play's max", () => {
+test("KPS: a steady stream reads its rate, smoothed, wherever the clock is between presses; the max is the curve's peak", () => {
     const k = createKpsMeter();
-    for (let i = 0; i < 10; i += 1) k.press(i * 100); // 10 presses in 0..900 ms
-    assert.equal(k.now(900), 10);
-    assert.equal(k.now(1050), 9); // the press at 0 left the (50, 1050] window
-    assert.equal(k.now(2000), 0);
-    assert.equal(k.max(), 10);
-    k.press(5000);
-    assert.equal(k.max(), 10);
+    for (let i = 0; i < 100; i += 1) k.press(i * 100); // 10 a second for 10 s
+    for (const t of [5000, 5033, 5050, 5066, 5099]) assert.ok(Math.abs(k.now(t) - 10) < 1e-9, `${t}: ${k.now(t)}`);
+    assert.ok(Math.abs(k.max() - 10) < 1e-9);
+    assert.equal(k.now(12_000), 0);
     k.reset();
     assert.equal(k.max(), 0);
     assert.equal(k.now(900), 0);
 });
 
-test("KPS: a late press inserted in the past raises the max of the windows it belongs to", () => {
+test("KPS: a press that comes in late barely moves the shown rate (it used to add a whole 1)", () => {
+    const k = createKpsMeter();
+    for (let i = 0; i < 50; i += 1) k.press(i * 100);
+    const before = k.now(4995);
+    k.press(4990); // judged in the frame that came just now
+    assert.ok(Math.abs(k.now(4995) - before) < 0.1);
+});
+
+test("KPS: a late press inserted in the past raises the max of the samples it belongs to", () => {
     const k = createKpsMeter();
     k.press(100);
     k.press(300);
-    assert.equal(k.max(), 2);
+    assert.ok(Math.abs(k.max() - 3.75) < 1e-9); // at 500 and 700: weights 1 and 0.5 over a 0.4 s half-window
     k.press(200); // arrives after 300
-    assert.equal(k.max(), 3);
-    assert.equal(k.now(300), 3);
+    assert.ok(Math.abs(k.max() - 6.25) < 1e-9); // at 600: 0.75 + 1 + 0.75
 });
 
-test("KPS history: 40 steps of 250 ms over 10 s, the newest last", () => {
+test("KPS history: a fixed 100 ms grid over 10 s, then the point at the clock; finished samples never move", () => {
     const k = createKpsMeter();
-    for (let i = 0; i < 12; i += 1) k.press(9010 + i * 80);
-    const h = k.history(10_000);
-    assert.equal(h.length, 40);
-    assert.equal(h[39], 12);
-    assert.equal(h[0], 0);
+    for (let i = 0; i < 120; i += 1) k.press(i * 83 + ((i * 37) % 29));
+    const a = k.history(9050);
+    const b = k.history(9083);
+    const c = k.history(9120);
+    assert.equal(a.values.length, 102);
+    assert.equal(a.shift, 0.5);
+    assert.ok(Math.abs(b.shift - 0.83) < 1e-9);
+    // the same grid samples while the clock moves inside a step, the same values one step on
+    assert.deepEqual(a.values.slice(0, 101), b.values.slice(0, 101));
+    assert.deepEqual(c.values.slice(0, 100), a.values.slice(1, 101));
+    assert.equal(a.values.at(-1), k.now(9050));
+});
+
+test("KPS: the smoothed rate is a triangle around t - half; nothing after t counts", () => {
+    assert.equal(smoothRate([1000], 1400, { half: 400 }), 2.5);
+    assert.equal(smoothRate([1000], 1200, { half: 400 }), 1.25);
+    assert.equal(smoothRate([1000], 1800, { half: 400 }), 0);
+    assert.equal(smoothRate([1000, 1500], 1400, { half: 400 }), 2.5);
+    // centred on t itself (the NPS of a map, known ahead): times up to t + half count
+    assert.equal(smoothRate([1200], 1400, { half: 400, lag: 0 }), 1.25);
 });
 
 // ---- tosu ----
@@ -222,8 +243,8 @@ test("session: a play's judgements become presses, KPS, ratio and lanes; a retry
     assert.equal(snap.phase, "playing");
     assert.equal(snap.running, true);
     assert.equal(snap.ratio, "2.00:1");
-    assert.equal(snap.kps.now, 3);
-    assert.equal(snap.kps.max, 3);
+    assert.ok(snap.kps.now > 0);
+    assert.ok(Math.abs(snap.kps.max - 6.875) < 1e-9); // the notes at 1000, 1000 and 1100, peaking at 1400
     assert.deepEqual(snap.lanes.counts, [1, 0, 1, 1]);
     assert.equal(snap.lanes.source, "map");
     assert.ok(snap.accuracy === 100);
@@ -244,7 +265,7 @@ test("session: without the map's notes, every judgement counts as one press", ()
     s.setMap("abc", null); // the map could not be read
     s.onFrame(frame("playing", 1100, { max: 3, miss: 1 }), 100);
     const snap = s.snapshot(100);
-    assert.equal(snap.kps.now, 3);
+    assert.equal(snap.kps.max, 7.5); // 3 presses at 1100, all at the peak of the window ending at 1500
     assert.equal(snap.lanes.source, "none");
 });
 
@@ -252,17 +273,59 @@ test("session: the results screen keeps the play's numbers; leaving it goes idle
     const s = createOverlaySession();
     s.onFrame(frame("playing", 1000, {}, { rate: 1.5 }), 0);
     s.onFrame(frame("playing", 1150, { max: 3 }, { rate: 1.5 }), 100);
-    // 3 presses at map 1150 = 766 ms of real time
-    assert.equal(s.snapshot(100).kps.now, 3);
+    // 3 presses at map 1150 = 766.7 ms of real time: the nearest sample is 1200 (it would be 7.5 at 1500 in map time)
+    assert.ok(Math.abs(s.snapshot(100).kps.max - 6.875) < 1e-9);
     s.onFrame(frame("results", 1150, { max: 3, n300: 1 }, { rate: 1.5, accuracy: 99 }), 200);
     const snap = s.snapshot(200);
     assert.equal(snap.phase, "results");
     assert.equal(snap.running, false);
     assert.equal(snap.ratio, "3.00:1");
     assert.equal(snap.accuracy, 99);
-    assert.equal(snap.kps.max, 3);
+    assert.ok(Math.abs(snap.kps.max - 6.875) < 1e-9);
     s.onFrame(frame("songselect", 0, {}), 300);
     assert.equal(s.phase(), "idle");
+});
+
+test("session: one odd frame in the middle of a play keeps the play (KPS max, lanes); a lasting one ends it", () => {
+    const s = createOverlaySession();
+    s.onFrame(frame("playing", 900, {}), 0);
+    s.setMap("abc", parseManiaNotes(OSU));
+    s.onFrame(frame("playing", 1010, { max: 2 }), 100);
+    s.onFrame(frame("playing", 1110, { max: 2, n300: 1 }), 200);
+    const before = s.snapshot(200);
+    assert.ok(before.kps.max > 0);
+    // tosu reads song select (or the menu) for one frame, then the play again
+    s.onFrame(frame("songselect", 0, {}), 300);
+    assert.equal(s.phase(), "playing", "one frame is not the end of the play");
+    assert.equal(s.snapshot(300).running, false, "but its clock stops meanwhile");
+    s.onFrame(frame("menu", 0, {}), 450);
+    assert.equal(s.phase(), "playing");
+    s.onFrame(frame("playing", 1210, { max: 2, n300: 1 }), 500);
+    let snap = s.snapshot(500);
+    assert.equal(snap.phase, "playing");
+    assert.equal(snap.kps.max, before.kps.max, "the max is kept");
+    assert.deepEqual(snap.lanes.counts, before.lanes.counts, "the lanes are kept");
+    assert.equal(snap.ratio, "2.00:1");
+    // song select for LEAVE_MS: the play is over, the next one starts from nothing
+    s.onFrame(frame("songselect", 0, {}), 600);
+    s.onFrame(frame("songselect", 0, {}), 600 + LEAVE_MS - 1);
+    assert.equal(s.phase(), "playing");
+    s.onFrame(frame("songselect", 0, {}), 600 + LEAVE_MS);
+    assert.equal(s.phase(), "idle");
+    s.onFrame(frame("playing", 900, {}), 1200);
+    snap = s.snapshot(1200);
+    assert.equal(snap.kps.max, 0);
+    assert.equal(snap.ratio, "—");
+});
+
+test("session: the results screen ends a play at once, without waiting", () => {
+    const s = createOverlaySession();
+    s.onFrame(frame("playing", 1000, {}), 0);
+    s.onFrame(frame("playing", 1100, { max: 4 }), 100);
+    s.onFrame(frame("songselect", 0, {}), 200); // a stray frame first
+    s.onFrame(frame("results", 1100, { max: 4 }, { accuracy: 100 }), 250);
+    assert.equal(s.phase(), "results");
+    assert.equal(s.snapshot(250).hits.max, 4);
 });
 
 test("session: precise frames move the clock and feed the key counters", () => {
@@ -274,7 +337,7 @@ test("session: precise frames move the clock and feed the key counters", () => {
     assert.equal(snap.clock, 1015);
     assert.equal(snap.lanes.source, "keys");
     assert.deepEqual(snap.lanes.counts, [1, 0, 0, 1]);
-    assert.equal(snap.kps.now, 2);
+    assert.ok(snap.kps.max > 4.5); // 2 presses at 1015: 2 × 2.5 × 0.9625 at the 1400 sample
 });
 
 // ---- settings ----
@@ -361,4 +424,145 @@ test("every style has lane colours; the fake snapshot is shaped like a real one"
     assert.deepEqual(Object.keys(fake.lanes).sort(), Object.keys(real.lanes).sort());
     assert.ok(fake.lanes.bars.length > 0);
     assert.match(fake.ratio, /^\d+\.\d\d:1$/);
+});
+
+test("KPS graph: the grid scrolls by its shift, the newest point sits at the right edge, the top is the given ceiling", () => {
+    const history = { values: [0, 5, 10, 20, 7], shift: 0.5 }; // 4 grid samples one step apart, then the clock's point
+    const pts = graphPoints(history, { width: 90, height: 52, pad: 1, top: 10 });
+    assert.deepEqual(pts.map((p) => p.x), [-15, 15, 45, 75, 90]);
+    assert.equal(pts[2].y, 1);
+    assert.equal(pts[3].y, 1, "above the ceiling stays at the top edge");
+    assert.equal(pts[0].y, 51);
+    // the same values a frame later: only the x moves, the scale stays
+    const later = graphPoints({ ...history, shift: 0.8 }, { width: 90, height: 52, pad: 1, top: 10 });
+    assert.deepEqual(later.map((p) => p.y), pts.map((p) => p.y));
+});
+
+test("graph ceiling and easing: the scale sits above the max and moves to it smoothly; the big number holds its integer", () => {
+    assert.equal(graphCeiling(0), 10);
+    assert.ok(Math.abs(graphCeiling(20) - 23) < 1e-9);
+    assert.equal(easeToward(null, 12, 16, 600), 12);
+    const step = easeToward(10, 20, 16, 600);
+    assert.ok(step > 10 && step < 10.5, "one frame moves the scale a little");
+    assert.ok(Math.abs(easeToward(10, 20, 6000, 600) - 20) < 0.01);
+    assert.equal(holdRounded(10, 10.55), 10);
+    assert.equal(holdRounded(10, 10.45), 10);
+    assert.equal(holdRounded(10, 9.4), 10);
+    assert.equal(holdRounded(10, 10.8), 11);
+    assert.equal(holdRounded(10, NaN), 0);
+});
+
+// ---- NPS ----
+
+const npsNotes = (from, to, stepMs, hold = false) => {
+    const notes = [];
+    for (let t = from; t < to; t += stepMs) notes.push({ t, col: 0, end: hold ? t + stepMs / 2 : null });
+    return notes;
+};
+
+test("NPS: the map's density at the play position, its peak and its whole profile; a hold note counts once", () => {
+    const nps = createNpsTrack();
+    assert.deepEqual(nps.at(1000), { ready: false, now: 0, peak: 0, profile: [], progress: 0 });
+    // 5 a second for 10 s, then 10 a second (holds) for 10 s
+    nps.setMap([...npsNotes(0, 10_000, 200), ...npsNotes(10_000, 20_000, 100, true)]);
+    const calm = nps.at(5000);
+    assert.ok(calm.ready);
+    assert.ok(Math.abs(calm.now - 5) < 1e-9, String(calm.now));
+    assert.ok(Math.abs(nps.at(15_000).now - 10) < 1e-9, "a hold note's end is not another note");
+    assert.ok(Math.abs(calm.peak - 10) < 1e-9);
+    assert.equal(calm.profile.length, PROFILE_POINTS);
+    assert.ok(calm.profile[20] < calm.profile[140]);
+    assert.ok(Math.abs(calm.progress - 5000 / 19_900) < 1e-9);
+    assert.equal(nps.at(-500).progress, 0);
+    assert.equal(nps.at(99_000).progress, 1);
+    // no lag: the map is known ahead, so the change at 10 s is half through right at 10 s
+    const edge = nps.at(10_000).now;
+    assert.ok(edge > 6.5 && edge < 8.5, String(edge));
+});
+
+test("NPS: with DT (1.5x) the map runs in real time, every number 1.5 times higher; the playhead follows map time", () => {
+    const nps = createNpsTrack();
+    nps.setMap(npsNotes(0, 30_000, 100)); // 10 a second
+    nps.setRate(1.5);
+    const r = nps.at(15_000); // map ms
+    assert.ok(Math.abs(r.now - 15) < 1e-9, String(r.now));
+    assert.ok(Math.abs(r.peak - 15) < 1e-9);
+    assert.ok(Math.abs(r.progress - 15_000 / 29_900) < 1e-9);
+    nps.setRate(0.75);
+    assert.ok(Math.abs(nps.at(15_000).now - 7.5) < 1e-9);
+});
+
+test("session: the NPS of the map comes with the snapshot once its notes are in, at the play's rate", () => {
+    const s = createOverlaySession();
+    s.onFrame(frame("playing", 900, {}, { rate: 1.5 }), 0);
+    assert.equal(s.snapshot(0).nps.ready, false);
+    s.setMap("abc", parseManiaNotes(OSU));
+    const snap = s.snapshot(0);
+    assert.equal(snap.nps.ready, true);
+    assert.ok(snap.nps.peak > 0);
+    assert.ok(snap.nps.now > 0);
+    // a retry keeps the map's NPS, another map drops it until its notes come
+    s.onFrame(frame("playing", 50, {}, { rate: 1.5 }), 100);
+    assert.equal(s.snapshot(100).nps.ready, true);
+    s.onFrame(frame("playing", 50, {}, { checksum: "other" }), 200);
+    assert.equal(s.snapshot(200).nps.ready, false);
+});
+
+// ---- showing and hiding ----
+
+// tosu frames every 150 ms as [state, live ms, judgements] -> what the gate answers after each
+function gateRun(sequence, { showOnResults = true, stepMs = 150 } = {}) {
+    const s = createOverlaySession();
+    const gate = createVisibilityGate();
+    return sequence.map(([state, live, max = 0], i) => {
+        const at = i * stepMs;
+        s.onFrame(frame(state, live, { max }), at);
+        const phase = s.phase();
+        return gate.update({
+            want: phase === "playing" || (phase === "results" && showOnResults),
+            advancing: phase === "results" || s.advancing(),
+            now: at,
+        });
+    });
+}
+
+test("visibility: a stray play or results frame in song select never shows the widgets", () => {
+    const select = (n) => Array.from({ length: n }, () => ["songselect", 0]);
+    // one frame of "play" (went into a map and straight back out, or a misread state), one of "results" (a score
+    // opened from the leaderboard and closed), two of "play" with a clock that does not move
+    for (const blip of [[["playing", 5000]], [["results", 0]], [["playing", 5000], ["playing", 5000]]]) {
+        const shown = gateRun([...select(4), ...blip, ...select(6)]);
+        assert.deepEqual(shown.filter(Boolean), [], JSON.stringify(blip));
+    }
+});
+
+test("visibility: a real play shows within half a second and stays through a single odd frame; leaving hides", () => {
+    const play = (from, n) => Array.from({ length: n }, (_, i) => ["playing", from + i * 150]);
+    const shown = gateRun([
+        ["songselect", 0], ...play(-1500, 4), // 150..600 ms: playing, the clock moving
+        ...play(-900, 6),
+        ["songselect", 0], // one stray frame in the middle of the play
+        ...play(0, 4),
+        ...Array.from({ length: 7 }, () => ["songselect", 0]),
+    ]);
+    assert.equal(shown.indexOf(true), 4, "shown at 600 ms, 450 ms after the play began");
+    assert.ok(shown.slice(4, 16).every(Boolean), "the odd frame does not hide it");
+    // the play ends once song select has lasted LEAVE_MS (500), the windows go 300 ms after that
+    assert.equal(shown.at(-1), false);
+    assert.equal(shown.at(-2), true, "not hidden before the play has really ended");
+    assert.equal(shown.at(-5), true, "not hidden by the first frames of song select");
+});
+
+test("visibility: the results screen after a play stays on; a paused start with no clock shows after 1.5 s", () => {
+    const played = Array.from({ length: 6 }, (_, i) => ["playing", i * 150, i]);
+    const shown = gateRun([...played, ["results", 900, 5], ["results", 900, 5]]);
+    assert.deepEqual(shown.slice(-3), [true, true, true]);
+    const hidden = gateRun([...played, ["results", 900, 5], ["results", 900, 5], ["results", 900, 5]], { showOnResults: false });
+    assert.equal(hidden.at(-1), false);
+    const stuck = gateRun(Array.from({ length: 12 }, () => ["playing", 0]));
+    assert.equal(stuck.indexOf(true), 10, "1500 ms of play state alone is trusted");
+    const g = createVisibilityGate();
+    g.update({ want: true, now: 0 });
+    assert.equal(g.pending(100), 300);
+    assert.equal(g.pending(500), 1000, "past 400 ms it waits for a sign of life or for 1.5 s");
 });

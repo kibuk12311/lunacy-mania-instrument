@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -96,7 +96,7 @@
       "artifactName": "Lunacy-mania-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "Lunacy-mania-${version}.exe"
+      "artifactName": "Lunacy-mania-Portable-${version}.exe"
     },
     "publish": [
       {

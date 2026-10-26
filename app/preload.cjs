@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("danApi", {
     setLang: (lang) => ipcRenderer.send("set-lang", lang),
     onView: (cb) => ipcRenderer.on("view", (_e, view) => cb(view)),
     onSettings: (cb) => ipcRenderer.on("settings", (_e, settings) => cb(settings)),
+    // { client: "stable" | "lazer" | null }: which osu! tosu is reading
+    onOsuClient: (cb) => ipcRenderer.on("osu-client", (_e, payload) => cb(payload)),
     toggleAlwaysOnTop: () => ipcRenderer.send("toggle-always-on-top"),
     toggleCompact: () => ipcRenderer.send("toggle-compact"),
     setTab: (tab) => ipcRenderer.send("tab", tab),
@@ -107,4 +109,13 @@ contextBridge.exposeInMainWorld("danApi", {
     },
     recProgress: (days) => ipcRenderer.invoke("rec-progress", { days }),
     // <<< picks
+    // >>> overlay
+    // the in-game overlay's own channels (app/overlay/overlayManager.js), the same ones its settings window uses
+    overlayGet: () => ipcRenderer.invoke("overlay-get"),
+    overlaySet: (patch) => ipcRenderer.invoke("overlay-set", patch),
+    overlaySetEdit: (on) => ipcRenderer.send("overlay-edit", Boolean(on)),
+    overlayOpenSettings: () => ipcRenderer.send("overlay-open-settings"),
+    // { settings, edit } on every change, wherever it was made (the tray, the hotkey, the settings window)
+    onOverlaySettings: (cb) => ipcRenderer.on("overlay-settings", (_e, payload) => cb(payload)),
+    // <<< overlay
 });

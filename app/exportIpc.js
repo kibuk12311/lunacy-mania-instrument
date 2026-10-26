@@ -8,6 +8,7 @@ import { readFile, writeFile, stat, access } from "node:fs/promises";
 import path from "node:path";
 import { exportMapset, probeTags } from "./mapsetExport.js";
 import { safeFileName } from "./mapExport.js";
+import { copyLazerMap, lazerDirOf, packLazerOsz } from "./lazerMaps.js";
 import { validRate } from "./validate.js";
 import { readMeta, setVersion } from "../src/gen/osuMeta.js";
 import { RICE_MAX_LN_RATIO } from "../src/core/rice.js";
@@ -81,7 +82,7 @@ function chartFacts(osuText) {
 }
 
 // deps as main.js hands them out; renderAudio only for tests (the default renders through ffmpeg)
-export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysis = null, worker = null, ffmpegPath = null, renderPng = null, tosu = null, generatorClient = null, renderAudio = undefined }) {
+export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysis = null, worker = null, ffmpegPath = null, renderPng = null, tosu = null, generatorClient = null, renderAudio = undefined, shell = null }) {
     const analyze = (text, rate) => (analysis ? analysis.analyze(text, rate) : worker.analyze(text, rate));
     // main always hands its ffmpeg over; a tool or smoke test that does not gets the dev copy, as main does unpackaged
     const ffmpeg = async () => (ffmpegPath ? ffmpegPath() : (await import("ffmpeg-static")).default);
@@ -138,7 +139,12 @@ export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysi
             let file;
             if (req.current === true) {
                 if (!tosu) bad("current");
-                file = await tosu.beatmapPath();
+                const source = tosu.beatmap ? await tosu.beatmap() : { client: "stable", path: await tosu.beatmapPath() };
+                // osu! lazer: nothing is written next to its hashed files, so the remap works on a copy of the map
+                // in Documents\<app>\lazer and goes back to lazer as an .osz (lazerMaps.js)
+                file = source.client === "lazer"
+                    ? (await copyLazerMap({ source, osuText: await readFile(source.path, "utf8"), root: lazerDirOf(paths.docsDir) })).path
+                    : source.path;
             } else {
                 if (typeof req.file !== "string" || !path.isAbsolute(req.file)) bad("file");
                 file = req.file;
@@ -184,7 +190,17 @@ export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysi
             const file = nameFor(version);
             await writeFile(file, version === out.version ? out.osuText : setVersion(out.osuText, version), { encoding: "utf8", flag: "wx" });
             log(`remapped ${file}: ${out.result?.numeric} (-${out.removed} +${out.added})`);
+            // a map copied out of osu! lazer: the new difficulty goes to lazer as an .osz it imports
+            let lazer = {};
+            if (paths.docsDir && path.resolve(req.path).startsWith(path.resolve(lazerDirOf(paths.docsDir)) + path.sep)) {
+                const written = version === out.version ? out.osuText : setVersion(out.osuText, version);
+                const osz = await packLazerOsz({ charts: [{ name: path.basename(file), osuText: written }], dir, outDir: paths.mapsDir, baseName: path.basename(file, ".osu") });
+                const problem = shell ? await shell.openPath(osz) : "not opened";
+                log(`remap lazer osz ${osz}${problem ? ` not opened: ${problem}` : " opened"}`);
+                lazer = { client: "lazer", osz, opened: !problem };
+            }
             return {
+                ...lazer,
                 ok: true, file, version, numeric: out.result?.numeric ?? null, label: out.result?.label ?? null,
                 reachable: Boolean(out.reachable), removed: out.removed, added: out.added,
             };

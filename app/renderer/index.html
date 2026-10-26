@@ -99,6 +99,7 @@
                 <button id="rec-fav-export" class="primary" data-i18n="recommend.html.favExport">Экспорт в collection.db</button>
                 <div id="rec-fav-result" class="result" hidden></div>
                 <div class="muted" data-i18n="recommend.html.favHint">Для osu!stable: добавь через Collection Manager (merge), не заменяй свой collection.db</div>
+                <div class="muted" data-i18n="recommend.html.favHintLazer">osu! lazer collection.db не читает: с lazer рядом сохранится список карт со ссылками</div>
             </div>
         </div>
 
@@ -215,6 +216,7 @@
         <button id="rate-create" class="primary" disabled data-i18n="html.rate.create">Создать карту с этим рейтом</button>
         <button id="rate-save-preset" class="small rate-save" data-i18n="rate.html.savePreset">Сохранить пресет</button>
         <div id="rate-status" class="muted"></div>
+        <div id="rate-lazer-note" class="muted rate-lazer-note" hidden data-i18n="rate.html.lazerNote">osu! lazer: копии собираются в один .osz в Документы\Lunacy mania\карты и открываются в lazer — он импортирует их отдельным набором карт.</div>
 
         <details id="rate-batch" class="rate-batch">
             <summary data-i18n="rate.html.batch">Несколько рейтов</summary>
@@ -239,10 +241,13 @@
         <main id="card"></main>
         <footer>
             <select id="calc" title="Какой калькулятор показывать" data-i18n-title="html.analysis.calcTitle"></select>
+            <span id="osu-client" class="osu-client" hidden></span>
+            <button id="overlay-toggle" class="ov-button" title="Оверлей в игре" data-i18n-title="html.analysis.overlayTitle" aria-expanded="false">OV</button>
             <button id="lang" title="Язык: русский / English — Language" data-i18n-title="html.analysis.langTitle">RU</button>
             <button id="pin" title="Поверх всех окон" data-i18n-title="html.analysis.pinTitle">📌</button>
             <button id="compact" title="Компактный режим" data-i18n-title="html.analysis.compactTitle">▭</button>
         </footer>
+        <div id="overlay-panel" class="overlay-panel" hidden></div>
     </section>
     <section id="create-tab" hidden>
         <div id="create-mode" class="chips" hidden>

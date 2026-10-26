@@ -420,7 +420,7 @@ Rules for any training project: ship only model weights (never charts or audio);
 | Create map | Generates a 4K rice map from a song (BPM/offset incl. multi-BPM, 1/3 and 1/6 snaps, parts with own dan and patterns, variants, preview, mapsets, rates); can remap a map one dan up or down |
 
 - **Where files go:** `Documents\Lunacy mania` (an older install's existing folder is kept and reused). Marathons, generated maps, downloads and collections go there; finished `.osz` files are opened with the OS so osu! imports them. **Exception:** Rate-tab copies are written next to the original map, i.e. inside osu!'s Songs folder (despite a README line saying it never writes there).
-- Downloads: installer `Lunacy-mania-Setup-<version>.exe` (per-user, self-updating) or portable `Lunacy-mania-<version>.exe`, from the GitHub releases page. Unsigned, so Windows SmartScreen may warn ("More info -> Run anyway").
+- Downloads: installer `Lunacy-mania-Setup-<version>.exe` (per-user, self-updating) or portable `Lunacy-mania-Portable-<version>.exe`, from the GitHub releases page. Unsigned, so Windows SmartScreen may warn ("More info -> Run anyway").
 - Needs Windows 10/11 64-bit and osu! stable. No account, no telemetry; it talks only to mania-tracker, the three mirrors, osu.ppy.sh and GitHub.
 - Generated maps are for practice and local play (section 10).
 - Interface in Russian and English.

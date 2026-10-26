@@ -42,7 +42,8 @@ function fakeContext() {
         sources,
         resume() { ctx.state = "running"; return Promise.resolve(); },
         getOutputTimestamp() { return ctx.outputTimestamp; },
-        createGain() { return { gain: { value: 1 }, connect: (n) => n }; },
+        gains: [],
+        createGain() { const g = { gain: { value: 1 }, connect(n) { g.to = n; return n; } }; ctx.gains.push(g); return g; },
         createBuffer(channels, length) { const data = new Float32Array(length); return { length, getChannelData: () => data }; },
         createBufferSource() {
             const node = {
@@ -172,6 +173,20 @@ test("the song ending by itself stops the player at the end", () => {
     songSources()[0].onended();
     assert.equal(player.playing, false);
     assert.equal(player.now(), 60000);
+});
+
+test("the volume scales the song and the clicks through one gain, before and after the first play", () => {
+    const { ctx, player } = setup();
+    player.setVolume(0.4);
+    assert.equal(player.volume, 0.4);
+    player.toggle();
+    const master = ctx.gains.find((g) => g.to === ctx.destination);
+    assert.equal(master.gain.value, 0.4);
+    assert.equal(ctx.gains.filter((g) => g.to === master).length, 2, "the song and the clicks go through it");
+    player.setVolume(2);
+    assert.equal(master.gain.value, 1, "no louder than full");
+    player.setVolume(-1);
+    assert.equal(master.gain.value, 0);
 });
 
 test("nothing loaded: play does nothing", () => {

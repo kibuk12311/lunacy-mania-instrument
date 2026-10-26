@@ -6,6 +6,7 @@ import { initRateTab, onRateTabShown, openRateAt } from "./rateTab.js";
 import { initMarathonTab } from "./marathonTab.js";
 import { initRecommendTab, onRecommendTabShown } from "./recommendTab.js";
 import { initAnalysisPanel, analysisPanelHtml } from "./analysisPanel.js";
+import { initOverlayPanel } from "./overlayPanel.js";
 
 const TABS = ["analysis", "rate", "marathon", "recommend", "create"];
 
@@ -23,6 +24,8 @@ langButton.addEventListener("click", () => window.danApi.setLang(getLang() === "
 const calcSelect = document.getElementById("calc");
 let settings = { alwaysOnTop: false, compact: false };
 let view = { screen: "waiting-osu" };
+let osuClient = null; // "stable" | "lazer" | null: which osu! tosu reads
+const clientBadge = document.getElementById("osu-client");
 
 // The calculator the card leads with lives in this window only.
 const CALC_KEY = "analysis-calc";
@@ -49,8 +52,12 @@ calcSelect.addEventListener("change", () => {
 });
 
 function draw() {
-    const opts = { ...settings, calc };
+    const opts = { ...settings, calc, client: osuClient };
     card.innerHTML = renderView(view, opts) + analysisPanelHtml(view, opts);
+    clientBadge.hidden = !osuClient;
+    clientBadge.className = `osu-client${osuClient === "lazer" ? " lazer" : ""}`;
+    clientBadge.textContent = !osuClient ? "" : osuClient === "lazer" ? t("analysis.client.lazer") : t("analysis.client.stable");
+    clientBadge.title = osuClient ? t("analysis.client.title", { client: osuClient }) : "";
     document.body.classList.toggle("compact", settings.compact);
     pin.classList.toggle("on", settings.alwaysOnTop);
     compactButton.classList.toggle("on", settings.compact);
@@ -78,6 +85,12 @@ window.danApi.onView((v) => {
     if (v.screen === "result" && !document.getElementById("rate-tab").hidden) onRateTabShown();
 });
 window.danApi.onSettings((s) => { settings = s; draw(); });
+// the other tabs follow it too (the rate tab words its copies for lazer)
+window.danApi.onOsuClient?.((p) => {
+    osuClient = p?.client === "stable" || p?.client === "lazer" ? p.client : null;
+    draw();
+    window.dispatchEvent(new CustomEvent("osu-client", { detail: osuClient }));
+});
 pin.addEventListener("click", () => window.danApi.toggleAlwaysOnTop());
 compactButton.addEventListener("click", () => window.danApi.toggleCompact());
 for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
@@ -97,4 +110,5 @@ initRateTab();
 initMarathonTab();
 initRecommendTab();
 initAnalysisPanel({ card, redraw: draw });
+initOverlayPanel({ button: document.getElementById("overlay-toggle"), panel: document.getElementById("overlay-panel") });
 draw();

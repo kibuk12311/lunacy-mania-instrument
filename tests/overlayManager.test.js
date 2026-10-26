@@ -87,6 +87,17 @@ async function startTosu() {
     };
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// a play as tosu sends it: frames with a moving clock, until cond() holds (the gate wants ~400 ms of a live play)
+async function playUntil(tosu, cond, from = 300, geki = 0) {
+    for (let live = from; !cond(); live += 50) {
+        if (live > from + 3000) throw new Error("timed out");
+        tosu.send(tosuFrame(2, live, geki));
+        await sleep(50);
+    }
+}
+
 const until = async (fn, ms = 3000) => {
     const end = Date.now() + ms;
     while (!fn()) {
@@ -126,8 +137,7 @@ test("the widgets show while playing, are click-through, follow the edit mode an
         await new Promise((r) => setTimeout(r, 80));
         assert.equal(fake.windows.length, 0, "song select: no widgets");
 
-        tosu.send(tosuFrame(2, 900));
-        await until(() => overlay.isShown("judgements") && overlay.isShown("kps") && overlay.isShown("keys"));
+        await playUntil(tosu, () => overlay.isShown("judgements") && overlay.isShown("kps") && overlay.isShown("nps") && overlay.isShown("keys"));
         const kps = overlay.windowFor("kps");
         assert.equal(kps.options.transparent, true);
         assert.equal(kps.options.frame, false);
@@ -138,6 +148,7 @@ test("the widgets show while playing, are click-through, follow the edit mode an
         assert.deepEqual(kps.query, { w: "kps" });
 
         // judgements come in: the snapshots the windows get carry them
+        tosu.send(tosuFrame(2, 990));
         tosu.send(tosuFrame(2, 1010, 1));
         tosu.send(tosuFrame(2, 1110, 2));
         await until(() => kps.sent.some(([c, s]) => c === "overlay-state" && s.hits.max === 2 && s.lanes.counts[3] === 1));
@@ -161,21 +172,29 @@ test("the widgets show while playing, are click-through, follow the edit mode an
         await new Promise((r) => setTimeout(r, 80));
         assert.equal(overlay.isShown("kps"), true);
         await set(null, { showOnResults: false });
-        assert.equal(overlay.isShown("kps"), false);
+        await until(() => !overlay.isShown("kps"));
         tosu.send(tosuFrame(5, 0));
         await new Promise((r) => setTimeout(r, 80));
         assert.equal(kps.visible, false);
 
         // a widget turned off stays hidden in a play, the others show
         await set(null, { widgets: { keys: { enabled: false } } });
-        tosu.send(tosuFrame(2, 500));
-        await until(() => overlay.isShown("kps"));
+        await playUntil(tosu, () => overlay.isShown("kps"));
         assert.equal(overlay.isShown("keys"), false);
 
         // tray
         const [menu] = overlay.trayItems();
         assert.equal(menu.submenu[0].checked, true);
         assert.match(menu.submenu[1].label, /Ctrl\+Shift\+O/);
+        // a checkbox per widget, the NPS one among them; it turns its widget off and on
+        const npsItem = menu.submenu.find((i) => i.label === t("overlay.widget.nps"));
+        assert.equal(npsItem.checked, true);
+        assert.equal(menu.submenu.find((i) => i.label === t("overlay.widget.keys")).checked, false);
+        npsItem.click();
+        assert.equal(overlay.settings().widgets.nps.enabled, false);
+        await until(() => !overlay.isShown("nps"));
+        overlay.trayItems()[0].submenu.find((i) => i.label === t("overlay.widget.nps")).click();
+        assert.equal(overlay.settings().widgets.nps.enabled, true);
 
         overlay.dispose();
         assert.equal(fake.shortcuts.size, 0);
@@ -211,3 +230,39 @@ test("every channel the overlay preload uses has its handler, and nothing clashe
     for (const c of [...OVERLAY_CHANNELS.handle, ...OVERLAY_CHANNELS.on]) assert.ok(!mainSource.includes(`"${c}"`), c);
     assert.equal(mainSource.split("createOverlay(").length - 1, 1, "main.js makes the overlay once");
 });
+
+test("song select with stray frames of play and results never shows a window; the main window hears every change", async () => {
+    const tosu = await startTosu();
+    const fake = fakeElectron();
+    const userData = await mkdtemp(path.join(tmpdir(), "оверлей "));
+    const main = new fake.electron.BrowserWindow({ width: 400, height: 300 });
+    const overlay = createOverlay({
+        electron: fake.electron, userData, port: tosu.port, t, mainWindow: () => main,
+        WebSocketImpl: WebSocket, fetchImpl: async () => ({ ok: true, text: async () => OSU }),
+    });
+    try {
+        await fake.handled.get("overlay-set")(null, { enabled: true });
+        assert.ok(main.sent.some(([c, p]) => c === "overlay-settings" && p.settings.enabled === true));
+        await until(() => tosu.connected());
+        // what used to flash the windows: one play frame between song select frames (into a map and straight out),
+        // a score opened from the leaderboard for a moment, a play state whose clock never moves
+        const frames = [5, 5, 2, 5, 5, 7, 5, 5, 2, 2, 5, 5, 5];
+        for (const [i, state] of frames.entries()) {
+            tosu.send(tosuFrame(state, state === 2 ? 4000 : 0));
+            await sleep(state === 2 && frames[i + 1] === 2 ? 150 : 60);
+        }
+        await sleep(500);
+        const shows = fake.windows.flatMap((w) => w.calls.filter((c) => c[0] === "showInactive"));
+        assert.deepEqual(shows, []);
+        assert.ok(WIDGETS_SHOWN(overlay).every((x) => !x));
+        // the edit mode shows them at once (no waiting), and the main window is told
+        fake.listened.get("overlay-edit")(null, true);
+        assert.ok(WIDGETS_SHOWN(overlay).every(Boolean));
+        assert.ok(main.sent.some(([c, p]) => c === "overlay-settings" && p.edit === true));
+    } finally {
+        overlay.dispose();
+        await tosu.close();
+    }
+});
+
+const WIDGETS_SHOWN = (overlay) => ["judgements", "kps", "nps", "keys"].map((w) => overlay.isShown(w));

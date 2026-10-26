@@ -54,7 +54,8 @@ export function createAudioPlayer({
     perfNow = () => globalThis.performance?.now?.() ?? Date.now(),
 } = {}) {
     let ctx = null;
-    let sounds = null; // { song gain, click gain, tick, beat, accent buffers }
+    let sounds = null; // { master gain, song gain, click gain, tick, beat, accent buffers }
+    let volume = 1; // 0–1 over everything (the volume slider)
     let buffer = null;
     let positionMs = 0; // where the song is while paused
     let run = null; // { source, anchor, clicks, scheduledUntil, endMs, returnTo, timer }
@@ -69,13 +70,16 @@ export function createAudioPlayer({
     function context() {
         if (!ctx) {
             ctx = createContext();
+            const master = ctx.createGain();
+            master.gain.value = volume;
+            master.connect(ctx.destination);
             const song = ctx.createGain();
             song.gain.value = SONG_GAIN;
-            song.connect(ctx.destination);
+            song.connect(master);
             const click = ctx.createGain();
             click.gain.value = CLICK_GAIN;
-            click.connect(ctx.destination);
-            sounds = { song, click, tick: toneBuffer(ctx, 1800, 25), beat: toneBuffer(ctx, 1000, 40), accent: toneBuffer(ctx, 1500, 40) };
+            click.connect(master);
+            sounds = { master, song, click, tick: toneBuffer(ctx, 1800, 25), beat: toneBuffer(ctx, 1000, 40), accent: toneBuffer(ctx, 1500, 40) };
         }
         if (ctx.state === "suspended") ctx.resume?.();
         return ctx;
@@ -207,6 +211,12 @@ export function createAudioPlayer({
                 run.scheduledUntil = Math.max(run.anchor.songMs, songMsAt(ctx.currentTime, run.anchor));
                 schedule();
             }
+        },
+        // the volume of the song and the clicks together, 0–1
+        get volume() { return volume; },
+        setVolume(v) {
+            volume = Math.min(1, Math.max(0, Number(v) || 0));
+            if (sounds) sounds.master.gain.value = volume;
         },
         // fn({ playing, positionMs }) on play, pause, seek and the end; returns the unsubscribe
         subscribe(fn) {

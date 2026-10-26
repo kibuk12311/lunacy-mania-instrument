@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { mapInfo } from "./rateCreate.js";
+import { copyLazerMap, lazerDirOf } from "./lazerMaps.js";
 import { createMarathon } from "./marathonCreate.js";
 import { createMarathonAutoHandlers } from "./marathonAutoIpc.js";
 import { createSongsIndex } from "./songsIndex.js";
@@ -29,9 +30,18 @@ export function registerMarathonIpc({ ipcMain, tosu, analysis, ffmpegPath, rende
         const ok4k = /^Mode:\s*3/m.test(text) && Number(/^CircleSize:\s*([\d.]+)/m.exec(text)?.[1]) === 4;
         return { ok: true, path: beatmapPath, name: `${info.artist} - ${info.title} [${info.version}]`, bpm: info.bpm, ok4k };
     };
+    // osu! lazer: the map is copied out of its file store (read only) into Documents\<app>\lazer under its own
+    // names, so the marathon reads its chart and audio from a folder like stable's (lazerMaps.js)
+    const currentPath = async () => {
+        const source = tosu.beatmap ? await tosu.beatmap() : { client: "stable", path: await tosu.beatmapPath() };
+        if (source.client !== "lazer") return source.path;
+        const local = await copyLazerMap({ source, osuText: await readFile(source.path, "utf8"), root: lazerDirOf(paths.docsDir) });
+        log(`marathon: lazer map copied to ${local.path}`);
+        return local.path;
+    };
     ipcMain.handle("marathon-add-current", async () => {
         try {
-            return await describe(await tosu.beatmapPath());
+            return await describe(await currentPath());
         } catch (error) {
             return { ok: false, message: error.message };
         }

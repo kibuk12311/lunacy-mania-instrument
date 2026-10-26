@@ -1,5 +1,8 @@
 // Main-process side of the favourites: the list in userData/favourites.json and its export as an osu!stable
 // collection.db into Documents/<app>/коллекции, never into the osu! folder. Dependencies are injected; nothing throws.
+// osu! lazer keeps its collections in its own database (realm), which no outside file can be merged into: with lazer
+// connected the export still writes collection.db (for osu! stable) and next to it a plain list of the maps with
+// their links, and the answer says so (client: "lazer", list), so the window can tell what to do instead.
 import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
@@ -7,6 +10,7 @@ import { cleanFavourite } from "../src/recommend/favourites.js";
 import { encodeCollectionDb, COLLECTION_DB_VERSION } from "../src/recommend/collectionDb.js";
 import { t } from "../src/i18n/i18n.js";
 import { positiveId } from "./validate.js";
+import { safeFileName } from "./mapExport.js";
 
 export const DEFAULT_COLLECTION_NAME = "Lunacy mania picks";
 export const EXPORT_CONCURRENCY = 3;
@@ -22,6 +26,14 @@ export function collectionName(name) {
 }
 
 const fail = (error) => ({ ok: false, message: error?.message || t("app.rec.unknownError") });
+
+// the list for lazer: a file name from the collection's name, and one line per map with its page
+const listName = (name) => safeFileName(name) || "collection";
+export function mapList(name, items) {
+    const lines = items.map((f) => `${f.artist} - ${f.title} [${f.version}] — https://osu.ppy.sh/beatmapsets/${f.beatmapsetId}#mania/${f.beatmapId}`);
+    return [name, "", ...lines, ""].join("\r\n");
+}
+
 const md5Of = (bytes) => createHash("md5").update(bytes).digest("hex");
 
 // fn over every item, at most `limit` at a time.
@@ -37,7 +49,7 @@ async function pool(items, limit, fn) {
 // cardFor(id) → the card main handed out; onAdded(entry) and onExported(file) tell the picks handlers.
 export function createFavHandlers({
     store, fetchBytes, docsDir, fs = nodeFs, log = () => {}, progress = () => {}, cardFor = () => null,
-    onAdded = () => {}, onExported = () => {}, concurrency = EXPORT_CONCURRENCY,
+    onAdded = () => {}, onExported = () => {}, concurrency = EXPORT_CONCURRENCY, client = () => null,
 }) {
     async function list() {
         try {
@@ -118,6 +130,13 @@ export function createFavHandlers({
             await fs.rename(`${file}.tmp`, file);
             onExported(file);
             log(`rec fav export "${name}" ${hashes.length} maps, ${skipped} skipped → ${file}`);
+            if (client() === "lazer") {
+                const list = path.join(dir, `${listName(name)}.txt`);
+                await fs.writeFile(list, mapList(name, items), "utf8");
+                onExported(list);
+                log(`rec fav export for lazer: list ${list}`);
+                return { ok: true, file, count: hashes.length, skipped, client: "lazer", list };
+            }
             return { ok: true, file, count: hashes.length, skipped };
         } catch (error) {
             log(`rec fav export failed: ${error?.message}`);

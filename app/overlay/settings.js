@@ -16,8 +16,12 @@ const SHOW_TEXT = {
     now: "overlay.show.now", max: "overlay.show.max", graph: "overlay.show.graph",
     lines: "overlay.show.lines",
 };
-// the key widget's "counts" is per key
-const showText = (widget, key) => (widget === "keys" && key === "counts" ? "overlay.show.keyCounts" : SHOW_TEXT[key]);
+// the key widget's "counts" is per key; the NPS widget's lines are about the map
+const NPS_TEXT = { now: "overlay.show.npsNow", peak: "overlay.show.peak", graph: "overlay.show.npsGraph" };
+const showText = (widget, key) => {
+    if (widget === "keys" && key === "counts") return "overlay.show.keyCounts";
+    return widget === "nps" ? NPS_TEXT[key] : SHOW_TEXT[key];
+};
 
 let settings = null;
 let edit = false;
@@ -97,6 +101,7 @@ function buildCard(widget) {
     });
     controls.append(el("div", "", t("overlay.set.style")), styleRow, opacity.row, scale.row, shows);
     if (widget === "keys") controls.append(el("p", "hint", t("overlay.set.keysNote")));
+    if (widget === "nps") controls.append(el("p", "hint", t("overlay.set.npsNote")));
     const stage = el("div", "stage");
     card.append(title, controls, stage);
     $("widgets").append(card);

@@ -119,6 +119,10 @@ export default {
         ru: "Для osu!stable: добавь через Collection Manager (merge), не заменяй свой collection.db",
         en: "For osu!stable: merge it in with Collection Manager, don't overwrite your own collection.db",
     },
+    "recommend.html.favHintLazer": {
+        ru: "osu! lazer collection.db не читает: с lazer рядом сохранится список карт со ссылками",
+        en: "osu! lazer doesn't read collection.db: with lazer a list of the maps with links is saved next to it",
+    },
     "recommend.html.progressNote": { ru: "mania-tracker видит ~70 последних игр и топ-200 по каждой оси", en: "mania-tracker only sees the last ~70 plays and the top 200 per axis" },
 
     // favourites
@@ -130,6 +134,10 @@ export default {
     "recommend.fav.exportingN": { ru: "Экспорт… {done} / {total}", en: "Exporting… {done} / {total}" },
     "recommend.fav.done": { ru: "Готово: {n} {maps}", en: "Done: {n} {maps}" },
     "recommend.fav.doneSkipped": { ru: "Готово: {n} {maps}, пропущено {skipped}", en: "Done: {n} {maps}, {skipped} skipped" },
+    "recommend.fav.lazerNote": {
+        ru: "osu! lazer хранит коллекции в своей базе, collection.db в него не добавить — этот файл для osu! stable. Для lazer рядом сохранён список карт со ссылками ({list}): добавь их в коллекцию в самом lazer, недостающие скачай кнопкой «Скачать».",
+        en: "osu! lazer keeps collections in its own database, so a collection.db can't be added to it — that file is for osu! stable. For lazer a list of the maps with links is saved next to it ({list}): add them to a collection in lazer itself, and get the ones you lack with the “Download” button.",
+    },
     "recommend.fav.showTitle": { ru: "Открыть папку с collection.db", en: "Open the folder with collection.db" },
 
     // similar maps

@@ -42,6 +42,8 @@ export default {
     "app.tosu.exited": { ru: "tosu неожиданно завершился", en: "tosu quit unexpectedly" },
     "app.tosu.status": { ru: "tosu вернул {status}", en: "tosu answered {status}" },
     "app.tosu.openOsu": { ru: "открой osu! и выбери карту", en: "open osu! and pick a map" },
+    // a map copied out of osu! lazer's file store (app/lazerMaps.js)
+    "app.lazer.noAudio": { ru: "в osu! lazer у карты не нашлось аудиофайла", en: "osu! lazer has no audio file for this map" },
     "app.tosu.noMap": { ru: "в osu! не выбрана карта", en: "no map is selected in osu!" },
     "app.select.noFile": { ru: "не удалось получить файл карты", en: "couldn't get the map file" },
 

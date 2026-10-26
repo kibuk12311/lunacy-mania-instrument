@@ -1,6 +1,7 @@
 // Playfield preview of the create tab (mapgen v3): 4 lanes × 40 px, 300 px high, the chosen variant's notes falling
 // to the judge line in the snap palette over the beat grid (only the grid before anything is generated).
-// Controls: play / pause, the scroll speed (10–40, 24 by default) and hit clicks, both remembered in localStorage.
+// Controls: play / pause, the scroll speed (10–40, 24 by default), the volume (0–100 %) and hit clicks, all remembered
+// in localStorage.
 // ←/→ on the focused playfield seek 2 s, the wheel one beat; another tab or a hidden window pauses the player.
 import { t } from "../../src/i18n/i18n.js";
 import { snapOf, gridLines, SNAP_COLORS, prepareCanvas, sectionsOf, sectionIndexAt } from "./snapColors.js";
@@ -15,6 +16,7 @@ const SEEK_MS = 2000;
 const SPEED = { min: 10, max: 40, initial: 24 };
 const SPEED_KEY = "create-play-speed";
 const CLICKS_KEY = "create-play-clicks";
+const VOLUME_KEY = "create-play-volume";
 
 // How long a note takes from the top to the judge line at a scroll speed.
 export const visibleSpanMs = (speed) => 11485 / speed;
@@ -69,6 +71,9 @@ export function createPlayfield({ canvas, controls, player, getTiming }) {
     const stored = Number(readStored(SPEED_KEY, SPEED.initial));
     let speed = Number.isFinite(stored) && stored >= SPEED.min && stored <= SPEED.max ? stored : SPEED.initial;
     let clicks = readStored(CLICKS_KEY, "0") === "1";
+    const storedVolume = Number(readStored(VOLUME_KEY, 100));
+    let volume = Number.isFinite(storedVolume) && storedVolume >= 0 && storedVolume <= 100 ? Math.round(storedVolume) : 100;
+    player.setVolume?.(volume / 100);
 
     const el = (tag, className = "", text = "") => {
         const node = document.createElement(tag);
@@ -94,6 +99,22 @@ export function createPlayfield({ canvas, controls, player, getTiming }) {
         draw();
     });
     speedRow.append(el("span", "", t("create.play.speed")), speedInput, speedValue);
+    const volumeRow = el("label", "slider-row cr-volume");
+    const volumeInput = el("input");
+    volumeInput.type = "range";
+    volumeInput.min = "0";
+    volumeInput.max = "100";
+    volumeInput.step = "1";
+    volumeInput.value = String(volume);
+    const volumeValue = el("span", "muted", `${volume}%`);
+    volumeInput.addEventListener("input", () => {
+        volume = Math.round(Number(volumeInput.value));
+        if (!Number.isFinite(volume)) volume = 100;
+        volumeValue.textContent = `${volume}%`;
+        store(VOLUME_KEY, String(volume));
+        player.setVolume?.(volume / 100);
+    });
+    volumeRow.append(el("span", "", t("create.play.volume")), volumeInput, volumeValue);
     const clickRow = el("label", "check");
     const clickBox = el("input");
     clickBox.type = "checkbox";
@@ -108,7 +129,7 @@ export function createPlayfield({ canvas, controls, player, getTiming }) {
     const keys = el("div", "muted", t("create.play.keys"));
     const top = el("div", "row");
     top.append(play, time);
-    controls.replaceChildren(top, speedRow, clickRow, gridNote, keys);
+    controls.replaceChildren(top, speedRow, volumeRow, clickRow, gridNote, keys);
 
     const applyClicks = () => player.setHitClicks(clicks && rows ? rows.map((r) => r.t) : null);
     const showPlaying = () => { play.textContent = player.playing ? t("create.play.pause") : t("create.play.play"); };
@@ -177,6 +198,7 @@ export function createPlayfield({ canvas, controls, player, getTiming }) {
         frame: draw,
         redraw: () => draw(),
         get speed() { return speed; },
+        get volume() { return volume; },
         get rows() { return rows; },
     };
 }

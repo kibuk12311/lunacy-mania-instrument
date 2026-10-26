@@ -135,6 +135,8 @@ export function initRemapPanel({ root }) {
             };
             result.className = answer.reachable ? "remap-result ok" : "remap-result warn";
             result.textContent = answer.reachable ? t("create.remap.done", fields) : t("create.remap.closest", fields);
+            // osu! lazer: the difficulty went in as an .osz, not into a Songs folder
+            if (answer.client === "lazer") result.textContent += ` ${t(answer.opened ? "create.remap.lazer" : "create.remap.lazerNotOpened", { file: answer.osz ?? "" })}`;
         } catch (error) {
             status(t("create.remap.failed", { message: error?.message ?? String(error) }));
         } finally {

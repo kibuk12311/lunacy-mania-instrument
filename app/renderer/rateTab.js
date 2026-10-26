@@ -141,6 +141,8 @@ async function refresh() {
         resetTarget({ keepPick: false });
         mapKey = key;
     }
+    // osu! lazer: no Songs folder, the copies go in as an .osz (the note says so)
+    $("rate-lazer-note").hidden = !(r.ok && r.client === "lazer");
     if (!r.ok) {
         info = null;
         $("rate-map").textContent = t("rate.noMap", { message: r.message });
@@ -169,9 +171,9 @@ async function create() {
     $("rate-status").textContent = t("rate.creating");
     try {
         const r = await window.danApi.rateCreate({ rate, pitch, od, hp, mirror, noLn });
-        $("rate-status").textContent = r.ok
-            ? t("rate.done", { version: r.version })
-            : t("rate.error", { message: r.message });
+        $("rate-status").textContent = !r.ok ? t("rate.error", { message: r.message })
+            : r.client === "lazer" ? t(r.opened ? "rate.doneLazer" : "rate.doneLazerNotOpened", { version: r.version, file: r.file })
+                : t("rate.done", { version: r.version });
     } finally {
         $("rate-create").disabled = false;
     }

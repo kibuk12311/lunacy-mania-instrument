@@ -51,6 +51,7 @@ export default {
     "html.analysis.langTitle": { ru: "Язык: русский / English — Language", en: "Language: English / Russian" },
     "html.analysis.pinTitle": { ru: "Поверх всех окон", en: "Always on top" },
     "html.analysis.compactTitle": { ru: "Компактный режим", en: "Compact mode" },
+    "html.analysis.overlayTitle": { ru: "Оверлей в игре", en: "In-game overlay" },
 
     // Create map tab
     "html.create.drop": { ru: "Перетащи сюда песню (mp3 / ogg) или", en: "Drop a song here (mp3 / ogg) or" },

@@ -3,11 +3,12 @@
 // plan, similar maps, favourites (with the collection.db export) and progress modes.
 //   SMOKE_MODES_ONLY=1  no network at all: the picks come from the test fixtures, the other modes from stubs
 //   SMOKE_LIVE=1        the other modes run on the real handlers too (tracker searches, osu.ppy.sh .osu files)
+//   SMOKE_CLIENT=lazer  tosu "reads" osu! lazer: the export must also write the list for lazer and say why (exit 1 if not)
 // Electron's user data (the window's localStorage, the favourites) goes to <out-dir>/user-data, never the app's own.
 // Downloads are faked and nothing is opened in osu!; the export writes to <out-dir>/docs/коллекции.
 import { app, BrowserWindow, ipcMain, utilityProcess } from "electron";
 import path from "node:path";
-import { writeFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRecommendHandlers } from "../../app/recommendIpc.js";
 import { createFavHandlers } from "../../app/recFavIpc.js";
@@ -133,6 +134,7 @@ app.whenReady().then(async () => {
         progress: (event) => win?.webContents.send("rec-fav-export-progress", event),
         cardFor: handlers.cardFor,
         onAdded: (card) => handlers.journal(card, "fav"),
+        client: () => process.env.SMOKE_CLIENT ?? null,
         onExported: (file) => handlers.allowShow(file),
     });
     const progress = createProgressHandlers({ store, trackerApi, recommender, log });
@@ -307,6 +309,12 @@ app.whenReady().then(async () => {
     } catch (error) {
         console.log("collection.db: none", error.message);
     }
+    if (process.env.SMOKE_CLIENT === "lazer") {
+        const note = await js(`document.getElementById("rec-fav-result").innerText`);
+        const lists = readdirSync(path.join(outDir, "docs", "коллекции")).filter((f) => f.endsWith(".txt"));
+        console.log("lazer export:", JSON.stringify({ lists, note }));
+        if (!lists.length || !note.includes("lazer")) process.exitCode = 1;
+    }
     await js(`${buttonWith("document.getElementById('rec-fav-result')", "recommend.download.show")}?.click()`);
     await sleep(200);
     await scrollTo("#rec-fav-name");
@@ -327,7 +335,7 @@ app.whenReady().then(async () => {
     if (lang === "en") console.log("cyrillic on screen:", await js(`(document.getElementById("recommend-tab").innerText.match(/[А-Яа-яЁё][^\\n]{0,40}/g) || []).join(" ‖ ") || "none"`));
 
     worker?.dispose();
-    app.exit(0);
+    app.exit(process.exitCode ?? 0);
 }).catch((error) => {
     // a failed step ends the run with an error instead of leaving electron hanging
     console.error("smoke failed:", error?.stack ?? error);

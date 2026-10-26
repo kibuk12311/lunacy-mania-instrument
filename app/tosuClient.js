@@ -1,8 +1,17 @@
-// tosu WebSocket v2 → { state, checksum, rate, mods }. In song select tosu reports the menu mods in play.mods.
+// tosu WebSocket v2 → { state, checksum, rate, mods, client }. In song select tosu reports the menu mods in play.mods.
+// tosu v4 reads osu! stable and osu! lazer alike; its v2 payload names the one it reads in `client` ("stable" | "lazer").
+// On lazer the "Songs folder" tosu reports is lazer's file store (<data>/files) and a map's files are hashed paths
+// in it (a/ab/abc…, no extension), so a map is read there but nothing may ever be written next to it.
 import { t } from "../src/i18n/i18n.js";
 
 const STATE_BY_NUMBER = { 0: "menu", 2: "playing", 5: "songselect", 7: "results" };
 const SPEED_RATES = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
+
+// "stable" | "lazer" | null (an older tosu, or no osu! running)
+export function clientOf(json) {
+    const c = String(json?.client ?? "").toLowerCase();
+    return c === "stable" || c === "lazer" ? c : null;
+}
 
 function modCodes(mods) {
     if (Array.isArray(mods?.array) && mods.array.length) {
@@ -15,7 +24,8 @@ function modCodes(mods) {
 export function parseFrame(json) {
     const mods = modCodes(json?.play?.mods);
     const speedMod = mods.find((m) => m in SPEED_RATES);
-    const reported = Number(json?.play?.mods?.rate);
+    // lazer's own speeds (DT/HT at any speed, Rate Adjust) come in mods.rate; to 0.01, as lazer sets them
+    const reported = Math.round(Number(json?.play?.mods?.rate) * 100) / 100;
     const rate = Number.isFinite(reported) && reported > 0 && (reported !== 1 || !speedMod)
         ? reported
         : (speedMod ? SPEED_RATES[speedMod] : 1);
@@ -24,6 +34,7 @@ export function parseFrame(json) {
         checksum: json?.beatmap?.checksum ? String(json.beatmap.checksum) : null,
         rate,
         mods,
+        client: clientOf(json),
     };
 }
 
@@ -89,16 +100,38 @@ export async function fetchCurrentOsu(port, { timeoutMs = 5000 } = {}) {
     return res.text();
 }
 
-// Absolute path of the beatmap selected in osu! (Songs folder + the map's relative path, both from tosu).
-export async function fetchCurrentBeatmapPath(port, { timeoutMs = 5000 } = {}) {
-    const res = await fetch(`http://127.0.0.1:${port}/json/v2`, { signal: AbortSignal.timeout(timeoutMs) });
+async function fetchJsonV2(port, timeoutMs, fetchImpl = globalThis.fetch) {
+    const res = await fetchImpl(`http://127.0.0.1:${port}/json/v2`, { signal: AbortSignal.timeout(timeoutMs) });
     // tosu answers 500 while it has no osu! process to read
     if (!res.ok) throw new Error(t("app.tosu.openOsu"));
-    const j = await res.json();
+    return res.json();
+}
+
+const join = (base, rel) => (rel ? `${String(base).replace(/[\\/]+$/, "")}\\${rel}` : null);
+
+// The beatmap selected in osu!, from tosu's /json/v2: { client, path, audioPath, backgroundPath }.
+// stable: Songs\<set folder>\<name>; lazer: <data>\files\<hash path> for each file. A file the map lacks is null.
+export function beatmapOf(j) {
     const songs = j?.folders?.songs;
     const file = j?.directPath?.beatmapFile;
-    if (!songs || !file) throw new Error(t("app.tosu.noMap"));
-    return `${songs.replace(/[\\/]+$/, "")}\\${file}`;
+    const client = clientOf(j) ?? "stable";
+    if (!songs || !file || (client === "lazer" && !j?.files?.beatmap)) throw new Error(t("app.tosu.noMap"));
+    return {
+        client,
+        path: join(songs, file),
+        audioPath: j?.files?.audio ? join(songs, j.directPath.beatmapAudio) : null,
+        backgroundPath: j?.files?.background ? join(songs, j.directPath.beatmapBackground) : null,
+    };
+}
+
+export async function fetchCurrentBeatmap(port, { timeoutMs = 5000, fetchImpl } = {}) {
+    return beatmapOf(await fetchJsonV2(port, timeoutMs, fetchImpl));
+}
+
+// Absolute path of the beatmap selected in osu! (Songs folder + the map's relative path, both from tosu).
+// On lazer it is the hashed .osu in lazer's file store: readable, never to be written next to.
+export async function fetchCurrentBeatmapPath(port, options = {}) {
+    return (await fetchCurrentBeatmap(port, options)).path;
 }
 
 // osu! account logged in on this PC ({ id, name } from tosu's profile), or null: osu! closed, nobody logged in, tosu down.
@@ -115,12 +148,15 @@ export async function fetchProfile(port, { timeoutMs = 3000, fetchImpl = globalT
     }
 }
 
-// osu!'s Songs folder (from tosu's /json/v2), or null: osu! closed, tosu down, no answer.
+// osu! stable's Songs folder (from tosu's /json/v2), or null: osu! closed, tosu down, no answer, or osu! lazer
+// (it has no Songs folder: what tosu reports there is its hashed file store, which has no set folders to look in).
 export async function fetchSongsFolder(port, { timeoutMs = 3000, fetchImpl = globalThis.fetch } = {}) {
     try {
         const res = await fetchImpl(`http://127.0.0.1:${port}/json/v2`, { signal: AbortSignal.timeout(timeoutMs) });
         if (!res.ok) return null;
-        const songs = (await res.json())?.folders?.songs;
+        const json = await res.json();
+        if (clientOf(json) === "lazer") return null;
+        const songs = json?.folders?.songs;
         return typeof songs === "string" && songs.trim() ? songs.trim().replace(/[\\/]+$/, "") : null;
     } catch {
         return null;

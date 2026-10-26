@@ -3,7 +3,7 @@
 // a broken one, a patch from the settings window) into a complete, valid object.
 
 export const STYLES = ["minimal", "card", "neon", "classic", "compact"];
-export const WIDGETS = ["judgements", "kps", "keys"];
+export const WIDGETS = ["judgements", "kps", "nps", "keys"];
 export const EDIT_HOTKEY = "CommandOrControl+Shift+O";
 export const SCALE = { min: 0.5, max: 2.5 };
 export const OPACITY = { min: 0.2, max: 1 };
@@ -12,6 +12,7 @@ export const OPACITY = { min: 0.2, max: 1 };
 export const SHOW = {
     judgements: ["counts", "ratio", "accuracy", "ur"],
     kps: ["now", "max", "graph"],
+    nps: ["now", "peak", "graph"],
     keys: ["lines", "counts"],
 };
 
@@ -19,10 +20,11 @@ export const SHOW = {
 const SIZES = {
     judgements: { default: [184, 196], minimal: [150, 150], compact: [480, 40] },
     kps: { default: [210, 128], minimal: [180, 104], compact: [250, 40] },
+    nps: { default: [210, 128], minimal: [180, 104], compact: [250, 40] },
     keys: { default: [196, 260], compact: [240, 120] },
 };
 
-const DEFAULT_STYLE = { judgements: "card", kps: "card", keys: "card" };
+const DEFAULT_STYLE = { judgements: "card", kps: "card", nps: "card", keys: "card" };
 
 export function widgetSize(widget, style, scale = 1) {
     const sizes = SIZES[widget] ?? SIZES.kps;
@@ -79,7 +81,7 @@ export function placeWidget(widget, settings, displays) {
         x + size.width > a.x + 20 && x < a.x + a.width - 20 && y >= a.y - 10 && y < a.y + a.height - 20);
     if (w.x !== null && w.y !== null && onScreen(w.x, w.y)) return { x: w.x, y: w.y, ...size };
     const a = displays[0]?.workArea ?? { x: 0, y: 0, width: 1920, height: 1080 };
-    const offsets = { judgements: [24, 120], kps: [24, 340], keys: [250, 120] };
+    const offsets = { judgements: [24, 120], kps: [24, 340], nps: [24, 490], keys: [250, 120] };
     const [dx, dy] = offsets[widget] ?? [24, 24];
     return { x: a.x + dx, y: a.y + dy, ...size };
 }

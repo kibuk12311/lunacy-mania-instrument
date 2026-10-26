@@ -65,7 +65,9 @@ async function exportNow() {
     } else {
         const links = el("div", "links");
         links.append(button(t("recommend.download.show"), t("recommend.fav.showTitle"), () => window.danApi.recShow(r.file)));
-        box.replaceChildren(el("div", "ok", exportDoneText(r)), links);
+        // osu! lazer cannot take a collection.db: say so, and point at the list written for it
+        const lazer = r.client === "lazer" ? [el("div", "muted", t("recommend.fav.lazerNote", { list: r.list ?? "" }))] : [];
+        box.replaceChildren(el("div", "ok", exportDoneText(r)), ...lazer, links);
     }
     box.hidden = false;
 }

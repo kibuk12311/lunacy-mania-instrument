@@ -109,6 +109,7 @@ export default {
     "create.play.play": { ru: "▶ играть", en: "▶ play" },
     "create.play.pause": { ru: "❚❚ пауза", en: "❚❚ pause" },
     "create.play.speed": { ru: "Скорость прокрутки", en: "Scroll speed" },
+    "create.play.volume": { ru: "Громкость", en: "Volume" },
     "create.play.clicks": { ru: "Щелчки на нотах", en: "Hit clicks" },
     "create.play.gridOnly": { ru: "Пока только сетка битов — проверь, что линии совпадают с ударами", en: "Beat grid only for now — check the lines match the hits" },
     "create.play.keys": { ru: "Пробел — играть/пауза, ←/→ — 2 с, колесо — на бит", en: "Space — play/pause, ←/→ — 2 s, wheel — one beat" },
@@ -273,6 +274,15 @@ export default {
     "create.remap.done": {
         ru: "Готово: [{version}] · {numeric} · убрано {removed} / добавлено {added} нот — в папке карты, нажми F5 в osu!",
         en: "Done: [{version}] · {numeric} · {removed} removed / {added} added notes — in the map's folder, press F5 in osu!",
+    },
+    // a map taken from osu! lazer: the new difficulty is handed to lazer as an .osz (it has no Songs folder)
+    "create.remap.lazer": {
+        ru: "osu! lazer: F5 не нужен — .osz открыт в lazer, сложность придёт отдельным набором. Файл: {file}",
+        en: "osu! lazer: no F5 needed — the .osz is open in lazer, the difficulty comes in as a separate set. File: {file}",
+    },
+    "create.remap.lazerNotOpened": {
+        ru: "osu! lazer: .osz не открылся сам — перетащи его в окно lazer. Файл: {file}",
+        en: "osu! lazer: the .osz didn't open by itself — drag it into the lazer window. File: {file}",
     },
     "create.remap.closest": {
         ru: "Ближе всего: [{version}] · {numeric} · убрано {removed} / добавлено {added} нот — в папке карты, нажми F5 в osu!",

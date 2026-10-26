@@ -73,6 +73,33 @@ footer select {
     border-radius: 6px; font-size: 12px; height: 22px; padding: 0 2px; cursor: pointer; margin-right: auto;
 }
 body.compact footer select, body.compact .calc-tag { display: none; }
+/* which osu! tosu reads: a small word left of the buttons */
+.osu-client { align-self: center; font-size: 10px; color: var(--muted); padding: 0 3px; white-space: nowrap; }
+.osu-client.lazer { color: var(--gold); }
+body.compact .osu-client { display: none; }
+
+/* the overlay block: the OV button opens a small panel over the card's bottom right (not in compact mode) */
+footer button.ov-button { width: auto; padding: 0 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+footer button.ov-button.live { color: var(--gold); opacity: 0.9; }
+body.compact .ov-button, body.compact .overlay-panel { display: none; }
+.overlay-panel {
+    position: fixed; right: 8px; bottom: 34px; z-index: 5; width: 220px; max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 44px); overflow-y: auto; box-sizing: border-box;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); font-size: 12px;
+}
+.overlay-panel[hidden] { display: none; }
+.overlay-panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--gold); }
+.overlay-panel label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+.overlay-panel .ov-widgets { margin: 4px 0 6px 10px; }
+.overlay-panel .ov-widgets.off { opacity: 0.5; }
+.overlay-panel .ov-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.overlay-panel button.ov-move {
+    background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
+    font-size: 11px; padding: 2px 6px; cursor: pointer;
+}
+.overlay-panel button.ov-move.on { color: var(--gold); border-color: var(--gold); }
+.overlay-panel a.ov-more { color: var(--muted); font-size: 11px; cursor: pointer; text-decoration: underline; }
 
 .calc-tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; }
 .versus { font-size: 12px; color: var(--muted); margin-top: 2px; }

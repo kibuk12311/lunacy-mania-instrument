@@ -37,7 +37,7 @@ test("build config: the hook runs, both Windows targets, updates published to ou
     assert.equal(b.nsis.oneClick, false);
     assert.equal(b.nsis.deleteAppDataOnUninstall, false);
     assert.equal(b.nsis.artifactName, "Lunacy-mania-Setup-${version}.exe");
-    assert.equal(b.portable.artifactName, "Lunacy-mania-${version}.exe");
+    assert.equal(b.portable.artifactName, "Lunacy-mania-Portable-${version}.exe");
     assert.deepEqual(b.publish, [{ provider: "github", owner: "kibuk12311", repo: "lunacy-mania-instrument", releaseType: "release" }]);
     assert.match(pkg.scripts.dist, /--publish never/);
     assert.match(pkg.dependencies["electron-updater"], /^6\.\d+\.\d+$/, "pinned exactly");

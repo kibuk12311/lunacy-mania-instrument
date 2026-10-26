@@ -1,0 +1,91 @@
+{
+  "_about": "Handcrafted tosu v4.26.3 /websocket/v2, /json/v2 and /websocket/v2/precise payloads while reading osu! lazer, shaped after packages/tosu/src/api/utils/buildResultV2.ts and buildResultV2Precise.ts: client is ClientType[] ('lazer'), folders.songs is <lazer data>/files (memory/lazer.ts global()), the map's files are hashed paths a/ab/<sha256> (lazer.ts toLazerPath) with folders.beatmap '', mods.rate is settings.speed_change (utils/osuMods.ts), hits geki/300/katu/100/50/0 are lazer's perfect/great/good/ok/meh/miss, keys k1 k2 m1 m2 are the first four key counters of the play (lazer.ts keyOverlay).",
+  "songSelectRateAdjust": {
+    "client": "lazer",
+    "server": "ppy.sh",
+    "state": { "number": 5, "name": "selectPlay" },
+    "beatmap": { "checksum": "d41d8cd98f00b204e9800998ecf8427e", "mode": { "number": 3, "name": "mania" }, "time": { "live": 0 } },
+    "play": {
+      "mode": { "number": 3, "name": "mania" },
+      "mods": { "checksum": "x", "number": 0, "name": "", "array": [{ "acronym": "RA", "settings": { "speed_change": 1.35 } }], "rate": 1.35 },
+      "hits": { "0": 0, "300": 0, "geki": 0, "100": 0, "katu": 0, "50": 0 },
+      "accuracy": 100
+    }
+  },
+  "playingDT12": {
+    "client": "lazer",
+    "server": "ppy.sh",
+    "state": { "number": 2, "name": "play" },
+    "beatmap": { "checksum": "d41d8cd98f00b204e9800998ecf8427e", "mode": { "number": 3, "name": "mania" }, "time": { "live": 12345 } },
+    "play": {
+      "mode": { "number": 3, "name": "mania" },
+      "mods": { "checksum": "y", "number": 64, "name": "DT", "array": [{ "acronym": "DT", "settings": { "speed_change": 1.2 } }], "rate": 1.2 },
+      "hits": { "0": 2, "300": 40, "geki": 300, "100": 3, "katu": 10, "50": 1, "sliderBreaks": 0, "sliderEndHits": 0, "smallTickHits": 0, "largeTickHits": 0 },
+      "accuracy": 97.81,
+      "unstableRate": 88.4,
+      "hitErrorArray": [3, -4, 1.5, 0]
+    }
+  },
+  "resultsAfterPlay": {
+    "client": "lazer",
+    "server": "ppy.sh",
+    "state": { "number": 7, "name": "resultScreen" },
+    "beatmap": { "checksum": "d41d8cd98f00b204e9800998ecf8427e", "mode": { "number": 3, "name": "mania" } },
+    "play": {
+      "mode": { "number": 3, "name": "mania" },
+      "mods": { "checksum": "y", "number": 64, "name": "DT", "array": [{ "acronym": "DT", "settings": { "speed_change": 1.2 } }], "rate": 1.2 },
+      "hits": { "0": 0, "300": 0, "geki": 0, "100": 0, "katu": 0, "50": 0 },
+      "accuracy": 100
+    },
+    "resultsScreen": {
+      "mode": { "number": 3, "name": "mania" },
+      "hits": { "0": 2, "300": 41, "geki": 512, "100": 3, "katu": 11, "50": 1 },
+      "accuracy": 98.12,
+      "mods": { "number": 64, "name": "DT", "array": [{ "acronym": "DT", "settings": { "speed_change": 1.2 } }], "rate": 1.2 }
+    }
+  },
+  "jsonV2": {
+    "client": "lazer",
+    "server": "ppy.sh",
+    "state": { "number": 5, "name": "selectPlay" },
+    "beatmap": { "checksum": "d41d8cd98f00b204e9800998ecf8427e" },
+    "profile": { "id": 1234567, "name": "lazer player" },
+    "folders": { "game": "C:\\Users\\me\\AppData\\Local\\osulazer\\current", "skin": "", "songs": "C:\\Users\\me\\AppData\\Roaming\\osu\\files", "beatmap": "" },
+    "files": {
+      "beatmap": "1\\1a\\1a2b3c4d5e6f",
+      "background": "b\\b9\\b9c8d7e6f5a4",
+      "audio": "f\\f0\\f0e1d2c3b4a5"
+    },
+    "directPath": {
+      "beatmapFile": "1\\1a\\1a2b3c4d5e6f",
+      "beatmapBackground": "b\\b9\\b9c8d7e6f5a4",
+      "beatmapAudio": "f\\f0\\f0e1d2c3b4a5",
+      "beatmapFolder": "",
+      "skinFolder": ""
+    }
+  },
+  "jsonV2Stable": {
+    "client": "stable",
+    "server": "ppy.sh",
+    "state": { "number": 5, "name": "selectPlay" },
+    "folders": { "game": "C:\\osu!", "skin": "Default", "songs": "C:\\osu!\\Songs", "beatmap": "123 A - T" },
+    "files": { "beatmap": "A - T (M) [Hard].osu", "background": "bg.jpg", "audio": "audio.mp3" },
+    "directPath": {
+      "beatmapFile": "123 A - T\\A - T (M) [Hard].osu",
+      "beatmapBackground": "123 A - T\\bg.jpg",
+      "beatmapAudio": "123 A - T\\audio.mp3",
+      "beatmapFolder": "123 A - T",
+      "skinFolder": "Default"
+    }
+  },
+  "precise": {
+    "keys": {
+      "k1": { "isPressed": true, "count": 101 },
+      "k2": { "isPressed": false, "count": 99 },
+      "m1": { "isPressed": false, "count": 120 },
+      "m2": { "isPressed": true, "count": 87 }
+    },
+    "hitErrors": [3, -4],
+    "tourney": []
+  }
+}

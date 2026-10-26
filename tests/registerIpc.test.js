@@ -13,6 +13,7 @@ import { registerMarathonIpc } from "../app/marathonIpc.js";
 import { registerRecommendIpc } from "../app/recommendIpc.js";
 import { registerCreateIpc } from "../app/createIpc.js";
 import { registerExportIpc } from "../app/exportIpc.js";
+import { OVERLAY_CHANNELS } from "../app/overlay/overlayManager.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (file) => stripComments(readFileSync(path.join(root, file), "utf8"));
@@ -104,8 +105,9 @@ const preload = stripComments(preloadRaw);
 
 test("every channel the preload invokes or sends has a handler in main", () => {
     const { ipcMain } = registerAll();
-    const handled = new Set([...ipcMain.handled, ...mainHandled]);
-    const listened = new Set([...ipcMain.listened, ...mainListened]);
+    // the overlay block uses the overlay's own channels, registered by app/overlay/overlayManager.js
+    const handled = new Set([...ipcMain.handled, ...mainHandled, ...OVERLAY_CHANNELS.handle]);
+    const listened = new Set([...ipcMain.listened, ...mainListened, ...OVERLAY_CHANNELS.on]);
     const invoked = [...preload.matchAll(/ipcRenderer\.invoke\("([\w-]+)"/g)].map((m) => m[1]);
     const sent = [...preload.matchAll(/ipcRenderer\.send(?:Sync)?\("([\w-]+)"/g)].map((m) => m[1]);
     assert.ok(invoked.length >= 19, `only ${invoked.length} invokes found`);
@@ -115,7 +117,7 @@ test("every channel the preload invokes or sends has a handler in main", () => {
 
 test("every event the preload listens to is sent by main or a tab module", () => {
     const appCode = ["app/main.js", "app/profileService.js", "app/analysisIpc.js", "app/rateIpc.js", "app/marathonIpc.js", "app/recommendIpc.js",
-        "app/createIpc.js", "app/exportIpc.js"]
+        "app/createIpc.js", "app/exportIpc.js", "app/overlay/overlayManager.js"]
         .map(source).join("\n");
     const events = [...preload.matchAll(/ipcRenderer\.on\("([\w-]+)"/g)].map((m) => m[1]);
     assert.ok(events.includes("profile-changed"));
@@ -125,7 +127,7 @@ test("every event the preload listens to is sent by main or a tab module", () =>
 
 test("the preload groups its methods in marked blocks, one per tab", () => {
     const names = [...preloadRaw.matchAll(/\/\/ >>> (\w+)/g)].map((m) => m[1]);
-    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks"]);
+    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks", "overlay"]);
     for (const name of names) {
         assert.equal(preloadRaw.split(`// >>> ${name}`).length - 1, 1, name);
         assert.ok(preloadRaw.indexOf(`// >>> ${name}`) < preloadRaw.indexOf(`// <<< ${name}`), `${name} is closed after it opens`);
@@ -137,4 +139,5 @@ test("the preload groups its methods in marked blocks, one per tab", () => {
     assert.match(inBlock("rate"), /rateInfo[\s\S]*ratePreview[\s\S]*rateCreate/);
     assert.match(inBlock("marathon"), /marathonAddCurrent[\s\S]*marathonDan[\s\S]*marathonCreate/);
     assert.match(inBlock("picks"), /recPlayer[\s\S]*onRecDownloadProgress/);
+    assert.match(inBlock("overlay"), /overlayGet[\s\S]*overlaySet[\s\S]*overlaySetEdit[\s\S]*overlayOpenSettings[\s\S]*onOverlaySettings/);
 });

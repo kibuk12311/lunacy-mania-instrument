@@ -8,7 +8,7 @@ import { setLang } from "../src/i18n/i18n.js";
 const frames = JSON.parse(await readFile(new URL("./fixtures/tosu-v2-frames.json", import.meta.url), "utf8"));
 
 test("song select without mods", () => {
-    assert.deepEqual(parseFrame(frames.songSelectNoMod), { state: "songselect", checksum: "aaa111", rate: 1, mods: [] });
+    assert.deepEqual(parseFrame(frames.songSelectNoMod), { state: "songselect", checksum: "aaa111", rate: 1, mods: [], client: null });
 });
 
 test("song select with DT uses tosu rate", () => {

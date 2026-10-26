@@ -33,7 +33,7 @@ test("no Tech chip and no rate chip at 1x without tech", () => {
 
 test("state texts", () => {
     const cases = [
-        [{ screen: "waiting-osu" }, "Ждём osu!…"],
+        [{ screen: "waiting-osu" }, "Ждём osu! (stable или lazer)…"],
         [{ screen: "loading" }, "Считаем…"],
         [{ screen: "result", result: { kind: "not-rice", reason: "keys", keys: 7 } }, "Не 4K (7k)"],
         [{ screen: "result", result: { kind: "not-rice", reason: "ln", keys: 4 } }, "LN-карта — не считаем"],
@@ -133,7 +133,7 @@ const CYRILLIC = /[А-Яа-яЁё]/;
 
 test("English: state texts", () => inEnglish(() => {
     const cases = [
-        [{ screen: "waiting-osu" }, "Waiting for osu!…"],
+        [{ screen: "waiting-osu" }, "Waiting for osu! (stable or lazer)…"],
         [{ screen: "loading" }, "Calculating…"],
         [{ screen: "result", result: { kind: "not-rice", reason: "mode", keys: 4 } }, "Not osu!mania"],
         [{ screen: "result", result: { kind: "not-rice", reason: "keys", keys: 7 } }, "Not 4K (7k)"],

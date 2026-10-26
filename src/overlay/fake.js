@@ -5,6 +5,14 @@ import { LANE_SPAN_MS } from "./session.js";
 
 const STEP_MS = 95; // one fake note every this many ms, its lane from a fixed pattern
 const PATTERN = [0, 2, 1, 3, 0, 3, 1, 2, 2, 0, 3, 1];
+const FAKE_MAP_MS = 90_000; // the made-up map the NPS preview plays through, again and again
+const kpsAt = (ms) => 9 + 3 * Math.sin(ms / 1700) + 1.2 * Math.sin(ms / 430);
+// the made-up map's density: a quiet intro, two denser stretches, a short outro
+const PROFILE = Array.from({ length: 160 }, (_, i) => {
+    const edge = Math.min(1, i / 12, (159 - i) / 8);
+    return Math.max(0, edge * (9 + 4 * Math.sin(i / 11) + 2 * Math.sin(i / 3.1)));
+});
+const PEAK = Math.max(...PROFILE) + 1.5;
 
 export function fakeSnapshot(clockMs = 0) {
     const t = Math.max(0, clockMs);
@@ -18,7 +26,12 @@ export function fakeSnapshot(clockMs = 0) {
     const pressed = [0, 1, 2, 3].map((col) => bars.some((b) => b.col === col && b.start <= t && b.end >= t));
     const notes = Math.floor(t / STEP_MS);
     const hits = { max: 1532 + notes, n300: 364 + Math.floor(notes / 5), n200: 41, n100: 9, n50: 2, miss: 3 };
-    const history = Array.from({ length: 40 }, (_, i) => Math.round(9 + 3 * Math.sin((t / 1000 + i / 4) / 1.7) + (i % 9 === 4 ? 2 : 0)));
+    // the same shape as the KPS meter's history: 10 s on a 100 ms grid, then the point at t
+    const last = Math.floor(t / 100) * 100;
+    const values = Array.from({ length: 101 }, (_, i) => kpsAt(last - (100 - i) * 100));
+    values.push(kpsAt(t));
+    const progress = (t % FAKE_MAP_MS) / FAKE_MAP_MS;
+    const npsNow = PROFILE[Math.min(PROFILE.length - 1, Math.round(progress * (PROFILE.length - 1)))];
     return {
         phase: "playing",
         running: true,
@@ -28,7 +41,8 @@ export function fakeSnapshot(clockMs = 0) {
         ratio: formatRatio(hits.max, hits.n300),
         accuracy: maniaAccuracy(hits),
         ur: 98.42,
-        kps: { now: history[history.length - 1], max: 14, history },
+        kps: { now: kpsAt(t), max: 14, history: { values, shift: (t - last) / 100 } },
+        nps: { ready: true, now: npsNow, peak: PEAK, profile: PROFILE, progress },
         lanes: {
             keys: 4,
             source: "map",

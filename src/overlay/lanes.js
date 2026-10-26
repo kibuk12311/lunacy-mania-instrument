@@ -1,5 +1,6 @@
 // Presses per lane for the key-lines widget, from one of two sources (times are map milliseconds):
-// "keys" — tosu's key overlay counters, when they move (osu! stable has no key overlay in mania, so usually they don't);
+// "keys" — tosu's key overlay counters, when they move (osu! stable has no key overlay in mania, so there they don't;
+//          osu! lazer reports its play's key counters, in 4K the four lanes);
 // "map"  — rebuilt from the judgements: each new judgement takes the next note of the map near the live time
 //          (osu!stable judges a hold note twice, on press and on release), and a hit note becomes a press in its lane.
 // Misses are given to the oldest notes taken; a note left far behind (a missed frame, a count that drifted) is dropped.

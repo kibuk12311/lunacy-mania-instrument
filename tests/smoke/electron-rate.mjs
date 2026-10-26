@@ -1,12 +1,15 @@
-// Run with: npx electron tests/smoke/electron-rate.mjs <out-dir> [lang=en] [width=320]
+// Run with: npx electron tests/smoke/electron-rate.mjs <out-dir> [lang=en] [width=320] [lazer]
 // The "Рейт" tab end to end at 460×760 (or another width): the real rate handlers (registerRateIpc) over a
 // synthetic LN map in <out-dir>/song-*, a fake analysis (dan = 12 + 3·(rate − 1), an LN chart has none), presets
 // in <out-dir>/user-data-*.
 // Turns on No LN, finds the rate for the picked dan, counts the dans of a batch, saves a preset, creates three
 // copies (ffmpeg on a few seconds of silence), checks nothing sticks out sideways, and takes screenshots.
+// lazer: the map sits in a fake osu! lazer file store (<out-dir>/lazer-store-*/files/a/ab/<hash>, as tosu reports it);
+// the copies must come out as one .osz in <out-dir>/docs-*/карты (opened through a stub, never for real) and the
+// store must stay as it was.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { registerRateIpc } from "../../app/rateIpc.js";
 import { lnShare } from "../../src/rate/chartTransform.js";
@@ -20,9 +23,12 @@ const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith("electr
 const outDir = path.resolve(args.find((a) => !a.includes("=")) ?? path.join(here, "rate-out"));
 const lang = setLang(args.includes("lang=en") ? "en" : "ru");
 const width = Number(args.find((a) => a.startsWith("width="))?.slice(6)) || 460;
-const run = width === 460 ? lang : `${lang}-${width}`; // names this run's files
+const lazer = args.includes("lazer");
+const run = `${width === 460 ? lang : `${lang}-${width}`}${lazer ? "-lazer" : ""}`; // names this run's files
 const userData = path.join(outDir, `user-data-${run}`);
 const songDir = path.join(outDir, `song-${run}`);
+const storeDir = path.join(outDir, `lazer-store-${run}`);
+const docsDir = path.join(outDir, `docs-${run}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 app.setPath("userData", userData); // never the real app's folder
 
@@ -43,6 +49,28 @@ function songFolder() {
     writeFileSync(path.join(songDir, "audio.wav"), Buffer.concat([h, Buffer.alloc(n * 2)]));
     return osuPath;
 }
+
+// the same map as lazer keeps it: every file under its hash, no names, no set folder
+function lazerStore(osuPath) {
+    rmSync(storeDir, { recursive: true, force: true });
+    rmSync(docsDir, { recursive: true, force: true });
+    const put = (hash, from) => {
+        const dir = path.join(storeDir, "files", hash[0], hash.slice(0, 2));
+        mkdirSync(dir, { recursive: true });
+        renameSync(from, path.join(dir, hash));
+        return path.join(dir, hash);
+    };
+    // an online set id, which the .osz for lazer must not carry
+    writeFileSync(osuPath, readFileSync(osuPath, "utf8").replace(/\[Metadata\]\r?\n/, "[Metadata]\nBeatmapSetID:555\n"), "utf8");
+    return {
+        client: "lazer",
+        path: put("3c5d7e9f1a2b4c6d", osuPath),
+        audioPath: put("a1b2c3d4e5f60718", path.join(songDir, "audio.wav")),
+        backgroundPath: null,
+    };
+}
+const listing = (dir) => readdirSync(dir, { recursive: true }).map((n) => path.join(dir, n))
+    .filter((f) => statSync(f).isFile()).map((f) => `${path.relative(dir, f)} ${statSync(f).size} ${statSync(f).mtimeMs}`).sort();
 
 function fakeResult(text, rate) {
     if (lnShare(text) > 0.15) return { kind: "not-rice", reason: "ln", keys: 4 };
@@ -67,14 +95,19 @@ app.whenReady().then(async () => {
         { rate: 1.45, pitch: true, od: 8.5, hp: 7.5, mirror: true, noLn: true },
     ]));
     const osuPath = songFolder();
+    const source = lazer ? lazerStore(osuPath) : null;
+    const storeBefore = lazer ? listing(storeDir) : null;
+    const opened = [];
     let win = null;
     ipcMain.on("get-lang", (event) => { event.returnValue = lang; });
     registerRateIpc({
         ipcMain,
-        tosu: { beatmapPath: async () => osuPath },
+        tosu: lazer ? { beatmapPath: async () => source.path, beatmap: async () => source } : { beatmapPath: async () => osuPath },
+        // a stub: the smoke never hands a file to the real osu!
+        shell: { openPath: async (file) => { opened.push(file); return ""; } },
         analysis,
         ffmpegPath: async () => (await import("ffmpeg-static")).default,
-        paths: { userData },
+        paths: lazer ? { userData, docsDir, mapsDir: path.join(docsDir, "карты") } : { userData },
         send: (channel, payload) => win?.webContents.send(channel, payload),
         log: (line) => console.log("log", line),
     });
@@ -147,7 +180,15 @@ app.whenReady().then(async () => {
     await js(`document.getElementById("rate-batch-create").click();`);
     await waitFor(`document.getElementById("rate-batch-status").innerText.length > 0 && document.getElementById("rate-batch-stop").hidden`, 60000);
     report.created = await text("rate-batch-status");
-    report.files = readdirSync(songDir).sort();
+    report.files = lazer ? readdirSync(path.join(docsDir, "карты")).sort() : readdirSync(songDir).sort();
+    if (lazer) {
+        report.lazerNote = await js(`!document.getElementById("rate-lazer-note").hidden && document.getElementById("rate-lazer-note").innerText`);
+        report.opened = opened.map((f) => path.relative(outDir, f));
+        report.storeUntouched = JSON.stringify(listing(storeDir)) === JSON.stringify(storeBefore);
+        const osz = readFileSync(opened[0] ?? "");
+        report.oszHasNoSetId = !osz.includes("BeatmapSetID:555") && osz.includes("BeatmapSetID:-1");
+        report.copiedOut = readdirSync(path.join(docsDir, "lazer"), { recursive: true }).sort();
+    }
 
     // nothing may stick out sideways
     report.overflow = await js(`(() => {
@@ -169,7 +210,9 @@ app.whenReady().then(async () => {
     report.presetsAfterReload = await js(`[...document.querySelectorAll("#rate-presets .rate-chip > span")].map((s) => s.textContent)`);
 
     console.log(JSON.stringify(report, null, 2));
-    const ok = !report.overflow.scroll && !report.overflow.page && !report.overflow.wide.length;
+    const lazerOk = !lazer || (report.lazerNote && report.opened.length === 1 && report.storeUntouched && report.oszHasNoSetId
+        && report.files.length === 1 && report.files[0].endsWith(".osz"));
+    const ok = lazerOk && !report.overflow.scroll && !report.overflow.page && !report.overflow.wide.length;
     app.exit(ok ? 0 : 2);
 }).catch((error) => {
     console.error("smoke failed:", error?.stack ?? error);

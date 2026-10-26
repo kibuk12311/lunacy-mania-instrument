@@ -1,8 +1,12 @@
-// Run with: npx electron tests/smoke/electron-overlay.mjs <out dir> — the in-game overlay against a fake tosu.
-// The fake tosu (HTTP + WebSocket on a free port, never 24077) serves a made-up 4K map and plays it: song select,
-// then a play with judgements every 100 ms and a precise feed whose key counters never move (as in mania).
+// Run with: npx electron tests/smoke/electron-overlay.mjs <out dir> [--lazer] — the in-game overlay against a fake tosu.
+// The fake tosu (HTTP + WebSocket on a free port, never 24077) serves a made-up 4K map and plays it: song select
+// (with a stray play and results frame in it), then a play with judgements every 100 ms and a precise feed whose
+// key counters never move (as in mania). --lazer: the fake tosu reads osu! lazer instead, as tosu v4.26.3 sends it:
+// client "lazer", DT at lazer's own 1.2 speed, and a precise feed without a clock whose key counters are the play's
+// four lanes, so the key lines must come from the keys. Either way one stray song-select frame in the middle of the
+// play must not start it over.
 // The widget windows are made headless (never put on the screen) and captured: every widget in every style, in
-// Russian and in English, plus the edit mode and the settings window. User data goes into <out dir>/user-data.
+// Russian and in English, plus the edit mode and the settings window. User data goes into <out dir>/user-data (lazer-user-data with --lazer).
 // Exits 1 when a check fails.
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { createServer } from "node:http";
@@ -14,8 +18,11 @@ import { createOverlay } from "../../app/overlay/overlayManager.js";
 import { STYLES, WIDGETS } from "../../src/overlay/settings.js";
 
 const outDir = path.resolve(process.argv.slice(2).find((a) => !a.startsWith("-") && !a.endsWith(".mjs")) ?? "overlay-smoke");
+const lazer = process.argv.includes("--lazer");
+const RATE = lazer ? 1.2 : 1; // map ms per real ms
+const prefix = lazer ? "lazer-" : ""; // names this run's screenshots
 mkdirSync(outDir, { recursive: true });
-app.setPath("userData", path.join(outDir, "user-data"));
+app.setPath("userData", path.join(outDir, `${prefix}user-data`));
 let lang = "ru";
 let failed = false;
 const check = (ok, what) => {
@@ -48,6 +55,21 @@ const kindOf = (i) => {
     return r < 790 ? "geki" : r < 960 ? "300" : r < 985 ? "katu" : r < 993 ? "100" : r < 997 ? "50" : "0";
 };
 
+// lazer's precise feed (tosu v4.26.3: keys, hitErrors, tourney, no clock): each lane's presses so far, lit while held
+function lazerKeys(now) {
+    const counts = [0, 0, 0, 0];
+    const held = [false, false, false, false];
+    if (now !== null) {
+        for (const n of notes) {
+            if (n.t > now) break;
+            counts[n.col] += 1;
+            if (now <= (n.end ?? n.t + 40)) held[n.col] = true;
+        }
+    }
+    const key = (i) => ({ isPressed: held[i], count: counts[i] });
+    return { keys: { k1: key(0), k2: key(1), m1: key(2), m2: key(3) }, hitErrors: [], tourney: [] };
+}
+
 // ---- the fake tosu ----
 async function startFakeTosu() {
     const http = createServer((req, res) => {
@@ -68,7 +90,7 @@ async function startFakeTosu() {
     });
     await new Promise((r) => http.listen(0, "127.0.0.1", r));
     let playStart = null; // real ms when the play's clock was 0
-    const live = () => (playStart === null ? 0 : Date.now() - playStart);
+    const live = () => (playStart === null ? 0 : (Date.now() - playStart) * RATE);
     const frame = () => {
         const now = live();
         const hits = { geki: 0, "300": 0, katu: 0, "100": 0, "50": 0, "0": 0 };
@@ -77,22 +99,26 @@ async function startFakeTosu() {
             hits[kindOf(i)] += 1;
             errors.push(((i * 37) % 31) - 15);
         }
+        const mods = lazer ? { name: "DT", array: [{ acronym: "DT", settings: { speed_change: RATE } }], rate: RATE } : { name: "", array: [], rate: 1 };
         return {
+            ...(lazer ? { client: "lazer", server: "ppy.sh" } : {}),
             state: { number: playStart === null ? 5 : 2, name: playStart === null ? "selectPlay" : "play" },
             beatmap: { checksum: "smoke-map", time: { live: now }, mode: { number: 3, name: "mania" } },
-            play: { mode: { number: 3 }, hits, hitErrorArray: errors.slice(-200), unstableRate: 0, accuracy: null, mods: { name: "", array: [], rate: 1 } },
+            play: { mode: { number: 3 }, hits, hitErrorArray: errors.slice(-200), unstableRate: 0, accuracy: null, mods },
         };
     };
     const timers = [
         setInterval(() => { const j = JSON.stringify(frame()); for (const ws of main.clients) ws.send(j); }, 100),
         setInterval(() => {
-            const j = JSON.stringify({ currentTime: live(), keys: { k1: { isPressed: false, count: 0 }, k2: { isPressed: false, count: 0 }, m1: { isPressed: false, count: 0 }, m2: { isPressed: false, count: 0 } } });
+            const j = JSON.stringify(lazer ? lazerKeys(playStart === null ? null : live()) : { currentTime: live(), keys: { k1: { isPressed: false, count: 0 }, k2: { isPressed: false, count: 0 }, m1: { isPressed: false, count: 0 }, m2: { isPressed: false, count: 0 } } });
             for (const ws of precise.clients) ws.send(j);
         }, 20),
     ];
     return {
         port: http.address().port,
         startPlay: () => { playStart = Date.now() - 500; },
+        // one frame of another state in the middle of song select (what used to flash the windows)
+        blip: (number) => { const j = JSON.stringify({ ...frame(), state: { number } }); for (const ws of main.clients) ws.send(j); },
         close: () => { timers.forEach(clearInterval); main.close(); precise.close(); http.close(); },
     };
 }
@@ -126,12 +152,30 @@ app.whenReady().then(async () => {
         overlay.apply({ enabled: true });
         await sleep(600);
         check(WIDGETS.every((w) => !overlay.isShown(w)), "song select: no widget shown");
+        tosu.blip(2);
+        await sleep(250);
+        tosu.blip(7);
+        await sleep(700);
+        check(WIDGETS.every((w) => !overlay.isShown(w)), "song select with a stray play and results frame: still none shown");
         tosu.startPlay();
         for (let i = 0; i < 50 && !WIDGETS.every((w) => overlay.isShown(w)); i += 1) await sleep(100);
         check(WIDGETS.every((w) => overlay.isShown(w)), "playing: every widget shown");
         const win = (w) => overlay.windowFor(w);
         check(win("kps").isAlwaysOnTop(), "always on top");
         await sleep(2500); // let the play run
+
+        // one stray song-select frame in the middle of the play: the play goes on, its KPS max and lanes are kept
+        await win("keys").webContents.executeJavaScript(`window.__last = null; window.overlayApi.onState((s) => { window.__last = s; }); true`);
+        await sleep(300);
+        const beforeBlip = await win("keys").webContents.executeJavaScript("window.__last && { max: window.__last.kps.max, counts: window.__last.lanes.counts, source: window.__last.lanes.source }");
+        tosu.blip(5);
+        await sleep(300);
+        const afterBlip = await win("keys").webContents.executeJavaScript("window.__last && { max: window.__last.kps.max, counts: window.__last.lanes.counts, phase: window.__last.phase }");
+        console.log("blip", JSON.stringify({ beforeBlip, afterBlip }));
+        check(afterBlip && beforeBlip && afterBlip.max >= beforeBlip.max && afterBlip.max > 0, "a stray song-select frame keeps the KPS max");
+        check(afterBlip && afterBlip.counts.reduce((a, b) => a + b, 0) >= beforeBlip.counts.reduce((a, b) => a + b, 0), "and the lane counts");
+        check(WIDGETS.every((w) => overlay.isShown(w)), "and the widgets stay");
+        if (lazer) check(beforeBlip?.source === "keys", `lazer: the key lines come from lazer's key counters (${beforeBlip?.source})`);
 
         const state = await win("judgements").webContents.executeJavaScript(`({
             text: document.getElementById("widget").innerText,
@@ -142,9 +186,38 @@ app.whenReady().then(async () => {
         const keys = await win("keys").webContents.executeJavaScript(
             `[...document.querySelectorAll(".l-count")].map((n) => Number(n.textContent))`);
         console.log("key counts", JSON.stringify(keys));
-        check(keys.length === 4 && keys.every((n) => n > 0), "the key lines count presses in all four lanes (from the map)");
+        check(keys.length === 4 && keys.every((n) => n > 0), `the key lines count presses in all four lanes (from the ${lazer ? "keys" : "map"})`);
         const kpsNow = await win("kps").webContents.executeJavaScript(`Number(document.querySelector(".k-now-value").textContent)`);
-        check(kpsNow >= 8 && kpsNow <= 14, `KPS now is about 11 (${kpsNow})`);
+        check(kpsNow >= 8 * RATE && kpsNow <= 14 * RATE, `KPS now is about ${Math.round(11 * RATE)} (${kpsNow})`);
+
+        // a steady 11 notes a second: the KPS number and the graph should hold still. The snapshots the window gets
+        // are recorded for 2.4 s (the shown number, the graph's top); a few frames of the graph are captured on the way.
+        await win("kps").webContents.executeJavaScript(`window.__snaps = []; window.__err = null; window.overlayApi.onState((s) => { try {
+            window.__snaps.push({ shown: document.querySelector(".k-now-value")?.textContent, max: s.kps.max,
+                top: Math.max(10, ...(Array.isArray(s.kps.history) ? s.kps.history : s.kps.history.values)) }); } catch (e) { window.__err = String(e); } }); true`);
+        for (let i = 0; i < 6; i += 1) {
+            await sleep(400);
+            await capture(win("kps"), `${prefix}kps-seq-${i}.png`);
+        }
+        const snaps = await win("kps").webContents.executeJavaScript("window.__snaps");
+        check(!(await win("kps").webContents.executeJavaScript("window.__err")), "the KPS snapshots read");
+        const shownValues = [...new Set(snaps.map((s) => s.shown))];
+        const flips = snaps.filter((s, i) => i && s.shown !== snaps[i - 1].shown).length;
+        const tops = [...new Set(snaps.map((s) => Math.round(s.top * 10) / 10))];
+        console.log("kps steadiness", JSON.stringify({ snapshots: snaps.length, shownValues, flips, tops: tops.slice(0, 12) }));
+        writeFileSync(path.join(outDir, `${prefix}kps-steadiness.json`), JSON.stringify({ shownValues, flips, tops, snaps }, null, 1));
+        check(snaps.length > 40 && shownValues.length <= 2 && flips <= 2, `a steady stream: the KPS number holds (${shownValues.join("/")}, ${flips} changes)`);
+
+        // the map's NPS: the made-up map is a note every 90 ms, 11.1 a second, from start to end
+        const nps = await win("nps").webContents.executeJavaScript(`({
+            now: Number(document.querySelector(".k-now-value").textContent),
+            peak: Number(document.querySelector(".k-max-value").textContent),
+            text: document.getElementById("widget").innerText,
+            graph: (() => { const c = document.querySelector(".n-graph"); return c ? [c.width, c.height] : null; })() })`);
+        console.log("nps", JSON.stringify(nps));
+        check(nps.now >= 10 * RATE && nps.now <= 12 * RATE && nps.peak >= 10 * RATE && nps.peak <= 13 * RATE, `NPS now ${nps.now}, peak ${nps.peak} (about ${Math.round(11.1 * RATE)})`);
+        check(Array.isArray(nps.graph) && nps.graph[0] > 50, "NPS draws the map's graph");
+        check(nps.text.includes("NPS") && nps.text.includes(lang === "ru" ? "пик" : "peak"), `NPS labels (${nps.text.replace(/\s+/g, " ")})`);
 
         for (const l of ["ru", "en"]) {
             if (l !== lang) {
@@ -156,15 +229,17 @@ app.whenReady().then(async () => {
             for (const style of STYLES) {
                 overlay.apply({ widgets: Object.fromEntries(WIDGETS.map((w) => [w, { style }])) });
                 await sleep(500);
-                for (const w of WIDGETS) await capture(win(w), `${l}-${style}-${w}.png`);
+                for (const w of WIDGETS) await capture(win(w), `${prefix}${l}-${style}-${w}.png`);
             }
+            const peakLabel = await win("nps").webContents.executeJavaScript(`document.querySelector(".k-max .k-unit").textContent`);
+            check(peakLabel === (l === "ru" ? "пик" : "peak"), `${l}: NPS peak label "${peakLabel}"`);
             const cls = await win("kps").webContents.executeJavaScript(`document.getElementById("widget").className`);
             check(cls.includes(`style-${STYLES.at(-1)}`), `${l}: the style class follows the setting (${cls})`);
             // the edit mode: dashed frame, badge, corner grip
             overlay.apply({ widgets: Object.fromEntries(WIDGETS.map((w) => [w, { style: "card" }])) });
             overlay.setEdit(true);
             await sleep(400);
-            for (const w of WIDGETS) await capture(win(w), `${l}-edit-${w}.png`);
+            for (const w of WIDGETS) await capture(win(w), `${prefix}${l}-edit-${w}.png`);
             const editing = await win("kps").webContents.executeJavaScript(`document.body.classList.contains("editing")`);
             check(editing, `${l}: the edit mode reaches the widget`);
             overlay.setEdit(false);
@@ -175,7 +250,7 @@ app.whenReady().then(async () => {
             const height = await sw.webContents.executeJavaScript("document.documentElement.scrollHeight");
             sw.setContentSize(600, Math.min(height, 4000));
             await sleep(500);
-            await capture(sw, `${l}-settings.png`, { background: false });
+            await capture(sw, `${prefix}${l}-settings.png`, { background: false });
             const title = await sw.webContents.executeJavaScript("document.querySelector('h1').textContent");
             check(title === (l === "ru" ? "Оверлей в игре" : "In-game overlay"), `${l}: settings heading "${title}"`);
             sw.destroy();

@@ -18,6 +18,19 @@ export default {
         ru: "Готово: [{version}] в папке карты. Если в osu! не появилась — нажми F5 в выборе карт.",
         en: "Done: [{version}] is in the map's folder. If osu! doesn't show it, press F5 in song select.",
     },
+    // osu! lazer has no Songs folder: the copies are packed into an .osz that lazer imports as a set of its own
+    "rate.html.lazerNote": {
+        ru: "osu! lazer: копии собираются в один .osz в Документы\\Lunacy mania\\карты и открываются в lazer — он импортирует их отдельным набором карт.",
+        en: "osu! lazer: the copies are packed into one .osz in the app's maps folder (Documents\\Lunacy mania) and opened in lazer — it imports them as a separate beatmap set.",
+    },
+    "rate.doneLazer": {
+        ru: "Готово: [{version}] — .osz открыт в osu! lazer, карта появится отдельным набором после импорта. Файл: {file}",
+        en: "Done: [{version}] — the .osz is open in osu! lazer, the map shows up as a separate set once it's imported. File: {file}",
+    },
+    "rate.doneLazerNotOpened": {
+        ru: "Готово: [{version}], но .osz не открылся сам — перетащи его в окно osu! lazer. Файл: {file}",
+        en: "Done: [{version}], but the .osz didn't open by itself — drag it into the osu! lazer window. File: {file}",
+    },
     // the badge after the map's name when it has holds
     "rate.lnBadge": { ru: "LN {pct}%", en: "LN {pct}%" },
     "rate.lnBadgeTitle": { ru: "Доля длинных нот (холдов) на карте", en: "Share of long notes (holds) in the map" },
@@ -55,6 +68,15 @@ export default {
     "rate.batch.done.one": { ru: "Готово: {n} карта. F5 в выборе карт.", en: "Done: {n} map. Press F5 in song select." },
     "rate.batch.done.few": { ru: "Готово: {n} карты. F5 в выборе карт.", en: "Done: {n} maps. Press F5 in song select." },
     "rate.batch.done.many": { ru: "Готово: {n} карт. F5 в выборе карт.", en: "Done: {n} maps. Press F5 in song select." },
+    // lazer: every copy of the batch in one .osz
+    "rate.batch.lazerOpened": {
+        ru: "Готово, копий: {n} — один .osz открыт в osu! lazer (импорт отдельным набором). Файл: {file}",
+        en: "Done, {n} copies — one .osz is open in osu! lazer (imported as a separate set). File: {file}",
+    },
+    "rate.batch.lazerNotOpened": {
+        ru: "Готово, копий: {n}, но .osz не открылся сам — перетащи его в окно osu! lazer. Файл: {file}",
+        en: "Done, {n} copies, but the .osz didn't open by itself — drag it into the osu! lazer window. File: {file}",
+    },
     "rate.batch.failed": { ru: "Не вышло: ×{rate} ({message})", en: "Failed: ×{rate} ({message})" },
     "rate.batch.stopped": { ru: "Остановлено", en: "Stopped" },
     "rate.batch.rowTitle": { ru: "Поставить этот рейт", en: "Use this rate" },

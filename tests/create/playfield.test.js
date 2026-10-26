@@ -51,6 +51,7 @@ function fakePlayer() {
         pause() { p.playing = false; for (const fn of listeners) fn({ playing: false }); },
         toggle() { p.toggles += 1; if (p.playing) p.pause(); else p.play(); },
         setHitClicks(times) { p.hitClicks = times; },
+        setVolume(v) { p.volume = v; },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     };
     return p;
@@ -88,6 +89,17 @@ test("the controls: speed and hit clicks remembered, the play button follows the
         await fire(slider, "input");
         assert.equal(field.speed, 12);
         assert.equal(dom.storage.get("create-play-speed"), "12");
+
+        // the volume: 100 % by default, remembered, given to the player as 0–1
+        const volume = nodes.filter((n) => n.type === "range")[1];
+        assert.equal(volume.value, "100");
+        assert.equal(player.volume, 1);
+        volume.value = "35";
+        await fire(volume, "input");
+        assert.equal(field.volume, 35);
+        assert.equal(player.volume, 0.35);
+        assert.equal(dom.storage.get("create-play-volume"), "35");
+        assert.ok(textOf(dom.$("play-controls")).includes("Volume"));
 
         // another tab, or the window hidden: pause
         dom.window.dispatchEvent({ type: "tab-shown", detail: "create" });

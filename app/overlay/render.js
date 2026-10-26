@@ -1,9 +1,9 @@
-// The three overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
+// The four overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
 // mountWidget(root, widget, { style, show }) builds it once; update(snapshot) puts in the numbers,
-// paint(clock) draws the canvases (the KPS graph, the key lines) for the map time of the moment.
+// paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment.
 import { t } from "../../src/i18n/i18n.js";
 import { formatAccuracy, formatCount, formatKps, formatUr } from "../../src/overlay/format.js";
-import { graphPoints, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
+import { easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
 
 const JUDGEMENTS = [
     { key: "max", label: () => "MAX", cls: "j-max" },
@@ -82,50 +82,136 @@ function mountJudgements(box, { style, show }) {
     };
 }
 
-function mountKps(box, { style, show, zoom }) {
+const NOW_TAU_MS = 180; // the big number eases towards the rate this fast
+const TOP_TAU_MS = 600; // and a graph's scale towards its ceiling
+
+// a graph's polyline, stroked and filled underneath; returns the points
+function strokeGraph(ctx, pts, { w, h, style, colour, glow }) {
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.lineWidth = style === "classic" ? 2.5 : 1.6;
+    ctx.strokeStyle = colour;
+    ctx.shadowColor = glow ? colour : "transparent";
+    ctx.shadowBlur = glow ?? 0;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.lineTo(w, h);
+    ctx.lineTo(pts[0]?.x ?? 0, h);
+    ctx.closePath();
+    ctx.globalAlpha = style === "minimal" ? 0.12 : 0.22;
+    ctx.fillStyle = colour;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+}
+
+// the head of the KPS and NPS widgets: a big number with its unit, a smaller one with its label
+function mountHead(box, show, { nowKey, nowUnit, maxKey, maxLabel }) {
     let now = null;
     let max = null;
     const head = el("div", "k-head");
-    if (show.now) {
+    if (show[nowKey]) {
         const n = el("span", "k-now");
-        n.append((now = el("b", "k-now-value", "0")), el("span", "k-unit", t("overlay.label.kpsNow")));
+        n.append((now = el("b", "k-now-value", "0")), el("span", "k-unit", nowUnit));
         head.append(n);
     }
-    if (show.max) {
+    if (show[maxKey]) {
         const m = el("span", "k-max");
-        m.append(el("span", "k-unit", t("overlay.label.max")), (max = el("b", "k-max-value", "0")));
+        m.append(el("span", "k-unit", maxLabel), (max = el("b", "k-max-value", "0")));
         head.append(m);
     }
     if (head.children.length) box.append(head);
+    // the big number: eased towards the latest value every frame, and only changed when it is clearly another integer
+    let target = 0;
+    let eased = null;
+    let shown = 0;
+    let last = null;
+    return {
+        set(nowValue, maxValue) {
+            target = nowValue;
+            if (max) max.textContent = formatKps(maxValue);
+        },
+        tick(ms) {
+            eased = easeToward(eased, target, last === null ? 0 : ms - last, NOW_TAU_MS);
+            last = ms;
+            shown = holdRounded(shown, eased);
+            if (now) now.textContent = formatKps(shown);
+        },
+    };
+}
+
+function mountKps(box, { style, show, zoom }) {
+    const head = mountHead(box, show, {
+        nowKey: "now", nowUnit: t("overlay.label.kpsNow"), maxKey: "max", maxLabel: t("overlay.label.max"),
+    });
     let canvas = null;
     if (show.graph) box.append((canvas = el("canvas", "k-graph")));
     let history = [];
+    let ceiling = graphCeiling(0);
+    let top = null;
+    let last = null;
     return {
         update(s) {
-            if (now) now.textContent = formatKps(s.kps.now);
-            if (max) max.textContent = formatKps(s.kps.max);
+            head.set(s.kps.now, s.kps.max);
             history = s.kps.history;
+            ceiling = graphCeiling(s.kps.max);
         },
         paint() {
+            const ms = performance.now();
+            head.tick(ms);
+            top = easeToward(top, ceiling, last === null ? 0 : ms - last, TOP_TAU_MS);
+            last = ms;
             if (!canvas || !canvas.clientWidth) return;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const pal = paletteFor(style);
-            const pts = graphPoints(history, { width: w, height: h });
+            strokeGraph(ctx, graphPoints(history, { width: w, height: h, top }), { w, h, style, colour: pal.graph, glow: pal.glow });
+        },
+        style,
+    };
+}
+
+// the map's notes per second: now at the play position, the map's peak, the whole map with a playhead
+function mountNps(box, { style, show, zoom }) {
+    const head = mountHead(box, show, {
+        nowKey: "now", nowUnit: t("overlay.label.npsNow"), maxKey: "peak", maxLabel: t("overlay.label.peak"),
+    });
+    let canvas = null;
+    if (show.graph) box.append((canvas = el("canvas", "k-graph n-graph")));
+    let nps = { ready: false, profile: [], progress: 0, peak: 0 };
+    return {
+        update(s) {
+            nps = s.nps ?? nps;
+            head.set(nps.now, nps.peak);
+        },
+        paint() {
+            head.tick(performance.now());
+            if (!canvas || !canvas.clientWidth) return;
+            const { ctx, w, h } = sizedContext(canvas, zoom);
+            const pal = paletteFor(style);
+            if (!nps.profile.length) return;
+            // the map's own peak is the top: the profile is fixed for the play, so is its scale
+            const pts = graphPoints(nps.profile, { width: w, height: h, top: graphCeiling(Math.max(...nps.profile), 5) });
+            const x = Math.round(nps.progress * w);
+            // the part still ahead, dimmed; the part played, tinted in full
+            ctx.save();
+            ctx.globalAlpha = 0.45;
+            strokeGraph(ctx, pts, { w, h, style, colour: pal.nps });
+            ctx.restore();
+            ctx.save();
             ctx.beginPath();
-            pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-            ctx.lineWidth = style === "classic" ? 2.5 : 1.6;
-            ctx.strokeStyle = pal.graph;
-            ctx.shadowColor = pal.glow ? pal.graph : "transparent";
-            ctx.shadowBlur = pal.glow ?? 0;
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-            ctx.lineTo(w, h);
-            ctx.lineTo(0, h);
-            ctx.closePath();
-            ctx.globalAlpha = style === "minimal" ? 0.12 : 0.22;
-            ctx.fillStyle = pal.graph;
-            ctx.fill();
+            ctx.rect(0, 0, x, h);
+            ctx.clip();
+            strokeGraph(ctx, pts, { w, h, style, colour: pal.nps, glow: pal.glow });
+            ctx.fillStyle = pal.nps;
+            ctx.globalAlpha = style === "minimal" ? 0.12 : 0.2;
+            ctx.fillRect(0, 0, x, h);
+            ctx.restore();
+            // the playhead
             ctx.globalAlpha = 1;
+            ctx.fillStyle = pal.lit;
+            ctx.shadowColor = pal.glow ? pal.lit : "transparent";
+            ctx.shadowBlur = pal.glow ?? 0;
+            ctx.fillRect(Math.min(w - 2, Math.max(0, x - 1)), 0, 2, h);
+            ctx.shadowBlur = 0;
         },
         style,
     };
@@ -191,7 +277,7 @@ function mountKeys(box, { style, show, zoom }) {
     };
 }
 
-const MOUNTS = { judgements: mountJudgements, kps: mountKps, keys: mountKeys };
+const MOUNTS = { judgements: mountJudgements, kps: mountKps, nps: mountNps, keys: mountKeys };
 
 // root gets the style's classes; returns { update(snapshot), paint(clock) }
 export function mountWidget(root, widget, { style, show, zoom = 1 }) {

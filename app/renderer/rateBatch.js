@@ -147,7 +147,11 @@ async function createChecked() {
         }
         const made = r.made?.length ?? 0;
         const parts = [];
-        if (made) parts.push(t(plural(made, DONE), { n: made }));
+        if (made) {
+            parts.push(r.client === "lazer"
+                ? t(r.opened ? "rate.batch.lazerOpened" : "rate.batch.lazerNotOpened", { n: made, file: r.osz ?? "" })
+                : t(plural(made, DONE), { n: made }));
+        }
         for (const f of r.failed ?? []) parts.push(t("rate.batch.failed", { rate: f.rate, message: f.message }));
         if (r.cancelled) parts.push(t("rate.batch.stopped"));
         status(parts.join(" "));

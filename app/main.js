@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { pickDocsDir } from "./docsFolder.js";
 import { installTosu, isPortFree, killOrphanTosu, startTosu, TOSU_PORT } from "./tosuManager.js";
 import { createWorkerClient } from "./workerClient.js";
-import { connectTosu, fetchCurrentOsu, fetchCurrentBeatmapPath, fetchProfile } from "./tosuClient.js";
+import { connectTosu, fetchCurrentOsu, fetchCurrentBeatmap, fetchCurrentBeatmapPath, fetchProfile } from "./tosuClient.js";
 import { createRecommender } from "../src/recommend/recommend.js";
 import { createTrackerApi } from "../src/recommend/tracker.js";
 import { createDownloader } from "../src/recommend/download.js";
@@ -51,6 +51,7 @@ let fullHeight = null;
 let tosuFailure = null; // () → why tosu failed, in the current language (the window asks again after a language switch)
 let updater = null; // app/updater.js: GitHub Releases updates (the tray's two update items)
 let overlay = null; // app/overlay/overlayManager.js: the in-game overlay widgets (the tray's «Overlay» submenu)
+let osuClient = null; // the osu! tosu reads: "stable" | "lazer" | null (none, or tosu down)
 
 const stateFile = () => path.join(app.getPath("userData"), "window.json");
 
@@ -96,6 +97,15 @@ async function launchTosu(controller) {
             if (error && !quitting) tosuFailed(controller, () => error.retell?.() ?? error.message);
         },
     });
+}
+
+// which osu! tosu reads (from its frames), told to the window when it changes
+function setOsuClient(client) {
+    const next = client === "stable" || client === "lazer" ? client : null;
+    if (next === osuClient) return;
+    osuClient = next;
+    log(`osu! client ${next ?? "none"}`);
+    send("osu-client", { client: next });
 }
 
 function tosuFailed(controller, reason) {
@@ -186,6 +196,7 @@ function createWindow() {
         send("settings", settings());
         // a tosu failure shown before a language switch is told again in the new language
         send("view", lastView.screen === "tosu-failed" && tosuFailure ? { ...lastView, reason: tosuFailure() } : lastView);
+        send("osu-client", { client: osuClient });
         hooks.emit("window-load");
     });
     win.on("moved", persist);
@@ -226,7 +237,7 @@ async function main() {
     overlay = createOverlay({
         electron: { BrowserWindow, ipcMain, globalShortcut, screen },
         userData: app.getPath("userData"), port: TOSU_PORT, t, log,
-        onChange: () => buildTray(), icon: path.join(here, "assets", "icon.png"),
+        onChange: () => buildTray(), icon: path.join(here, "assets", "icon.png"), mainWindow: () => win,
     });
     tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", "icon.png")).resize({ width: 32, height: 32, quality: "best" }));
     tray.setToolTip(TITLE);
@@ -268,7 +279,11 @@ async function main() {
         ipcMain, shell, send, log, t,
         paths: Object.freeze({ userData, docsDir, mapsDir, downloadsDir }),
         insideMaps,
-        tosu: Object.freeze({ port: TOSU_PORT, beatmapPath: () => fetchCurrentBeatmapPath(TOSU_PORT), profile: () => fetchProfile(TOSU_PORT) }),
+        // beatmap(): { client: "stable" | "lazer", path, audioPath, backgroundPath }; on lazer the paths are in its file store
+        tosu: Object.freeze({
+            port: TOSU_PORT, beatmapPath: () => fetchCurrentBeatmapPath(TOSU_PORT), beatmap: () => fetchCurrentBeatmap(TOSU_PORT),
+            profile: () => fetchProfile(TOSU_PORT), client: () => osuClient,
+        }),
         worker: workerClient,
         analysis,
         resultCache,
@@ -332,10 +347,12 @@ async function main() {
             const key = `${frame.state} ${frame.checksum} ${frame.rate}`;
             if (key !== lastFrameKey) log(`frame ${key}`);
             lastFrameKey = key;
+            setOsuClient(frame.client);
             controller.onFrame(frame);
         },
         onStatus: (status) => {
             if (status === "connected") everConnected = true;
+            if (status === "down") setOsuClient(null);
             log(`tosu ${status}`);
             controller.onTosuStatus(status);
         },

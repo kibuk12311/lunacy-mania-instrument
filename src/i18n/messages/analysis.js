@@ -22,7 +22,16 @@ export default {
     "analysis.loading": { ru: "Считаем…", en: "Calculating…" },
     "analysis.tosuFailed": { ru: "Не удалось запустить tosu: {reason}", en: "Couldn't start tosu: {reason}" },
     "analysis.osuUpdated": { ru: "osu! обновилась? Нужна новая версия приложения", en: "Did osu! update? You need a new version of the app" },
-    "analysis.waiting": { ru: "Ждём osu!…", en: "Waiting for osu!…" },
+    // tosu reads osu! lazer from offsets it downloads for each lazer version; a brand-new lazer may not have them yet
+    "analysis.lazerUpdated": {
+        ru: "osu! lazer обновилась? tosu сам скачивает данные под новую версию lazer — подожди пару минут и перезапусти приложение; не помогло — нужна новая версия приложения",
+        en: "Did osu! lazer update? tosu downloads what it needs for each new lazer version by itself — wait a couple of minutes and restart the app; if that doesn't help, you need a new version of the app",
+    },
+    "analysis.waiting": { ru: "Ждём osu! (stable или lazer)…", en: "Waiting for osu! (stable or lazer)…" },
+    // the badge in the footer: which osu! tosu is reading
+    "analysis.client.stable": { ru: "stable", en: "stable" },
+    "analysis.client.lazer": { ru: "lazer", en: "lazer" },
+    "analysis.client.title": { ru: "Подключено: osu! {client}", en: "Connected: osu! {client}" },
 
     // >>> analysis v2: the blocks under the card (app/renderer/analysisExtras.js) and the analysis-rate channel
     // the difficulty line and the pattern strip
