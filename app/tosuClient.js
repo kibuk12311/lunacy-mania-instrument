@@ -27,8 +27,10 @@ export function parseFrame(json) {
     };
 }
 
+// path and parse let another reader (the overlay) use the same reconnecting socket for other tosu feeds.
 export function connectTosu({
     port, retryMs = 2000, connectTimeoutMs = 5000, WebSocketImpl = globalThis.WebSocket, onFrame, onStatus,
+    path = "/websocket/v2", parse = parseFrame,
 }) {
     let socket = null;
     let closed = false;
@@ -38,7 +40,7 @@ export function connectTosu({
     function open() {
         if (closed) return;
         onStatus?.("connecting");
-        const current = new WebSocketImpl(`ws://127.0.0.1:${port}/websocket/v2`);
+        const current = new WebSocketImpl(`ws://127.0.0.1:${port}${path}`);
         socket = current;
         let opened = false;
         let finished = false;
@@ -61,7 +63,7 @@ export function connectTosu({
         });
         current.addEventListener("message", (event) => {
             try {
-                onFrame(parseFrame(JSON.parse(String(event.data))));
+                onFrame(parse(JSON.parse(String(event.data))));
             } catch {
                 // a malformed frame is skipped; the next one replaces it
             }

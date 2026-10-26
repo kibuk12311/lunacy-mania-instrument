@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+    <title>Lunacy mania</title>
+    <link rel="stylesheet" href="overlay.css">
+    <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+    <main>
+        <h1 data-i18n="overlay.set.heading">Оверлей в игре</h1>
+        <section class="general">
+            <label class="check"><input type="checkbox" id="enabled"> <span data-i18n="overlay.set.enabled">Показывать оверлей во время игры</span></label>
+            <label class="check"><input type="checkbox" id="results"> <span data-i18n="overlay.set.showOnResults">И на экране результатов</span></label>
+            <button id="edit" class="edit"></button>
+            <p class="hint" id="hint"></p>
+        </section>
+        <div id="widgets"></div>
+        <h2 data-i18n="overlay.set.styles">Все стили (пример с выдуманными числами)</h2>
+        <div id="gallery"></div>
+    </main>
+    <script type="module" src="settings.js"></script>
+</body>
+</html>

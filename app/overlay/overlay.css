@@ -1,0 +1,142 @@
+/* The overlay widgets in five styles. Shared by the widget windows (transparent) and the previews in the settings window.
+   .ov = one widget; .style-* picks the look; .ov-judgements / .ov-kps / .ov-keys the layout. */
+
+.ov {
+    --fg: #f2f2f2;
+    --muted: #a7a3b5;
+    --max: #ffffff;
+    --c300: #f5c66b;
+    --c200: #7be08f;
+    --c100: #8fd3ff;
+    --c50: #b7b7c7;
+    --miss: #ff6b6b;
+    --accent: #f5c66b;
+    width: 100%;
+    height: 100%;
+    color: var(--fg);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    overflow: hidden;
+}
+.ov * { box-sizing: border-box; }
+.ov-box { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; }
+
+/* ---- judgements ---- */
+.j-rows { display: flex; flex-direction: column; gap: 1px; }
+.j-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; line-height: 1.25; }
+.j-label { color: var(--muted); font-size: 0.85em; margin-right: 6px; }
+.j-row .j-label { color: inherit; font-weight: 700; opacity: 0.95; }
+.j-value { font-weight: 600; color: var(--fg); }
+.j-max { color: var(--max); }
+.j-300 { color: var(--c300); }
+.j-200 { color: var(--c200); }
+.j-100 { color: var(--c100); }
+.j-50 { color: var(--c50); }
+.j-miss { color: var(--miss); }
+.j-ratio { display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px; }
+.j-ratio-value { font-size: 20px; font-weight: 800; color: var(--accent); }
+.j-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.j-foot b { font-weight: 700; }
+
+/* ---- kps ---- */
+.k-head { display: flex; justify-content: space-between; align-items: baseline; }
+.k-now-value { font-size: 34px; font-weight: 800; line-height: 1; color: var(--accent); }
+.k-unit { font-size: 12px; color: var(--muted); margin: 0 4px; }
+.k-max-value { font-size: 16px; font-weight: 700; }
+.k-graph { flex: 1; width: 100%; min-height: 20px; display: block; }
+
+/* ---- key lines ---- */
+.l-lines { flex: 1; width: 100%; min-height: 20px; display: block; }
+.l-keys { display: flex; gap: 3px; }
+.l-key {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 3px 0; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--lane) 55%, transparent);
+    background: color-mix(in srgb, var(--lane) 10%, transparent); min-width: 0;
+}
+.l-key.lit { background: color-mix(in srgb, var(--lane) 70%, transparent); color: #111; }
+.l-name { font-size: 10px; opacity: 0.8; }
+.l-count { font-size: 13px; font-weight: 700; }
+
+/* ---- Минимал: text only, small, a shadow to read over any background ---- */
+.style-minimal { text-shadow: 0 1px 2px #000, 0 0 3px #000; --muted: #dddddd; }
+.style-minimal .ov-box { padding: 4px 6px; gap: 2px; }
+.style-minimal .j-row { font-size: 12px; }
+.style-minimal .j-ratio-value { font-size: 15px; }
+.style-minimal .j-foot { font-size: 12px; }
+.style-minimal .k-now-value { font-size: 24px; color: #fff; }
+.style-minimal .l-key { border: none; background: none; text-shadow: 0 1px 2px #000; }
+.style-minimal .l-key.lit { background: #ffffff33; color: #fff; }
+
+/* ---- Карточка: a dark rounded panel ---- */
+.style-card .ov-box {
+    background: rgba(20, 18, 28, 0.86); border: 1px solid #2c2840; border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.style-card .j-ratio { border-top: 1px solid #2c2840; padding-top: 4px; }
+
+/* ---- Неон: glowing accents on a near-black glass ---- */
+.style-neon {
+    --fg: #e9fdff; --muted: #7fe9ff; --accent: #22f0ff; --max: #ffffff; --c300: #ffe14d;
+    --c200: #4dff9a; --c100: #4dc3ff; --c50: #b48cff; --miss: #ff3d71;
+}
+.style-neon .ov-box {
+    background: rgba(5, 3, 18, 0.72); border: 1px solid #22f0ff; border-radius: 10px;
+    box-shadow: 0 0 10px #22f0ff88, inset 0 0 12px #ff3df244;
+}
+.style-neon .j-row, .style-neon .j-foot, .style-neon .k-head { text-shadow: 0 0 6px currentColor; }
+.style-neon .j-ratio-value, .style-neon .k-now-value { color: #ff3df2; text-shadow: 0 0 8px #ff3df2, 0 0 16px #ff3df2aa; }
+.style-neon .l-key { box-shadow: 0 0 6px var(--lane); }
+.style-neon .l-key.lit { box-shadow: 0 0 14px var(--lane); }
+
+/* ---- Классика osu!: bold outlined numbers like a skin's counters ---- */
+.style-classic {
+    --max: #fffbe0; --c300: #ffcc22; --c200: #33dd55; --c100: #2299ff; --c50: #aaaaaa; --miss: #ee2222; --accent: #ffcc22;
+    font-family: "Arial Black", "Segoe UI Black", "Segoe UI", sans-serif;
+}
+.style-classic .ov-box { padding: 6px 8px; }
+.style-classic .j-row { font-size: 16px; font-style: italic; -webkit-text-stroke: 0.6px #000; text-shadow: 2px 2px 0 #000; }
+.style-classic .j-value { color: #fff; }
+.style-classic .j-max .j-label {
+    background: linear-gradient(90deg, #ff6b6b, #ffd36b, #7be08f, #8fd3ff, #c9a2ff); -webkit-background-clip: text; color: transparent;
+    -webkit-text-stroke: 0;
+}
+.style-classic .j-ratio-value, .style-classic .k-now-value { font-style: italic; -webkit-text-stroke: 1px #000; text-shadow: 3px 3px 0 #000; }
+.style-classic .j-ratio-value { font-size: 24px; }
+.style-classic .k-now-value { font-size: 40px; }
+.style-classic .j-foot, .style-classic .k-head { text-shadow: 2px 2px 0 #000; }
+.style-classic .l-key { border-radius: 0; border: 2px solid #000; background: #00000066; }
+.style-classic .l-key.lit { background: var(--lane); }
+
+/* ---- Компакт: one line ---- */
+.style-compact .ov-box {
+    flex-direction: row; align-items: center; gap: 10px; padding: 0 12px; white-space: nowrap;
+    background: rgba(12, 12, 16, 0.78); border-radius: 20px;
+}
+.style-compact .j-rows { flex-direction: row; gap: 8px; }
+.style-compact .j-row { font-size: 13px; }
+.style-compact .j-label { margin-right: 3px; }
+.style-compact .j-ratio { margin: 0; gap: 4px; }
+.style-compact .j-ratio .j-label { display: none; }
+.style-compact .j-ratio-value { font-size: 15px; }
+.style-compact .j-foot { gap: 8px; }
+.style-compact .k-now-value { font-size: 20px; }
+.style-compact .k-head { gap: 6px; }
+.style-compact .k-graph { height: 26px; flex: 1; }
+.style-compact.ov-keys .ov-box { flex-direction: column; border-radius: 12px; padding: 6px 8px; gap: 3px; }
+.style-compact .l-key { flex-direction: row; gap: 4px; padding: 1px 0; }
+
+/* ---- edit mode: the window can be dragged, the corner resizes ---- */
+.editing { -webkit-app-region: drag; }
+.editing .ov { outline: 1px dashed #f5c66b; outline-offset: -1px; background: rgba(20, 18, 28, 0.35); }
+.edit-badge {
+    display: none; position: fixed; left: 3px; top: 3px; max-width: calc(100% - 22px); padding: 1px 6px; border-radius: 6px;
+    font: 600 10px "Segoe UI", sans-serif; color: #f5c66b; background: rgba(20, 18, 28, 0.9);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: 2;
+}
+.grip {
+    display: none; position: fixed; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+    -webkit-app-region: no-drag;
+    background: linear-gradient(135deg, transparent 50%, #f5c66b 50%, #f5c66b 60%, transparent 60%, transparent 72%, #f5c66b 72%, #f5c66b 82%, transparent 82%);
+}
+.editing .edit-badge, .editing .grip { display: block; }

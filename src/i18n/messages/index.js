@@ -8,5 +8,6 @@ import marathon from "./marathon.js";
 import app from "./app.js";
 import core from "./core.js";
 import gen from "./gen.js";
+import overlay from "./overlay.js";
 
-export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen };
+export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay };

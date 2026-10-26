@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, shell, utilityProcess } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, screen, shell, utilityProcess } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,6 +24,7 @@ import { createGeneratedStore } from "./generatedStore.js";
 import { createPngRenderer } from "./renderPng.js";
 import { loadWindowState, saveWindowState, DEFAULT_WINDOW } from "./windowState.js";
 import { createUpdater, isPortableRun, updateMode } from "./updater.js";
+import { createOverlay } from "./overlay/overlayManager.js";
 import { createCache } from "../src/core/cache.js";
 import { setLang, getLang, langForLocale, LANGS, LANG_NAMES, t } from "../src/i18n/i18n.js";
 import appTexts from "../src/i18n/messages/app.js";
@@ -49,6 +50,7 @@ let quitting = false;
 let fullHeight = null;
 let tosuFailure = null; // () → why tosu failed, in the current language (the window asks again after a language switch)
 let updater = null; // app/updater.js: GitHub Releases updates (the tray's two update items)
+let overlay = null; // app/overlay/overlayManager.js: the in-game overlay widgets (the tray's «Overlay» submenu)
 
 const stateFile = () => path.join(app.getPath("userData"), "window.json");
 
@@ -137,6 +139,7 @@ function buildTray() {
         { label: t("app.tray.show"), click: () => { win.show(); win.focus(); } },
         { label: t("app.tray.alwaysOnTop"), type: "checkbox", checked: state.alwaysOnTop, click: () => toggle("alwaysOnTop") },
         { label: t("app.tray.compact"), type: "checkbox", checked: state.compact, click: () => toggle("compact") },
+        ...(overlay?.trayItems() ?? []),
         {
             // both languages at once ("Язык / Language"), so it can be found whichever one is on
             label: LANGS.map((l) => appTexts["app.tray.language"][l]).join(" / "),
@@ -158,6 +161,7 @@ function switchLang(lang) {
     persist();
     buildTray();
     if (win && !win.isDestroyed()) win.webContents.reload();
+    overlay?.reload();
 }
 
 function createWindow() {
@@ -219,6 +223,11 @@ async function main() {
         autoCheck: () => state.autoUpdate,
     });
     updater.start();
+    overlay = createOverlay({
+        electron: { BrowserWindow, ipcMain, globalShortcut, screen },
+        userData: app.getPath("userData"), port: TOSU_PORT, t, log,
+        onChange: () => buildTray(), icon: path.join(here, "assets", "icon.png"),
+    });
     tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", "icon.png")).resize({ width: 32, height: 32, quality: "best" }));
     tray.setToolTip(TITLE);
     tray.on("click", () => { win.show(); win.focus(); });
@@ -339,6 +348,7 @@ app.on("before-quit", async (event) => {
     event.preventDefault();
     try {
         tosuSocket?.close();
+        overlay?.dispose();
         await tosu?.stop();
         workerClient?.dispose();
         generatorClient?.dispose();

@@ -1,0 +1,39 @@
+/* The overlay settings window: the app's dark look, a card per widget with a live preview, a gallery of every style. */
+:root { --bg: #14121c; --panel: #1c1928; --line: #2c2840; --text: #eeeeee; --muted: #8a8698; --gold: #f5c66b; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px "Segoe UI", system-ui, sans-serif; }
+main { padding: 14px 16px 24px; max-width: 760px; margin: 0 auto; }
+h1 { font-size: 18px; margin: 0 0 10px; color: var(--gold); }
+h2 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+.general { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.hint { color: var(--muted); margin: 4px 0 0; line-height: 1.4; }
+button.edit {
+    align-self: flex-start; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 12px; cursor: pointer; font: inherit;
+}
+button.edit.on { border-color: var(--gold); color: var(--gold); }
+.wcard { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; margin-top: 12px; padding: 10px 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.wcard h3 { margin: 0; font-size: 14px; grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+.wcard .controls { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.wcard.off .controls > :not(.keep), .wcard.off .stage { opacity: 0.4; }
+.styles { display: flex; flex-wrap: wrap; gap: 4px; }
+.styles button { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 2px 9px;
+    cursor: pointer; font: inherit; font-size: 12px; }
+.styles button.sel { border-color: var(--gold); color: var(--gold); }
+.slider { display: grid; grid-template-columns: 90px 1fr 42px; align-items: center; gap: 6px; }
+.slider span:last-child { text-align: right; color: var(--muted); }
+.slider input { width: 100%; accent-color: var(--gold); }
+.shows { display: flex; flex-direction: column; gap: 3px; }
+.stage {
+    border-radius: 8px; padding: 10px; display: flex; align-items: center; justify-content: center; min-width: 170px;
+    background: radial-gradient(circle at 30% 20%, #3a3157 0%, #1d1830 55%, #0d0b15 100%);
+    overflow: hidden;
+}
+.stage .frame { flex: none; }
+#gallery { display: flex; flex-direction: column; gap: 10px; }
+.grow { display: flex; flex-direction: column; gap: 4px; }
+.grow .name { color: var(--gold); font-weight: 600; }
+.grow .stage { justify-content: flex-start; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+@media (max-width: 520px) { .wcard { grid-template-columns: 1fr; } }
