@@ -16,11 +16,12 @@ import { registerExportIpc } from "../app/exportIpc.js";
 import { registerInterludeIpc } from "../app/interludeIpc.js";
 import { registerLocalProfileIpc } from "../app/localProfileIpc.js";
 import { registerSessionIpc } from "../app/sessionIpc.js";
+import { registerSkinIpc } from "../app/skinIpc.js";
 import { OVERLAY_CHANNELS } from "../app/overlay/overlayManager.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (file) => stripComments(readFileSync(path.join(root, file), "utf8"));
-const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerLocalProfileIpc, registerSessionIpc };
+const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerLocalProfileIpc, registerSessionIpc, registerSkinIpc };
 // deps whose use means I/O (worker, network, disk, the window, shell); none may be called while registering
 const IO_DEPS = ["worker", "analysis", "resultCache", "trackerApi", "recommender", "downloader", "profile", "tosu", "shell", "ffmpegPath", "renderPng", "send", "generatorClient", "generatedStore", "interlude", "dialog", "card", "localProfile"];
 
@@ -130,7 +131,7 @@ test("every event the preload listens to is sent by main or a tab module", () =>
 
 test("the preload groups its methods in marked blocks, one per tab", () => {
     const names = [...preloadRaw.matchAll(/\/\/ >>> (\w+)/g)].map((m) => m[1]);
-    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks", "interlude", "profile", "overlay"]);
+    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks", "interlude", "profile", "skin", "overlay"]);
     for (const name of names) {
         assert.equal(preloadRaw.split(`// >>> ${name}`).length - 1, 1, name);
         assert.ok(preloadRaw.indexOf(`// >>> ${name}`) < preloadRaw.indexOf(`// <<< ${name}`), `${name} is closed after it opens`);

@@ -10,7 +10,7 @@ import { codeFiles, stripComments } from "./helpers/source.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CYR = /[А-Яа-яЁё]/;
 // Folder names on disk stay as they are in both languages, so old maps keep their place; "Русский" names itself.
-const ALLOWED = ["Анализатор данов", "карты", "скачанные", "коллекции", "марафон", "Русский"];
+const ALLOWED = ["Анализатор данов", "карты", "скачанные", "коллекции", "марафон", "скины", "Русский"];
 
 test("no Russian text outside the message files (app/ and src/)", () => {
     const leftovers = [];

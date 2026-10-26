@@ -12,7 +12,8 @@ import { FLAVOUR_FAMILY, flavourName, isFlavour } from "../../src/gen/flavours.j
 
 const escape = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-export const LADDER_RATES = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
+// 0.9x … 1.5x in steps of 0.05
+export const LADDER_RATES = Array.from({ length: 13 }, (_, i) => Math.round((0.9 + i * 0.05) * 100) / 100);
 // pattern names stay English in both languages, as in the card's bars
 const FAMILY_NAMES = { stream: "Stream", jumpstream: "Jumpstream", handstream: "Handstream", chordjack: "Chordjacks", jack: "Jacks", tech: "Tech" };
 const BAND_KEYS = {

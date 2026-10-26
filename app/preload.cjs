@@ -176,6 +176,24 @@ contextBridge.exposeInMainWorld("danApi", {
     trackerRecent: () => ipcRenderer.invoke("tracker-recent"),
     trackerOpenSite: () => ipcRenderer.invoke("tracker-open-site"),
     // <<< profile
+    // >>> skin
+    // the Skin tab (app/skinIpc.js): working copies of osu! skins, the builder, the exports
+    skinList: () => ipcRenderer.invoke("skin-list"),
+    skinOpen: (request) => ipcRenderer.invoke("skin-open", request),
+    // { file? }: an .osk / .zip dropped on the tab, or a dialog without it
+    skinImport: (request) => ipcRenderer.invoke("skin-import", request),
+    skinCreate: (request) => ipcRenderer.invoke("skin-create", request),
+    skinBuild: (request) => ipcRenderer.invoke("skin-build", request),
+    skinSave: (request) => ipcRenderer.invoke("skin-save", request),
+    skinImages: (request) => ipcRenderer.invoke("skin-images", request),
+    skinReplaceImage: (request) => ipcRenderer.invoke("skin-replace-image", request),
+    skinExportOsk: (request) => ipcRenderer.invoke("skin-export-osk", request),
+    skinSaveCopy: (request) => ipcRenderer.invoke("skin-save-copy", request),
+    skinExportInterlude: (request) => ipcRenderer.invoke("skin-export-interlude", request),
+    skinReopen: (request) => ipcRenderer.invoke("skin-reopen", request),
+    skinRecent: () => ipcRenderer.invoke("skin-recent"),
+    skinShow: (request) => ipcRenderer.invoke("skin-show", request),
+    // <<< skin
     // >>> overlay
     // the in-game overlay's own channels (app/overlay/overlayManager.js), the same ones its settings window uses
     overlayGet: () => ipcRenderer.invoke("overlay-get"),

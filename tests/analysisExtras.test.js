@@ -148,10 +148,11 @@ test("ladderRows: the now mark sits on the current rate, growth on its rate, the
 });
 
 test("ladderRates puts a current rate off the list in its place; formatRate keeps one decimal at least", () => {
-    assert.deepEqual(LADDER_RATES, [0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5]);
+    assert.deepEqual(LADDER_RATES, [0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5]);
     assert.deepEqual(ladderRates(1.5), LADDER_RATES);
     assert.deepEqual(ladderRates(0.75), [0.75, ...LADDER_RATES]);
-    assert.deepEqual(ladderRates(1.15), [0.9, 1, 1.1, 1.15, 1.2, 1.3, 1.4, 1.5]);
+    assert.deepEqual(ladderRates(1.15), LADDER_RATES);
+    assert.deepEqual(ladderRates(1.12), [0.9, 0.95, 1, 1.05, 1.1, 1.12, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5]);
     assert.deepEqual([1, 0.9, 1.15, 0.75].map(formatRate), ["1.0", "0.9", "1.15", "0.75"]);
 });
 

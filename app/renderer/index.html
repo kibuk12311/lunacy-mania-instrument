@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="create.css">
     <link rel="stylesheet" href="export.css">
     <link rel="stylesheet" href="styles-profile.css">
+    <link rel="stylesheet" href="styles-skin.css">
 </head>
 <body>
     <nav class="tabs">
@@ -21,7 +22,63 @@
         <button data-tab="recommend" title="Рекомендации карт" data-i18n="html.tab.recommend" data-i18n-title="html.tab.recommendTitle">Подбор</button>
         <button data-tab="profile" data-i18n="profile.html.tab">Профиль</button>
         <button data-tab="create" title="Создать карту" data-i18n="html.tab.create" data-i18n-title="html.tab.createTitle">Создать</button>
+        <button data-tab="skin" title="Скин osu!mania 4K: редактор и конструктор" data-i18n="skin.html.tab" data-i18n-title="skin.html.tabTitle">Скин</button>
     </nav>
+    <section id="skin-tab" hidden>
+        <div id="sk-start" class="group">
+            <div class="flabel" data-i18n="skin.html.source">Скин</div>
+            <div id="sk-source"></div>
+            <div id="sk-pane-osu" class="group" hidden>
+                <div class="row">
+                    <select id="sk-osu-list" class="sk-select"></select>
+                    <button id="sk-osu-refresh" class="small" title="Перечитать папку скинов" data-i18n-title="skin.html.refreshTitle">⟳</button>
+                </div>
+                <div id="sk-osu-note" class="muted"></div>
+                <button id="sk-open" class="primary" data-i18n="skin.html.open">Открыть копию скина</button>
+                <div class="muted" data-i18n="skin.html.openNote">Скин копируется в рабочую папку приложения; папка osu! только читается, оригинал не меняется.</div>
+            </div>
+            <div id="sk-pane-file" class="drop" hidden>
+                <div data-i18n="skin.html.drop">Перетащи сюда .osk или .zip скина, или</div>
+                <button id="sk-import" class="small" data-i18n="skin.html.import">Выбрать файл…</button>
+            </div>
+            <div id="sk-pane-new" class="group" hidden>
+                <div id="sk-builder-new"></div>
+                <button id="sk-create" class="primary" data-i18n="skin.html.create">Создать скин</button>
+            </div>
+            <div id="sk-recent" class="group sk-recent"></div>
+        </div>
+        <div id="sk-session" class="group" hidden>
+            <div class="row sk-head">
+                <div class="sk-title"><b id="sk-name"></b> <span id="sk-origin" class="muted"></span></div>
+                <button id="sk-undo" class="small" title="Отменить" data-i18n-title="skin.html.undo">↶</button>
+                <button id="sk-redo" class="small" title="Повторить" data-i18n-title="skin.html.redo">↷</button>
+                <button id="sk-close" class="small" title="Закрыть и выбрать другой скин" data-i18n="skin.html.close" data-i18n-title="skin.html.closeTitle">Другой</button>
+            </div>
+            <div id="sk-no4k" class="muted sk-warn" hidden data-i18n="skin.html.no4k">В этом скине нет раздела [Mania] для 4K — он появится с первой правкой.</div>
+            <canvas id="sk-preview" class="sk-preview"></canvas>
+            <div id="sk-preview-controls" class="sk-preview-controls"></div>
+            <div id="sk-editor" class="sk-editor"></div>
+            <details id="sk-builder-box" class="sk-group">
+                <summary data-i18n="skin.html.builder">Конструктор: перерисовать картинки</summary>
+                <div id="sk-builder"></div>
+                <div class="flabel" data-i18n="skin.html.parts">Что перерисовать</div>
+                <div id="sk-parts" class="sk-parts"></div>
+                <button id="sk-rebuild" class="small" data-i18n="skin.html.rebuild">Перерисовать выбранное</button>
+            </details>
+            <div class="group">
+                <div class="flabel" data-i18n="skin.html.export">Сохранение</div>
+                <button id="sk-export-osk" class="primary" data-i18n="skin.html.exportOsk">Сохранить .osk и открыть в osu!</button>
+                <div class="muted" data-i18n="skin.html.exportOskNote">osu! stable и lazer сами импортируют .osk при открытии. Файл ложится в Документы\Lunacy mania\скины.</div>
+                <div class="row">
+                    <button id="sk-save-copy" class="small" data-i18n="skin.html.saveCopy">Сохранить копию папкой</button>
+                    <button id="sk-export-il" class="small" hidden data-i18n="skin.html.exportInterlude">Скин для Interlude (.isk)</button>
+                </div>
+                <div id="sk-il-note" class="muted"></div>
+            </div>
+        </div>
+        <div id="sk-status" class="muted sk-status"></div>
+        <div id="sk-result" class="result" hidden></div>
+    </section>
     <section id="recommend-tab" hidden>
         <div class="group">
             <div class="flabel" data-i18n="html.rec.skill">Твой скилл</div>

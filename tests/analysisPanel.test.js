@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { fakeDom, fire } from "./helpers/fakeDom.js";
 import { createLadderRunner, createAnalysisPanel } from "../app/renderer/analysisPanel.js";
 import { LADDER_RATES } from "../app/renderer/analysisExtras.js";
+// the runner tests use a fixed list of their own, whatever the ladder shows
+const OLD_STEP_RATES = [0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5];
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const RESULT = { kind: "ok", label: "Gamma mid", numeric: 13, primary: "Jumpstream", tech: false, rate: 1, durationSec: 120, msd: {} };
@@ -22,7 +24,7 @@ function manualRate() {
 test("the ladder runner asks one rate at a time, 1.0x first, never the current rate", async () => {
     const { calls, analysisRate } = manualRate();
     const rows = [];
-    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: (key, rate, row) => rows.push([key, rate, row.state]) });
+    const runner = createLadderRunner({ analysisRate, rates: OLD_STEP_RATES, onRow: (key, rate, row) => rows.push([key, rate, row.state]) });
     runner.start({ key: "a", currentRate: 1.5 });
     await flush();
     assert.deepEqual(calls.map((c) => c.rate), [1]);
@@ -41,7 +43,7 @@ test("the ladder runner asks one rate at a time, 1.0x first, never the current r
 
 test("the ladder runner: 1.0x is not asked when it is the current rate; a known rate is skipped", async () => {
     const { calls, analysisRate } = manualRate();
-    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: () => {} });
+    const runner = createLadderRunner({ analysisRate, rates: OLD_STEP_RATES, onRow: () => {} });
     runner.start({ key: "a", currentRate: 1, have: [1.1] });
     for (let i = 0; i < 5; i += 1) {
         await flush();
@@ -54,7 +56,7 @@ test("the ladder runner: 1.0x is not asked when it is the current rate; a known 
 test("the ladder runner stops on another map, and on a stale answer", async () => {
     const { calls, analysisRate } = manualRate();
     const rows = [];
-    const runner = createLadderRunner({ analysisRate, rates: LADDER_RATES, onRow: (key, rate) => rows.push([key, rate]) });
+    const runner = createLadderRunner({ analysisRate, rates: OLD_STEP_RATES, onRow: (key, rate) => rows.push([key, rate]) });
     runner.start({ key: "a", currentRate: 1 });
     await flush();
     runner.start({ key: "b", currentRate: 1 });
@@ -155,8 +157,8 @@ test("the ladder opens on a click, remembers that, and fills row by row from ana
     assert.ok(panel.html(view("a"), { compact: false }).includes("Дан на рейтах ▸"));
     await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
     assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: true }));
-    for (let i = 0; i < 10; i += 1) await flush();
-    assert.deepEqual(asked.map(([, rate]) => rate), [0.9, 1.1, 1.2, 1.3, 1.4, 1.5]);
+    for (let i = 0; i < 20; i += 1) await flush();
+    assert.deepEqual(asked.map(([, rate]) => rate), LADDER_RATES.filter((r) => r !== 1));
     const html = panel.html(view("a"), { compact: false });
     assert.ok(html.includes("Дан на рейтах ▾"));
     assert.ok(html.includes("13.5"));
@@ -168,8 +170,8 @@ test("the ladder opens on a click, remembers that, and fills row by row from ana
     assert.equal(waiting.length, 1);
     assert.ok(panel.html(view("b"), { compact: false }).includes("считаем…"));
     waiting[0].fn();
-    for (let i = 0; i < 10; i += 1) await flush();
-    assert.equal(asked.filter(([key]) => key === "b").length, 6);
+    for (let i = 0; i < 20; i += 1) await flush();
+    assert.equal(asked.filter(([key]) => key === "b").length, LADDER_RATES.length - 1);
 
     // folded again: remembered, no rows
     await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
@@ -200,8 +202,8 @@ test("a stale ladder answer stops asking for that map until the map changes", as
     stale = false;
     panel.html(view("b"), { compact: false });
     timers.at(-1).fn();
-    for (let i = 0; i < 10; i += 1) await flush();
-    assert.equal(asked.filter(([key]) => key === "b").length, 6);
+    for (let i = 0; i < 20; i += 1) await flush();
+    assert.equal(asked.filter(([key]) => key === "b").length, LADDER_RATES.length - 1);
     // compact mode stops the ladder; back from it, the rest is scheduled again
     panel.html(view("c"), { compact: true });
     assert.equal(timers.length, 2);

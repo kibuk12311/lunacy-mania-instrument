@@ -17,7 +17,7 @@ const CODE = codeFiles(root).map((file) => stripComments(readFileSync(file, "utf
 const MARKUP_KEYS = [...readFileSync(path.join(root, "app", "renderer", "index.html"), "utf8")
     .matchAll(/\bdata-i18n(?:-[a-z]+)?="([\w.]+)"/g)].map((m) => m[1]);
 // areas whose every key must be used: by a string literal in code (a t() call or a lookup table) or in the markup
-const GUARDED = ["create", "rate", "marathon", "analysis"];
+const GUARDED = ["create", "rate", "marathon", "analysis", "skin"];
 // any {slot} a text has gets a value: has → true, get → 2
 const ANY_PARAMS = new Proxy({}, { has: () => true, get: (_target, key) => (typeof key === "symbol" ? undefined : 2) });
 const CYR = /[А-Яа-яЁё]/;
@@ -56,7 +56,7 @@ test("every key the code asks for exists, and every key of the guarded areas is 
     const known = new Set(allKeys());
     assert.deepEqual([...asked].filter((key) => !known.has(key)), []);
     assert.deepEqual(MARKUP_KEYS.filter((key) => !known.has(key)), []);
-    const literals = [...CODE.matchAll(/"((?:create|rate|marathon|analysis)\.[\w.]+)"/g)].map((m) => m[1]);
+    const literals = [...CODE.matchAll(/"((?:create|rate|marathon|analysis|skin)\.[\w.]+)"/g)].map((m) => m[1]);
     const used = new Set([...literals, ...MARKUP_KEYS]);
     const ours = GUARDED.flatMap((area) => Object.keys(AREAS[area]));
     assert.deepEqual(ours.filter((key) => !used.has(key)), []);

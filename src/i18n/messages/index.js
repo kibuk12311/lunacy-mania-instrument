@@ -12,5 +12,6 @@ import overlay from "./overlay.js";
 import interlude from "./interlude.js";
 import profile from "./profile.js";
 import session from "./session.js";
+import skin from "./skin.js";
 
-export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, profile, session };
+export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, profile, session, skin };

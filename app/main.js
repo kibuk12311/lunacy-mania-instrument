@@ -34,6 +34,7 @@ import { createInterludeLive, liveText } from "./interludeLive.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { chartTimeNotes } from "../src/overlay/interludeData.js";
 import { registerSessionIpc } from "./sessionIpc.js";
+import { registerSkinIpc } from "./skinIpc.js";
 import { setLang, getLang, langForLocale, LANGS, LANG_NAMES, t } from "../src/i18n/i18n.js";
 import appTexts from "../src/i18n/messages/app.js";
 
@@ -361,6 +362,7 @@ async function main() {
     registerInterludeIpc(deps);
     registerLocalProfileIpc(deps);
     registerSessionIpc(deps);
+    registerSkinIpc(deps);
     // <<< tabs v2
 
     ipcMain.handle("open-map", (_e, file) => (insideMaps(file) ? shell.openPath(file) : t("app.noSuchFile")));
