@@ -1,9 +1,13 @@
 // Marathon (dan-course style): map, gap, map, gap … in one chart. Each map is cut to its notes (plus a lead-in and a
 // tail), played at its own rate, and starts on its own red line so its beat grid stays exact; gaps become breaks.
+// osu!mania scrolls relative to a chart's main BPM (the one that lasts longest), so every map's green lines are scaled
+// by marathon main BPM / that map's main BPM: each map scrolls in the marathon as it does on its own.
 import { rateText } from "./rateMap.js";
 import { t } from "../i18n/i18n.js";
 
 const BREAK_MIN_MS = 650; // osu! ignores shorter breaks
+const SV_MIN = 0.01;
+const SV_MAX = 10;
 const LEAD_MS = 2000;
 const TAIL_MS = 1000;
 
@@ -35,6 +39,33 @@ function parse(osuText) {
         meta: { artist: field(osuText, "Artist"), title: field(osuText, "Title"), version: field(osuText, "Version") },
     };
 }
+
+const bpmOf = (beat) => 60000 / beat;
+
+// The main BPM of red lines [{ t, beat }] over [from, to): the one that lasts longest (osu!'s base for scroll speed).
+export function mainBpm(reds, from, to) {
+    const lasts = new Map();
+    const sorted = [...reds].sort((a, b) => a.t - b.t);
+    sorted.forEach((x, i) => {
+        const start = Math.max(from, i === 0 ? from : x.t);
+        const end = Math.min(to, sorted[i + 1]?.t ?? to);
+        if (end <= start) return;
+        const bpm = Math.round(bpmOf(x.beat) * 1000) / 1000;
+        lasts.set(bpm, (lasts.get(bpm) ?? 0) + (end - start));
+    });
+    let best = null;
+    for (const [bpm, ms] of lasts) if (best === null || ms > best.ms || (ms === best.ms && bpm > best.bpm)) best = { bpm, ms };
+    return best?.bpm ?? (sorted[0] ? bpmOf(sorted[0].beat) : 120);
+}
+
+const svLine = (t, sv, base) => {
+    const defaults = ["0", "-100", "4", "1", "0", "100", "0", "0"];
+    const p = defaults.map((d, i) => (base[i] !== undefined && base[i] !== "" ? base[i] : d));
+    p[0] = String(t);
+    p[1] = fmt(-100 / Math.min(SV_MAX, Math.max(SV_MIN, sv)));
+    p[6] = "0";
+    return p.join(",");
+};
 
 // The part of a chart a marathon keeps: from leadMs before its first note to tailMs after its last note ends
 // (never before 0). notes: [{ t, end }]; null without notes.
@@ -77,14 +108,21 @@ export function buildMarathon(entries, {
         // the red line in effect at the cut, moved to its first beat inside the cut
         const reds = points.filter((x) => x.red);
         const active = [...reds].reverse().find((x) => x.t <= srcStartMs) ?? reds[0];
+        // the map's own main BPM (over the whole chart, as osu! takes it), at this rate
+        const lastNote = Math.max(...notes.map((n) => n.end ?? n.t));
+        const ownMain = mainBpm(reds, reds[0]?.t ?? 0, lastNote) * rate;
+        const seg = { ownMainBpm: ownMain };
         if (active) {
             const firstBeat = active.t + Math.ceil((srcStartMs - active.t) / active.beat - 1e-9) * active.beat;
-            timing.push({ t: out(firstBeat), line: [out(firstBeat), fmt(active.beat / rate), ...active.p.slice(2)].join(",") });
+            timing.push({ t: out(firstBeat), seg, red: true, beat: active.beat / rate, line: [out(firstBeat), fmt(active.beat / rate), ...active.p.slice(2)].join(",") });
+            // a green line in effect at the cut carries over to the cut's start
+            const green = [...points].reverse().find((x) => !x.red && x.t <= srcStartMs && x.t >= active.t);
+            if (green) timing.push({ t: out(firstBeat), seg, green: true, sv: -100 / Number(green.p[1]), p: green.p });
         }
         for (const x of points) {
             if (x === active || x.t < srcStartMs || x.t > srcEndMs) continue;
-            const beat = x.red ? fmt(x.beat / rate) : x.p[1];
-            timing.push({ t: out(x.t), line: [out(x.t), beat, ...x.p.slice(2)].join(",") });
+            if (x.red) timing.push({ t: out(x.t), seg, red: true, beat: x.beat / rate, line: [out(x.t), fmt(x.beat / rate), ...x.p.slice(2)].join(",") });
+            else timing.push({ t: out(x.t), seg, green: true, sv: -100 / Number(x.p[1]), p: x.p });
         }
 
         for (const n of notes) {
@@ -101,7 +139,24 @@ export function buildMarathon(entries, {
         cursor = outEndMs;
     });
 
-    timing.sort((a, b) => a.t - b.t);
+    // scroll speed: every map scaled to the marathon's own main BPM. A red line resets the speed to 1, so each red line
+    // gets a green one at its time (the map's green there, or 1) and every green is scaled.
+    const marathonReds = timing.filter((x) => x.red).sort((a, b) => a.t - b.t);
+    const marathonMain = mainBpm(marathonReds, 0, cursor);
+    const lines = [];
+    for (const x of timing) {
+        const factor = marathonMain / x.seg.ownMainBpm;
+        if (x.red) {
+            lines.push({ t: x.t, order: 0, line: x.line });
+            const own = timing.find((g) => g.green && g.t === x.t && g.seg === x.seg);
+            if (!own && Math.abs(factor - 1) > 1e-6) lines.push({ t: x.t, order: 1, line: svLine(x.t, factor, x.line.split(",")) });
+        } else {
+            lines.push({ t: x.t, order: 1, line: svLine(x.t, x.sv * factor, x.p) });
+        }
+    }
+    lines.sort((a, b) => a.t - b.t || a.order - b.order);
+    timing.length = 0;
+    timing.push(...lines);
     objects.sort((a, b) => a.t - b.t);
     const osuText = [
         "osu file format v14", "",

@@ -16,6 +16,9 @@ const createJobs = createGeneratorJobs({ readModel, analyze: analyzeChart, gpu: 
 // >>> analysis v2: details — {kind: "details", osuText, rate} → {kind: "details", details} | {kind: "error", message}
 import { detailsJob } from "../src/analysis/timeline.js";
 // <<< analysis v2
+// >>> dan by part — {kind: "sections", osuText, rate} → {kind: "sections", sections} | {kind: "error", message}
+import { sectionsJob } from "../src/analysis/sections.js";
+// <<< dan by part
 
 async function handle(data, post) {
     setLang(data.lang); // messages come back in the language main is in
@@ -25,6 +28,7 @@ async function handle(data, post) {
     // >>> analysis v2: details
     if (data.kind === "details") return detailsJob(data.osuText, data.rate);
     // <<< analysis v2
+    if (data.kind === "sections") return sectionsJob(data.osuText, data.rate);
     return analyzeChart(data.osuText, data.rate);
 }
 

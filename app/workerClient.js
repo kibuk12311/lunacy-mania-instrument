@@ -11,7 +11,7 @@ export function setGpuPortHook(hook) {
 }
 // <<< create
 
-export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutMs = 180_000, timingTimeoutMs = 20_000 }) {
+export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutMs = 180_000, timingTimeoutMs = 20_000, sectionsTimeoutMs = 90_000 }) {
     let worker = null;
     let disposed = false;
     let nextId = 0;
@@ -83,6 +83,8 @@ export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutM
         // >>> analysis v2: details (the strain line and pattern strip under the card, src/analysis/timeline.js)
         details: (osuText, rate) => request({ kind: "details", osuText, rate }, timeoutMs),
         // <<< analysis v2
+        // the dan by part (src/analysis/sections.js): one analysis per part, so a marathon takes a while
+        sections: (osuText, rate) => request({ kind: "sections", osuText, rate }, sectionsTimeoutMs),
         // >>> create (mapgen v3): generation, timing detection and remap; progress re-arms the timer
         generate: (payload, onProgress) => request({ kind: "generate", payload }, generateTimeoutMs, onProgress),
         detectTiming: (payload) => request({ kind: "timing", payload }, timingTimeoutMs),

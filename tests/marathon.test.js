@@ -28,7 +28,7 @@ const section = (text, name) => {
 
 // sha256 of buildMarathon's chart for A + B (1.5x, 5 s gap) from before cutRange was split out of it
 // (re-taken after the rename: only the Creator and Tags lines changed, to "Lunacy mania" and lunacy-mania-marathon)
-const BUILD_HASH = "9d4d8c8da170d55fab79b78842f48cdbecddfb985e01cd2dd7ee4ce2552b7228";
+const BUILD_HASH = "80af24012effe7296f8a44e8d0e3a2508a72b2196dd34f5332c9ba6b7d4f4ba7";
 const A = map({ title: "First", bpm: 120, offset: 1000, notes: [[3000, 0], [3500, 1], [5000, 2, 6000]] });
 const B = map({ title: "Second", bpm: 150, offset: 200, notes: [[10000, 3], [12000, 0]], sv: [[11000, -50]] });
 
@@ -51,8 +51,34 @@ test("each map gets a red line on its own beat grid, SV is carried over, the gap
     assert.equal(tp[0], "0,500,4,2,0,60,1,0");
     // map 2: beats every 400 ms from 200; first beat ≥ 8000 is 8200 → out 16000 + 200/2 = 16100, beat 200 ms at 2x
     assert.ok(tp.includes("16100,200,4,2,0,60,1,0"), tp.join(" | "));
-    assert.ok(tp.includes("17500,-50,4,2,0,60,0,0"));
+    // map 2 runs at 300 BPM (150 at 2x) in a marathon whose main BPM is map 1's 120: its speed 1 becomes 0.4 at its
+    // red line, its own SV 2 (-50) becomes 0.8 (-125), so it scrolls as it does on its own
+    assert.ok(tp.includes("16100,-250,4,2,0,60,0,0"), tp.join(" | "));
+    assert.ok(tp.includes("17500,-125,4,2,0,60,0,0"), tp.join(" | "));
     assert.ok(section(r.osuText, "Events").includes("2,6000,16000"));
+});
+
+test("every map scrolls in the marathon as on its own: SV × BPM / main BPM stays the map's own", () => {
+    const C = map({ title: "Third", bpm: 200, offset: 0, notes: [[1000, 0], [9000, 1], [20000, 2]], sv: [[5000, -200]] });
+    const r = buildMarathon([{ osuText: A, rate: 1 }, { osuText: C, rate: 1.25 }], { gapMs: 3000 });
+    const lines = section(r.osuText, "TimingPoints").map((l) => l.split(",").map(Number));
+    // A's 120 BPM lasts 6 s; C's 250 BPM (200 at 1.25x) lasts longer → the marathon's main is 250
+    const reds = lines.filter((p) => p[6] === 1);
+    const lasting = new Map();
+    reds.forEach((p, i) => lasting.set(60000 / p[1], (lasting.get(60000 / p[1]) ?? 0) + ((reds[i + 1]?.[0] ?? r.totalMs) - p[0])));
+    const marathonMain = [...lasting].sort((a, b) => b[1] - a[1])[0][0];
+    assert.equal(marathonMain, 250);
+    const speedAt = (t) => {
+        const red = [...reds].reverse().find((p) => p[0] <= t);
+        const green = [...lines].reverse().find((p) => p[6] === 0 && p[0] <= t && p[0] >= red[0]);
+        return (green ? -100 / green[1] : 1) * (60000 / red[1]) / marathonMain;
+    };
+    // A on its own: 120 BPM main, speed 1 → 1; C on its own: speed 1 before 5 s, 0.5 after (main 200 = its BPM)
+    assert.ok(Math.abs(speedAt(2000) - 1) < 1e-9, String(speedAt(2000)));
+    const cStart = r.segments[1].outStartMs;
+    const at = (srcMs) => cStart + Math.round((srcMs - r.segments[1].srcStartMs) / 1.25);
+    assert.ok(Math.abs(speedAt(at(3000)) - 1) < 1e-9, String(speedAt(at(3000))));
+    assert.ok(Math.abs(speedAt(at(12000)) - 0.5) < 1e-9, String(speedAt(at(12000))));
 });
 
 test("metadata names the marathon and lists what is in it", () => {

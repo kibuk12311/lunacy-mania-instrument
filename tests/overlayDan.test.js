@@ -1,23 +1,24 @@
-// The overlay's Dan widget: the dan along the map, the playhead and "now", the words it shows in both languages,
-// the payload main builds (states, "for you", recording), the line's geometry, its settings and their migration, the
-// main-side source (the card's result reused, one analysis per map and rate, retries), the widget's DOM, and the
-// manager feeding it for osu! stable, lazer and Interlude.
+// The overlay's Dan widget: only the map's overall dan out of the box (0.9.6's dan along the map and "now" are gone),
+// the words it shows in both languages, the payload main builds (states, "for you", recording), its settings, size
+// and the migration of 0.9.6's file, the main-side source (the card's result reused, one analysis per map and rate,
+// retries), the widget's DOM, and the manager feeding it for osu! stable, lazer and Interlude.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import * as danModule from "../src/overlay/dan.js";
+import * as drawModule from "../src/overlay/draw.js";
 import {
-    BREAK_STRAIN, SECTION_SLOPE, buildDanPayload, cleanSkill, danAt, danHead, danKey, danProgress, danStateOf, danStateText,
-    danView, forYouText, nowText, patternText, playDanOf, playText, sectionDans, signedDan, confidenceText,
+    buildDanPayload, cleanSkill, danHead, danKey, danStateOf, danStateText,
+    danView, forYouText, patternText, playDanOf, playText, signedDan, confidenceText,
 } from "../src/overlay/dan.js";
-import { danSparkGeometry } from "../src/overlay/draw.js";
 import { fakeDan, fakeSnapshot } from "../src/overlay/fake.js";
-import { SHOW, WIDGETS, applyPatch, normalizeOverlaySettings, placeWidget, widgetSize } from "../src/overlay/settings.js";
+import {
+    SETTINGS_VERSION, SHOW, SHOW_OFF, WIDGETS, applyPatch, migrateOverlaySettings, normalizeOverlaySettings, placeWidget, widgetSize,
+} from "../src/overlay/settings.js";
 import { createDanSource, makeDanAnalyzer, overlayChecksum, RETRY_MS } from "../app/overlay/danSource.js";
 import { createOverlay, loadOverlaySettings, OVERLAY_CHANNELS } from "../app/overlay/overlayManager.js";
-import { detailsKey } from "../app/analysisDetails.js";
-import { cacheKey } from "../src/core/cache.js";
 import { setLang, t } from "../src/i18n/i18n.js";
 import { makeChart } from "./fixtures/makeChart.js";
 import { fakeDom, textOf } from "./helpers/fakeDom.js";
@@ -33,36 +34,12 @@ const inLang = (lang, fn) => {
 const OK = { kind: "ok", numeric: 13, label: "Gamma mid", primary: "Jumpstream", tech: false, confidenceLevel: "high", halfWidth: 0.3, durationSec: 100, rate: 1 };
 const flush = () => new Promise((r) => setImmediate(r));
 
-// ---- the dan along the map ----
+// ---- only the overall dan ----
 
-test("sections: a flat map is its dan all along; harder and easier parts move by the log of the strain; breaks are null", () => {
-    assert.deepEqual(sectionDans([1, 1, 1, 1], 13), [13, 13, 13, 13]);
-    const s = sectionDans([0, 0.8, 1, 1, 1, 1, 1, 1, 1, 1, 0.02], 13);
-    assert.equal(s[0], null, "an empty bin is a break");
-    assert.equal(s.at(-1), null, `under ${BREAK_STRAIN} of the peak is a break`);
-    assert.equal(s[1], Math.round((13 + SECTION_SLOPE * Math.log(0.8)) * 10) / 10, "0.8 of the hard part's strain");
-    assert.equal(s[1], 9.9);
-    assert.equal(s[2], 13, "the hard part is the map's dan");
-    // never more than 2 over, 8 under, never below 0
-    assert.equal(sectionDans([0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 13)[0], 5);
-    assert.equal(sectionDans([0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 3)[0], 0);
-    assert.equal(Math.max(...sectionDans([1, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6], 10)), 12);
-    assert.equal(sectionDans([], 13), null);
-    assert.equal(sectionDans([1, 1], null), null);
-    assert.equal(sectionDans([0, 0], 13), null, "all breaks: no line");
-});
-
-test("progress and the dan at the play position: first to last note, smoothed over ±2 sections, a break says so", () => {
-    const payload = { firstMs: 1000, lastMs: 11_000 };
-    assert.equal(danProgress(payload, 0), 0);
-    assert.equal(danProgress(payload, 6000), 0.5);
-    assert.equal(danProgress(payload, 20_000), 1);
-    assert.equal(danProgress({}, 5000), 0);
-    const sections = [10, 10, 10, 12, 14, 14, 14, null, 14];
-    assert.equal(danAt(sections, 0), 10);
-    assert.equal(danAt(sections, 0.5), 12.8, "the mean of 10, 12, 14, 14, 14");
-    assert.equal(danAt(sections, 7 / 8), null, "in a break");
-    assert.equal(danAt([], 0.5), null);
+test("no dan along the map any more: the strain estimate, the playhead and its line are gone from the widget's code", () => {
+    for (const name of ["sectionDans", "danAt", "danProgress", "nowText", "SECTION_SLOPE", "BREAK_STRAIN"]) assert.equal(name in danModule, false, name);
+    assert.equal("danSparkGeometry" in drawModule, false);
+    assert.equal(t("overlay.dan.now"), "overlay.dan.now", "its words are gone too");
 });
 
 test("the play's own dan: the local profile's model on the results' judgements; nothing without a dan or judgements", () => {
@@ -78,7 +55,7 @@ test("the play's own dan: the local profile's model on the results' judgements; 
 
 // ---- words ----
 
-test("the words: label and number, past Kappa, the states, now, for you, this play — Russian and English", () => {
+test("the words: label and number, past Kappa, the states, for you, this play — Russian and English", () => {
     assert.deepEqual(danHead(13), { number: "13.0", label: "Gamma mid", line: "Gamma mid · 13.0" });
     assert.deepEqual(danHead(12.8), { number: "12.8", label: "Gamma low/mid", line: "Gamma low/mid · 12.8" });
     assert.deepEqual(danHead(21.3), { number: "21.3", label: "выше Kappa", line: "выше Kappa · 21.3" });
@@ -87,9 +64,6 @@ test("the words: label and number, past Kappa, the states, now, for you, this pl
     assert.equal(signedDan(0.8), "+0.8");
     assert.equal(signedDan(-0.34), "−0.3");
     assert.equal(signedDan(0.01), "±0.0");
-    assert.equal(nowText(13.2), "сейчас: Gamma mid/high");
-    assert.equal(nowText(null), "сейчас: перерыв");
-    assert.equal(inLang("en", () => nowText(15.4)), "now: Epsilon high");
     assert.equal(forYouText({ delta: 0.8 }), "+0.8 к твоему уровню");
     assert.equal(inLang("en", () => forYouText({ delta: -1.2 })), "−1.2 vs your level");
     assert.equal(forYouText(null), "");
@@ -120,11 +94,11 @@ test("the analysis result's state: a dan, not mania, not 4K, LN, too short, an e
 
 // ---- the payload ----
 
-test("payload: keyed by map and rate; the card's numbers, pattern, confidence, the line, the fit, recording", () => {
+test("payload: keyed by map and rate; the card's numbers, pattern, confidence, the fit, recording — no line", () => {
     assert.equal(danKey("abc", 1), "abc|1.00");
     assert.equal(danKey("abc", 1.2000001), "abc|1.20");
     assert.equal(danKey("abc", 0), "abc|1.00");
-    const entry = { result: { ...OK, msd: null }, sections: [12, 13, null], firstMs: 1000, lastMs: 101_000 };
+    const entry = { result: { ...OK, msd: null } };
     const skill = cleanSkill({ overall: 12.6, tiles: { stamina: 12.2, jack: 11, speed: null, tech: "x" }, msd: { Jumpstream: 25.1 }, junk: 1 });
     assert.deepEqual(skill, { overall: 12.6, tiles: { stamina: 12.2, jack: 11 }, msd: { Jumpstream: 25.1 } });
     const p = buildDanPayload({ checksum: "abc", rate: 1.2, mode: 3, entry, skill, recording: true });
@@ -133,9 +107,7 @@ test("payload: keyed by map and rate; the card's numbers, pattern, confidence, t
     assert.equal(p.numeric, 13);
     assert.equal(p.primary, "Jumpstream");
     assert.equal(p.confidenceLevel, "high");
-    assert.deepEqual(p.sections, [12, 13, null]);
-    assert.equal(p.firstMs, 1000);
-    assert.equal(p.lastMs, 101_000);
+    for (const gone of ["sections", "firstMs", "lastMs"]) assert.equal(gone in p, false, gone);
     assert.deepEqual(p.fit, { delta: 0.8, playerDan: 12.2, band: "challenge", source: "tile", tile: "stamina" }, "Jumpstream is under the Stamina tile");
     assert.equal(p.recording, true);
     // no profile, recording off
@@ -153,19 +125,17 @@ test("payload: keyed by map and rate; the card's numbers, pattern, confidence, t
 
 test("danView: the widget's lines while playing, on the results screen, and for a map still being worked out", () => {
     const payload = buildDanPayload({
-        checksum: "abc", rate: 1, entry: { result: OK, sections: [10, 12, 14, 14, 13], firstMs: 0, lastMs: 4000 },
+        checksum: "abc", rate: 1, entry: { result: OK },
         skill: { overall: 12.5, tiles: { stamina: 12.2 } }, recording: true,
     });
     const playing = danView(payload, { phase: "playing", clock: 2000, hits: { max: 10, n300: 0, n200: 0, n100: 0, n50: 0, miss: 0 } });
     assert.equal(playing.line, "Gamma mid · 13.0");
     assert.equal(playing.pattern, "Jumpstream");
-    assert.equal(playing.progress, 0.5);
-    assert.equal(playing.now, "сейчас: Gamma low", "the middle: the mean of all five, 12.6");
+    for (const gone of ["now", "nowDan", "progress"]) assert.equal(gone in playing, false, gone);
     assert.equal(playing.forYou, "+0.8 к твоему уровню");
     assert.equal(playing.band, "challenge");
     assert.equal(playing.play, "", "the play's own dan waits for the results screen");
     const results = danView(payload, { phase: "results", clock: 2000, hits: { max: 1000, n300: 0, n200: 0, n100: 0, n50: 0, miss: 0 } });
-    assert.equal(results.progress, 1);
     assert.equal(results.play, "эта игра: Gamma mid/high");
     assert.equal(results.playDan, 13.25);
     const off = danView({ ...payload, recording: false }, { phase: "results", hits: { max: 10, n300: 0, n200: 0, n100: 0, n50: 0, miss: 0 } });
@@ -173,45 +143,30 @@ test("danView: the widget's lines while playing, on the results screen, and for 
     const counting = danView({ state: "counting" }, { phase: "playing", clock: 0 });
     assert.equal(counting.label, "считаем…");
     assert.equal(counting.number, "—");
-    assert.equal(counting.now, "");
-    const noLine = danView({ ...payload, sections: null }, { phase: "playing", clock: 0 });
-    assert.equal(noLine.now, "", "no line yet: no now");
-});
-
-// ---- the line's geometry ----
-
-test("dan line geometry: across the width, the map's dan as a guide, breaks on the bottom, a flat map stays flat", () => {
-    const g = danSparkGeometry([10, 12, null, 14], { width: 90, height: 30, mapDan: 13, progress: 0.5 });
-    assert.equal(g.points.length, 4);
-    assert.equal(g.points[0].x, 0);
-    assert.equal(g.points[3].x, 90);
-    assert.equal(g.lo, 10);
-    assert.equal(g.hi, 14);
-    assert.equal(g.points[0].y, 28, "the lowest at the bottom (pad 2)");
-    assert.equal(g.points[3].y, 2, "the highest at the top");
-    assert.equal(g.points[2].y, 28, "a break on the bottom edge");
-    assert.equal(g.refY, 2 + 26 * (1 - 3 / 4));
-    assert.equal(g.playX, 45);
-    const flat = danSparkGeometry([13, 13, 13], { width: 60, height: 20, mapDan: 13 });
-    assert.deepEqual([flat.lo, flat.hi], [12, 14], "at least two dans tall");
-    assert.ok(flat.points.every((p) => p.y === 10));
-    assert.deepEqual(danSparkGeometry([], { width: 10, height: 10 }).points, []);
-    assert.equal(danSparkGeometry([1], { width: 10, height: 10, progress: 3 }).playX, 10);
 });
 
 // ---- settings ----
 
-test("settings: the Dan widget's defaults, its lines, its size and place; an overlay.json from before it gets it", async () => {
+test("settings: the Dan widget's defaults are the overall dan alone; its size follows its lines; an overlay.json from before it gets it", async () => {
     assert.ok(WIDGETS.includes("dan"));
     const d = normalizeOverlaySettings(null);
+    assert.equal(d.v, SETTINGS_VERSION);
     assert.deepEqual(d.widgets.dan, {
         enabled: true, style: "card", opacity: 1, scale: 1, x: null, y: null,
-        show: { map: true, pattern: true, live: true, forYou: true, play: true },
+        show: { map: true, pattern: false, forYou: false, play: false },
     });
-    assert.deepEqual(SHOW.dan, ["map", "pattern", "live", "forYou", "play"]);
-    assert.deepEqual(widgetSize("dan", "card"), { width: 230, height: 170 });
-    assert.deepEqual(widgetSize("dan", "compact", 1.5), { width: 840, height: 60 });
+    assert.deepEqual(SHOW.dan, ["map", "pattern", "forYou", "play"]);
+    assert.deepEqual(SHOW_OFF.dan, ["pattern", "forYou", "play"]);
+    // the other widgets' lines stay on by default
+    assert.ok(Object.values(d.widgets.judgements.show).every(Boolean));
+    // the overall dan alone: a small window; each extra line one row more (compact: wider)
+    assert.deepEqual(widgetSize("dan", "card", 1, d.widgets.dan.show), { width: 220, height: 64 });
+    assert.deepEqual(widgetSize("dan", "card", 1, { map: true, pattern: true, forYou: true, play: false }), { width: 220, height: 104 });
+    assert.deepEqual(widgetSize("dan", "card"), { width: 220, height: 124 }, "without lines told: room for all");
+    assert.deepEqual(widgetSize("dan", "compact", 1.5, d.widgets.dan.show), { width: 345, height: 60 });
+    assert.deepEqual(widgetSize("dan", "compact", 1, { pattern: true }), { width: 390, height: 40 });
     const placed = placeWidget("dan", d, [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }]);
+    assert.deepEqual([placed.width, placed.height], [220, 64]);
     assert.ok(placed.y + placed.height <= 1080 && placed.x >= 0);
     // 0.9.5's file: four widgets set up, no dan
     const old = {
@@ -231,35 +186,60 @@ test("settings: the Dan widget's defaults, its lines, its size and place; an ove
     assert.equal(migrated.widgets.kps.style, "compact");
     assert.equal(migrated.widgets.keys.show.counts, false);
     assert.deepEqual(migrated.widgets.dan, d.widgets.dan, "the new widget with its defaults");
-    // a line turned off, a broken one dropped
-    const patched = applyPatch(migrated, { widgets: { dan: { show: { forYou: false, nope: true }, style: "minimal", scale: 9 } } });
-    assert.equal(patched.widgets.dan.show.forYou, false);
-    assert.equal(patched.widgets.dan.show.play, true);
+    // an extra turned on, a broken one dropped
+    const patched = applyPatch(migrated, { widgets: { dan: { show: { forYou: true, nope: true }, style: "minimal", scale: 9 } } });
+    assert.equal(patched.widgets.dan.show.forYou, true);
+    assert.equal(patched.widgets.dan.show.play, false);
     assert.equal("nope" in patched.widgets.dan.show, false);
     assert.equal(patched.widgets.dan.style, "minimal");
     assert.equal(patched.widgets.dan.scale, 2.5);
+    // and kept so: a v2 file is never migrated again
+    assert.deepEqual(normalizeOverlaySettings(JSON.parse(JSON.stringify(patched))), patched);
 });
 
-test("the made-up Dan payload: shaped like main's, its line along the fake NPS map, every line shown in a preview", () => {
-    const fake = fakeDan(100_000);
-    const real = buildDanPayload({ checksum: "x", entry: { result: OK, sections: [1], firstMs: 0, lastMs: 1 }, skill: { overall: 12 }, recording: true });
+test("settings migration from 0.9.6: the line and now dropped; extras never touched go off, a choice made is kept", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "дан-096-"));
+    let n = 0;
+    const load = async (dan) => {
+        n += 1;
+        const file = path.join(dir, `overlay-${n}.json`);
+        await writeFile(file, JSON.stringify({ enabled: true, showOnResults: true, widgets: { dan } }), "utf8");
+        return loadOverlaySettings(file).widgets.dan;
+    };
+    // as 0.9.6 wrote it out of the box: every line on
+    const untouched = await load({ enabled: true, style: "neon", opacity: 0.8, scale: 1.3, x: 40, y: 50, show: { map: true, pattern: true, live: true, forYou: true, play: true } });
+    assert.deepEqual(untouched, { enabled: true, style: "neon", opacity: 0.8, scale: 1.3, x: 40, y: 50, show: { map: true, pattern: false, forYou: false, play: false } });
+    // the line turned off but the extras left as they came: off now
+    assert.deepEqual((await load({ show: { map: true, pattern: true, live: false, forYou: true, play: true } })).show, { map: true, pattern: false, forYou: false, play: false });
+    // "for you" turned off by hand: the player chose, the rest of their choice kept
+    assert.deepEqual((await load({ show: { map: true, pattern: true, live: true, forYou: false, play: true } })).show, { map: true, pattern: true, forYou: false, play: true });
+    // the head turned off stays off
+    assert.deepEqual((await load({ show: { map: false, pattern: false, live: true, forYou: true, play: true } })).show, { map: false, pattern: false, forYou: true, play: true });
+    // no dan widget, or a v2 file: as it is
+    assert.deepEqual(migrateOverlaySettings({ widgets: {} }), { widgets: {} });
+    const v2 = { v: 2, widgets: { dan: { show: { pattern: true, forYou: true, play: true } } } };
+    assert.equal(migrateOverlaySettings(v2), v2);
+    assert.equal(migrateOverlaySettings(null), null);
+});
+
+test("the made-up Dan payload: shaped like main's, no line, every line turned on shown in a preview", () => {
+    const fake = fakeDan();
+    const real = buildDanPayload({ checksum: "x", entry: { result: OK }, skill: { overall: 12 }, recording: true });
     assert.deepEqual(Object.keys(fake).filter((k) => k !== "preview").sort(), Object.keys(real).sort());
-    assert.ok(fake.sections.some((v) => v === null) && fake.sections.some((v) => v > 13));
-    assert.equal(fake.firstMs, 90_000, "the playhead goes round with the NPS preview's map");
+    assert.equal("sections" in fake, false);
     const snap = fakeSnapshot(100_000);
     const v = danView(snap.dan, snap);
     assert.equal(v.line, "Gamma mid · 13.0");
-    assert.ok(v.now.startsWith("сейчас: "));
     assert.equal(v.forYou, "+0.8 к твоему уровню");
     assert.ok(v.play.startsWith("эта игра: "), "the preview shows the play's dan too");
 });
 
 // ---- the widget's DOM ----
 
-test("the Dan widget's DOM: every line it is asked for, the payload only for its own map and rate, states in words", async () => {
+test("the Dan widget's DOM: the overall dan alone by default, extras when asked, no line or canvas; states in words", async () => {
     fakeDom();
     const { mountWidget, danPayloadFor } = await import("../app/overlay/render.js");
-    const payload = buildDanPayload({ checksum: "m", rate: 1.2, entry: { result: OK, sections: [12, 13, 14], firstMs: 0, lastMs: 1000 }, skill: { overall: 12.2 }, recording: true });
+    const payload = buildDanPayload({ checksum: "m", rate: 1.2, entry: { result: OK }, skill: { overall: 12.2 }, recording: true });
     assert.equal(danPayloadFor({ checksum: "m", rate: 1.2 }, payload), payload);
     assert.equal(danPayloadFor({ checksum: "m", rate: 1 }, payload), null, "another rate: still counting");
     assert.equal(danPayloadFor({ checksum: "other", rate: 1.2 }, payload), null);
@@ -272,24 +252,30 @@ test("the Dan widget's DOM: every line it is asked for, the payload only for its
     assert.equal(root.className, "ov ov-dan style-card");
     view.update({ phase: "playing", checksum: "m", rate: 1.2, clock: 500, hits: null, mods: [] });
     const text = textOf(root);
-    for (const part of ["13.0", "Gamma mid", "уверенность: высокая", "Jumpstream", "сейчас: Gamma mid", "+0.8 к твоему уровню"]) {
+    for (const part of ["13.0", "Gamma mid", "уверенность: высокая", "Jumpstream", "+0.8 к твоему уровню"]) {
         assert.ok(text.includes(part), `${part} in ${text}`);
     }
-    view.paint(500); // a canvas of no size draws nothing, without failing
+    assert.ok(!text.includes("сейчас"), "no now");
+    view.paint(500); // nothing to draw
     view.update({ phase: "results", checksum: "m", rate: 1.2, clock: 900, hits: { max: 1000, n300: 0, n200: 0, n100: 0, n50: 0, miss: 0 }, mods: [] });
     const box = root.children[0];
-    const now = box.children.find((n) => n.className === "d-now");
+    assert.deepEqual(box.children.map((n) => n.className), ["d-head", "d-pattern", "d-play", "d-fit band-challenge"], "no line, no canvas");
     const play = box.children.find((n) => n.className === "d-play");
     assert.equal(play.textContent, "эта игра: Gamma mid/high");
-    assert.equal(now.hidden, true, "the play's dan takes the place of now");
     view.update({ phase: "playing", checksum: "n", rate: 1, clock: 0 });
     assert.equal(box.dataset.state, "counting");
     assert.ok(textOf(root).includes("считаем…"));
 
-    // only the lines asked for
+    // out of the box: the overall dan alone, without its confidence; an old "live" asks for nothing
     const few = document.createElement("div");
-    mountWidget(few, "dan", { style: "compact", show: { map: true, pattern: false, live: false, forYou: false, play: false }, dan: payload });
+    const fewView = mountWidget(few, "dan", { style: "compact", show: { ...normalizeOverlaySettings(null).widgets.dan.show, live: true }, dan: payload });
+    fewView.update({ phase: "playing", checksum: "m", rate: 1.2, clock: 500, hits: null, mods: [] });
     assert.deepEqual(few.children[0].children.map((n) => n.className), ["d-head"]);
+    assert.ok(textOf(few).includes("13.0") && textOf(few).includes("Gamma mid") && !textOf(few).includes("уверенность"));
+    const above = document.createElement("div");
+    const aboveView = mountWidget(above, "dan", { style: "card", show: { map: true }, dan: { ...payload, numeric: 21.3 } });
+    aboveView.update({ phase: "playing", checksum: "m", rate: 1.2, clock: 0 });
+    assert.ok(textOf(above).includes("21.3") && textOf(above).includes("выше Kappa"), "past Kappa: the number and the words");
     setLang("en");
     try {
         const en = document.createElement("div");
@@ -309,7 +295,7 @@ function deferred() {
     return { promise, resolve };
 }
 
-test("source: one analysis per map and rate however often it is asked; the first note from the map; retried after a failure", async () => {
+test("source: one analysis per map and rate however often it is asked; retried after a failure", async () => {
     const text = makeChart({ kind: "jumpstream", bpm: 180, seconds: 60 });
     const calls = [];
     const gate = deferred();
@@ -319,7 +305,7 @@ test("source: one analysis per map and rate however often it is asked; the first
         analyze: async (req) => {
             calls.push(req);
             await gate.promise;
-            return { result: { ...OK, rate: req.rate, durationSec: 60 }, details: { strain: [0.5, 1, 1, 1, 1] } };
+            return { result: { ...OK, rate: req.rate, durationSec: 60 } };
         },
         now: () => clock,
         onChange: (k) => changed.push(k),
@@ -338,10 +324,8 @@ test("source: one analysis per map and rate however often it is asked; the first
     await flush();
     const e = source.get(key);
     assert.equal(e.state, "done");
-    assert.equal(e.firstMs, 1000, "makeChart starts at 1000 ms");
-    assert.equal(e.lastMs, 1000 + 60_000 * 1.2, "the play's clock runs at the rate");
-    assert.equal(e.sections.length, 5);
-    assert.equal(e.sections[1], 13);
+    assert.equal(e.result.numeric, 13);
+    assert.equal("sections" in e, false);
     assert.ok(changed.includes(key));
     // another rate is another map
     source.want("m1", 1, { text: getText });
@@ -369,64 +353,49 @@ test("source: one analysis per map and rate however often it is asked; the first
     assert.equal(bare.stateOf("y|1.00"), "none");
 });
 
-test("source: the card's result is kept under the overlay's key at once, its details after; an Interlude chart's first note is 0", async () => {
+test("source: the card's result is kept under the overlay's key at once, no analysis of its own", async () => {
     const text = makeChart({ kind: "stream", bpm: 170, seconds: 60 });
-    const gate = deferred();
     const seen = [];
-    const source = createDanSource({
-        analyze: async (req) => {
-            seen.push(req);
-            await gate.promise;
-            return { result: req.result, details: { strain: [1, 1, 1] } };
-        },
-    });
+    const source = createDanSource({ analyze: async (req) => { seen.push(req); return { result: req.result }; } });
     assert.equal(overlayChecksum("external:HASH"), "interlude:HASH");
     assert.equal(overlayChecksum("md5"), "md5");
     source.fromCard({ checksum: "external:HASH", text, rate: 1.25, result: OK, key: "k" });
-    await flush();
     const key = danKey("interlude:HASH", 1.25);
-    assert.equal(source.stateOf(key), "ok", "the card's dan shows before its line");
-    assert.equal(source.get(key).firstMs, 0);
-    assert.equal(seen[0].result, OK, "the card's result goes in as it is: no second analysis");
-    gate.resolve();
-    await flush();
-    await flush();
-    assert.deepEqual(source.get(key).sections, [13, 13, 13]);
+    assert.equal(source.stateOf(key), "ok", "the card's dan at once");
+    assert.equal(source.get(key).result, OK);
     // the same again: nothing more to do; a transient error from the card is no result
+    const version = source.get(key).version;
     source.fromCard({ checksum: "external:HASH", text, rate: 1.25, result: OK });
     source.fromCard({ checksum: "abc", text, rate: 1, result: { kind: "error", transient: true } });
     await flush();
-    assert.equal(seen.length, 1);
+    assert.equal(seen.length, 0);
+    assert.equal(source.get(key).version, version);
     assert.equal(source.get(danKey("abc", 1)), null);
+    // a play wanting it later finds it
+    assert.equal(source.want("interlude:HASH", 1.25, { text }), key);
+    await flush();
+    assert.equal(seen.length, 0);
     // a few maps kept, the oldest go
-    const small = createDanSource({ analyze: async () => ({ result: OK, details: null }), keep: 2 });
+    const small = createDanSource({ analyze: async () => ({ result: OK }), keep: 2 });
     for (const c of ["a", "b", "c"]) small.want(c, 1, { text });
     await flush();
     assert.equal(small.get("a|1.00"), null);
     assert.ok(small.get("c|1.00"));
 });
 
-test("the analyser: the card's cached result and details, else the worker's background line, and the details cached", async () => {
+test("the analyser: the card's result as it is, else the shared cache or the worker's background line", async () => {
     const text = makeChart({ kind: "jumpstream", bpm: 180, seconds: 60 });
-    const store = new Map();
-    const cache = { get: async (k) => store.get(k), set: async (k, v) => { store.set(k, v); } };
     const jobs = [];
-    const details = { v: 2, strain: [1], families: [], flavourBins: [], durationSec: 60 };
-    const analysis = {
-        analyzeQueued: async (tx, rate) => { jobs.push(["analyze", rate]); return { ...OK, rate }; },
-        enqueue: async (fn) => fn(),
-    };
-    const worker = { details: async (tx, rate) => { jobs.push(["details", rate]); return { kind: "details", details }; } };
-    const analyze = makeDanAnalyzer({ analysis, worker, cache });
+    const analysis = { analyzeQueued: async (tx, rate) => { jobs.push(rate); return { ...OK, rate }; } };
+    const analyze = makeDanAnalyzer({ analysis });
     const first = await analyze({ text, rate: 1.1 });
     assert.equal(first.result.numeric, 13);
-    assert.deepEqual(first.details, details);
-    assert.deepEqual(store.get(detailsKey(cacheKey(text, 1.1))), details, "the card's details job finds them too");
+    assert.deepEqual(Object.keys(first), ["result"], "no details: no line to make");
     const again = await analyze({ text, rate: 1.1, result: OK });
-    assert.deepEqual(again.details, details);
-    assert.deepEqual(jobs, [["analyze", 1.1], ["details", 1.1]], "the second time all from the cache and the card");
-    const notRice = await makeDanAnalyzer({ analysis: { analyzeQueued: async () => ({ kind: "not-rice", reason: "keys" }) }, worker, cache })({ text, rate: 1 });
-    assert.deepEqual(notRice, { result: { kind: "not-rice", reason: "keys" }, details: null });
+    assert.equal(again.result, OK);
+    assert.deepEqual(jobs, [1.1]);
+    const notRice = await makeDanAnalyzer({ analysis: { analyzeQueued: async () => ({ kind: "not-rice", reason: "keys" }) } })({ text, rate: 1 });
+    assert.deepEqual(notRice, { result: { kind: "not-rice", reason: "keys" } });
 });
 
 // ---- the manager: osu! stable, lazer, Interlude ----
@@ -505,7 +474,7 @@ async function withOverlay(options, fn) {
         fetchImpl: async () => ({ ok: true, text: async () => options.text ?? makeChart({ kind: "jumpstream", bpm: 180, seconds: 60 }) }),
         danAnalyze: async (req) => {
             calls.push(req);
-            return options.analyze ? options.analyze(req) : { result: { ...OK, rate: req.rate, durationSec: 60 }, details: { strain: [0.6, 1, 1, 1] } };
+            return options.analyze ? options.analyze(req) : { result: { ...OK, rate: req.rate, durationSec: 60 } };
         },
         recording: async () => options.recording ?? true,
         interludeText: async (hash) => (options.interlude ? options.interlude(hash) : null),
@@ -536,8 +505,7 @@ test("manager, osu! stable: the play's map analysed once, its dan sent with the 
         assert.equal(last.key, "m1|1.00");
         assert.equal(last.state, "ok");
         assert.equal(last.numeric, 13);
-        assert.equal(last.firstMs, 1000);
-        assert.equal(last.sections.length, 4);
+        assert.equal("sections" in last, false);
         assert.equal(last.fit, null, "no profile yet");
         assert.equal(last.recording, true);
         const sentBefore = configs().length;
@@ -568,7 +536,7 @@ test("manager, osu! stable: the play's map analysed once, its dan sent with the 
 
 test("manager, osu! lazer: lazer's own speed is the rate; a not-4K map says so; the card's result is used as it is", async () => {
     await withOverlay({
-        analyze: (req) => (req.result ? { result: req.result, details: { strain: [1, 1] } } : { result: { kind: "not-rice", reason: "keys", keys: 7 }, details: null }),
+        analyze: (req) => (req.result ? { result: req.result } : { result: { kind: "not-rice", reason: "keys", keys: 7 } }),
     }, async ({ overlay, ws, calls, configs }) => {
         // the card had this map at 1.2 (lazer's DT speed)
         overlay.onCardResult({ checksum: "lz", text: makeChart({ kind: "stream", seconds: 60 }), rate: 1.2, result: OK, key: "k" });
@@ -576,11 +544,10 @@ test("manager, osu! lazer: lazer's own speed is the rate; a not-4K map says so; 
         const dt = { name: "DT", array: [{ acronym: "DT", settings: { speed_change: 1.2 } }], rate: 1.2 };
         for (let live = 1000; live < 1500; live += 100) ws.send(tosuJson({ client: "lazer", checksum: "lz", live, mods: dt }));
         await settle();
-        assert.equal(calls.length, 1, "only the card's result's line, no new analysis");
-        assert.equal(calls[0].result, OK);
+        assert.equal(calls.length, 0, "the card's result: no new analysis");
         assert.equal(configs().at(-1).key, "lz|1.20");
         assert.equal(configs().at(-1).state, "ok");
-        assert.deepEqual(configs().at(-1).sections, [13, 13]);
+        assert.equal(configs().at(-1).numeric, 13);
         // a 7K map
         ws.send(tosuJson({ client: "lazer", checksum: "7k", live: 1000, mods: { rate: 1 } }));
         await settle();
@@ -588,7 +555,7 @@ test("manager, osu! lazer: lazer's own speed is the rate; a not-4K map says so; 
     });
 });
 
-test("manager, Interlude: the library chart's text, the reader's clock from the first note; recording off keeps the play dan away", async () => {
+test("manager, Interlude: the library chart's text analysed once; recording off keeps the play dan away", async () => {
     const asked = [];
     await withOverlay({
         recording: false,
@@ -605,8 +572,7 @@ test("manager, Interlude: the library chart's text, the reader's clock from the 
         assert.equal(calls[0].rate, 1.25);
         const p = configs().at(-1);
         assert.equal(p.key, "interlude:HASH1|1.25");
-        assert.equal(p.firstMs, 0, "Interlude's clock starts at the first note");
-        assert.equal(p.lastMs, 60_000 * 1.25);
+        assert.equal(p.state, "ok");
         assert.equal(p.recording, false);
         // a retry (a new play id): the same map, nothing worked out again
         for (let ms = 0; ms < 300; ms += 100) overlay.onInterlude(line(ms, 2));
@@ -621,14 +587,13 @@ test("manager, Interlude: the library chart's text, the reader's clock from the 
 
 test("manager: the Dan widget turned off asks for nothing; while its analysis runs it says it is counting", async () => {
     const gate = deferred();
-    await withOverlay({ analyze: async (req) => { await gate.promise; return { result: { ...OK, rate: req.rate }, details: null }; } }, async ({ overlay, ws, calls, configs }) => {
+    await withOverlay({ analyze: async (req) => { await gate.promise; return { result: { ...OK, rate: req.rate } }; } }, async ({ overlay, ws, calls, configs }) => {
         ws.send(tosuJson({ live: 1000 }));
         await settle();
         assert.equal(configs().at(-1).state, "counting");
         gate.resolve();
         await settle();
         assert.equal(configs().at(-1).state, "ok");
-        assert.equal(configs().at(-1).sections, null, "no details: no line, the dan all the same");
         overlay.apply({ widgets: { dan: { enabled: false } } });
         ws.send(tosuJson({ checksum: "other", live: 1000 }));
         await settle();

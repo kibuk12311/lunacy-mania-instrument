@@ -1,11 +1,11 @@
 // The five overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
 // mountWidget(root, widget, { style, show, dan }) builds it once; update(snapshot) puts in the numbers,
-// paint(clock) draws the canvases (the KPS and NPS graphs, the key lines, the Dan line) for the map time of the moment.
+// paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment.
 // The Dan widget's map data comes with its config (dan: src/overlay/dan.js's payload), or inside a made-up snapshot.
 import { t } from "../../src/i18n/i18n.js";
 import { formatAccuracy, formatCount, formatKps, formatUr } from "../../src/overlay/format.js";
 import { shortJudgement } from "../../src/overlay/interludeData.js";
-import { danSparkGeometry, easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
+import { easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
 import { danKey, danView } from "../../src/overlay/dan.js";
 
 const JUDGEMENTS = [
@@ -319,34 +319,27 @@ export function danPayloadFor(snapshot, configured) {
     return configured.key === danKey(snapshot.checksum, snapshot.rate) ? configured : null;
 }
 
-// the map's dan at the play's rate, its pattern and how sure; the dan along the map with a playhead and "now";
-// "for you"; on the results screen the play's own dan
-function mountDan(box, { style, show, zoom, dan = null }) {
+// the map's overall dan at the play's rate (the card's); the extras: its pattern and how sure, "for you", on the
+// results screen the play's own dan
+function mountDan(box, { show, style, dan = null }) {
     let num = null;
     let label = null;
     let conf = null;
     if (show.map) {
         const head = el("div", "d-head");
         const side = el("span", "d-side");
-        side.append((label = el("span", "d-label", "—")), (conf = el("span", "d-conf", "")));
+        side.append((label = el("span", "d-label", "—")));
+        if (show.pattern) side.append((conf = el("span", "d-conf", "")));
         head.append((num = el("b", "d-num", "—")), side);
         box.append(head);
     }
     const pattern = show.pattern ? el("div", "d-pattern", "") : null;
     if (pattern) box.append(pattern);
-    let canvas = null;
-    let now = null;
-    if (show.live) {
-        box.append((canvas = el("canvas", "d-spark")));
-        box.append((now = el("div", "d-now", "")));
-    }
     const play = show.play ? el("div", "d-play", "") : null;
     if (play) box.append(play);
     const fit = show.forYou ? el("div", "d-fit", "") : null;
     if (fit) box.append(fit);
     box.classList.toggle("d-empty", !box.children.length);
-    let payload = null;
-    let view = null;
     const setText = (node, text) => {
         if (!node) return;
         node.textContent = text;
@@ -354,51 +347,17 @@ function mountDan(box, { style, show, zoom, dan = null }) {
     };
     return {
         update(s) {
-            payload = danPayloadFor(s, dan);
-            view = danView(payload ?? { state: "counting" }, s);
+            const view = danView(danPayloadFor(s, dan) ?? { state: "counting" }, s);
             box.dataset.state = view.state;
             if (num) num.textContent = view.number;
             if (label) label.textContent = view.label;
             setText(conf, view.confidence);
             setText(pattern, view.pattern);
-            // the results screen: the play's own dan in place of "now"
-            setText(now, view.results && view.play && play ? "" : view.now);
             setText(play, view.play);
             setText(fit, view.forYou);
             if (fit) fit.className = `d-fit${view.band ? ` band-${view.band}` : ""}`;
-            if (canvas) canvas.hidden = view.state !== "ok" || !payload?.sections?.length;
         },
-        paint() {
-            if (!canvas || canvas.hidden || !canvas.clientWidth || !payload?.sections?.length) return;
-            const { ctx, w, h } = sizedContext(canvas, zoom);
-            const pal = paletteFor(style);
-            const g = danSparkGeometry(payload.sections, { width: w, height: h, mapDan: payload.numeric, progress: view?.progress ?? 0 });
-            if (!g.points.length) return;
-            // the map's own dan, a thin guide across
-            if (g.refY !== null) {
-                ctx.globalAlpha = style === "minimal" ? 0.3 : 0.45;
-                ctx.fillStyle = "#ffffff";
-                for (let x = 0; x < w; x += 6) ctx.fillRect(x, Math.round(g.refY), 3, 1);
-                ctx.globalAlpha = 1;
-            }
-            // ahead dimmed, played in full, as the NPS graph
-            ctx.save();
-            ctx.globalAlpha = 0.45;
-            strokeGraph(ctx, g.points, { w, h, style, colour: pal.graph });
-            ctx.restore();
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(0, 0, g.playX, h);
-            ctx.clip();
-            strokeGraph(ctx, g.points, { w, h, style, colour: pal.graph, glow: pal.glow });
-            ctx.restore();
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = pal.lit;
-            ctx.shadowColor = pal.glow ? pal.lit : "transparent";
-            ctx.shadowBlur = pal.glow ?? 0;
-            ctx.fillRect(Math.min(w - 2, Math.max(0, g.playX - 1)), 0, 2, h);
-            ctx.shadowBlur = 0;
-        },
+        paint() {},
         style,
     };
 }

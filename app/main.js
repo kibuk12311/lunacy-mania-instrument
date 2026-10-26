@@ -261,7 +261,7 @@ async function main() {
             const osu = await interlude?.library.osuFor(hash);
             return osu ? chartTimeNotes(parseManiaNotes(osu.text)) : null;
         },
-        // the Dan widget: the card's analysis and details (the shared cache, the worker's background line), Interlude's
+        // the Dan widget: the card's analysis (the shared cache, the worker's background line), Interlude's
         // chart text, and whether the local profile records plays (made below, asked for only once a play needs it)
         danAnalyze: (request) => danAnalyze?.(request) ?? null,
         interludeText: async (hash) => (await interlude?.library.osuFor(hash))?.text ?? null,
@@ -293,7 +293,7 @@ async function main() {
     // Versioned, so a new build with a retrained model never serves old dans.
     const resultCache = createCache({ dir: path.join(userData, `results-${version}`) });
     const analysis = createAnalysisService({ worker: workerClient, cache: resultCache, log });
-    danAnalyze = makeDanAnalyzer({ analysis, worker: workerClient, cache: resultCache, log });
+    danAnalyze = makeDanAnalyzer({ analysis });
     // Interlude: a folder the user links, a chart picked from its library, maps sent to it (app/interludeClient.js)
     interlude = createInterludeClient({
         store: createJsonStore({ file: path.join(userData, "interlude.json"), fallback: { folder: null } }),

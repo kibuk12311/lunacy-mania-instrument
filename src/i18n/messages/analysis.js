@@ -43,6 +43,23 @@ export default {
     "analysis.extras.strip": { ru: "Паттерны по ходу карты", en: "Patterns along the map" },
     "analysis.extras.flavourStrip": { ru: "Разновидности паттернов по ходу карты", en: "Pattern kinds along the map" },
     "analysis.extras.break": { ru: "пауза", en: "break" },
+    // the dan by part (app/renderer/sectionDans.js)
+    "analysis.sections.title": { ru: "Дан по частям", en: "Dan by part" },
+    "analysis.sections.counting": { ru: "считаем дан каждой части…", en: "working out each part's dan…" },
+    "analysis.sections.failed": { ru: "Дан по частям посчитать не вышло — попробуй выбрать карту ещё раз.", en: "Couldn't work out the dan by part — try selecting the map again." },
+    "analysis.sections.none": { ru: "В карте нет частей, где хватает нот для дана.", en: "No part of the map has enough notes for a dan." },
+    "analysis.sections.top": { ru: "самая сложная {from}–{to} · {label}", en: "hardest {from}–{to} · {label}" },
+    "analysis.sections.info": { ru: "{from}–{to} · {label} · {dan}", en: "{from}–{to} · {label} · {dan}" },
+    "analysis.sections.hardest": { ru: "самая сложная часть", en: "the hardest part" },
+    "analysis.sections.quiet": { ru: "{from}–{to} · тихая часть: мало нот для дана", en: "{from}–{to} · a quiet part: too few notes for a dan" },
+    "analysis.sections.list": { ru: "Все части ({n})", en: "All parts ({n})" },
+    "analysis.sections.quietShort": { ru: "тихая часть", en: "quiet part" },
+    "analysis.sections.map": { ru: "вся карта: {label}", en: "whole map: {label}" },
+    "analysis.sections.aria": { ru: "Дан каждой части карты по времени", en: "The dan of each part of the map over time" },
+    "analysis.sections.hint": {
+        ru: "Карта разрезана на части по полминуты (по перерывам и сменам плотности нот), каждая посчитана нашей моделью как отдельная карта на этом рейте и поправлена на длину и выносливость (подгонка по 3359 картам корпуса: самая сложная часть в среднем в 0.4 дана от общего дана). Общий дан карты — на карточке, он не меняется. Наведи или нажми на часть, чтобы увидеть её время, дан и паттерн.",
+        en: "The map is cut into parts of about half a minute (at breaks and changes of note density); each is rated by our model as a map of its own at this rate and corrected for length and stamina (fitted on 3359 corpus charts: the hardest part is on average 0.4 dans from the overall dan). The map's overall dan is the card's and does not change. Hover or tap a part for its time, dan and pattern.",
+    },
 
     // "for you": the map against the player's mania-tracker dan
     "analysis.fit.title": { ru: "Для тебя ({name})", en: "For you ({name})" },

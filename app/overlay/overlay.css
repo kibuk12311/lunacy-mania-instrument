@@ -67,9 +67,7 @@
 .d-conf { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .ov-dan .ov-box:not([data-state="ok"]) .d-label { color: var(--muted); font-weight: 600; }
 .d-pattern { font-size: 13px; font-weight: 600; color: var(--c100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.d-spark { flex: 1; width: 100%; min-height: 16px; display: block; }
-.d-now, .d-play, .d-fit { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.d-now { color: var(--fg); }
+.d-play, .d-fit { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .d-play { color: var(--c300); font-weight: 700; }
 .d-fit { color: var(--muted); }
 .d-fit.band-easy, .d-fit.band-comfort { color: var(--c200); }
@@ -107,7 +105,7 @@
 }
 .style-neon .j-row, .style-neon .j-foot, .style-neon .k-head { text-shadow: 0 0 6px currentColor; }
 .style-neon .j-ratio-value, .style-neon .k-now-value { color: #ff3df2; text-shadow: 0 0 8px #ff3df2, 0 0 16px #ff3df2aa; }
-.style-neon .d-head, .style-neon .d-pattern, .style-neon .d-now, .style-neon .d-play, .style-neon .d-fit { text-shadow: 0 0 6px currentColor; }
+.style-neon .d-head, .style-neon .d-pattern, .style-neon .d-play, .style-neon .d-fit { text-shadow: 0 0 6px currentColor; }
 .style-neon .d-num { color: #ff3df2; text-shadow: 0 0 8px #ff3df2, 0 0 16px #ff3df2aa; }
 .style-neon .l-key { box-shadow: 0 0 6px var(--lane); }
 .style-neon .l-key.lit { box-shadow: 0 0 14px var(--lane); }
@@ -130,7 +128,7 @@
 .style-classic .j-foot, .style-classic .k-head { text-shadow: 2px 2px 0 #000; }
 .style-classic .d-num { font-size: 34px; font-style: italic; -webkit-text-stroke: 1px #000; text-shadow: 3px 3px 0 #000; }
 .style-classic .d-label { font-style: italic; -webkit-text-stroke: 0.5px #000; text-shadow: 2px 2px 0 #000; }
-.style-classic .d-conf, .style-classic .d-pattern, .style-classic .d-now, .style-classic .d-play, .style-classic .d-fit { text-shadow: 2px 2px 0 #000; }
+.style-classic .d-conf, .style-classic .d-pattern, .style-classic .d-play, .style-classic .d-fit { text-shadow: 2px 2px 0 #000; }
 .style-classic .l-key { border-radius: 0; border: 2px solid #000; background: #00000066; }
 .style-classic .l-key.lit { background: var(--lane); }
 
@@ -157,8 +155,7 @@
 .style-compact .d-side { flex-direction: row; align-items: baseline; gap: 6px; }
 .style-compact .d-label { font-size: 13px; }
 .style-compact .d-conf { display: none; }
-.style-compact .d-pattern, .style-compact .d-now, .style-compact .d-play, .style-compact .d-fit { flex: none; font-size: 12px; }
-.style-compact .d-spark { flex: 0 0 70px; height: 24px; min-height: 0; }
+.style-compact .d-pattern, .style-compact .d-play, .style-compact .d-fit { flex: none; font-size: 12px; }
 
 /* ---- edit mode: the window can be dragged, the corner resizes ---- */
 .editing { -webkit-app-region: drag; }

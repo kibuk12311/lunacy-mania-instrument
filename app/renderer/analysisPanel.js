@@ -1,13 +1,15 @@
 // Extra blocks of the analysis card, drawn inside #card under the card itself (analysisExtras.js has the HTML).
 // initAnalysisPanel({ card, redraw }): card is #card, redraw() draws the card again;
 // analysisPanelHtml(view, opts) → HTML put after renderView(view, opts).
-// The panel follows the view it is drawn with: a new map clears its details and ladder; details come from main
-// ("analysis-details", for their key only), the ladder's dans from "analysis-rate", the player from profile.js.
+// The panel follows the view it is drawn with: a new map clears its details, parts and ladder; details come from main
+// ("analysis-details", for their key only), the dan by part from "analysis-sections" (a part under the pointer is told
+// in the line under its chart, one tapped stays told), the ladder's dans from "analysis-rate", the player from
+// profile.js.
 import { LADDER_RATES, renderExtras } from "./analysisExtras.js";
 import { setPatternMode, onPatternMode } from "./patternMode.js";
 import { getProfile, onProfile, ensureProfile } from "./profile.js";
 
-const STORAGE_KEY = "analysis-extras"; // { ladderOpen }
+const STORAGE_KEY = "analysis-extras"; // { ladderOpen, partsOpen }
 const LADDER_DELAY_MS = 600;
 const validRate = (r) => typeof r === "number" && Number.isFinite(r) && r >= 0.5 && r <= 2;
 const rateKey = (r) => Math.round(Number(r) * 100) / 100;
@@ -59,17 +61,19 @@ export function createLadderRunner({ analysisRate, rates = LADDER_RATES, onRow, 
     };
 }
 
+// which of the folding lists are open: { ladderOpen, partsOpen }
 function readOpen(storage) {
     try {
-        return JSON.parse(storage()?.getItem(STORAGE_KEY) ?? "null")?.ladderOpen === true;
+        const saved = JSON.parse(storage()?.getItem(STORAGE_KEY) ?? "null");
+        return { ladderOpen: saved?.ladderOpen === true, partsOpen: saved?.partsOpen === true };
     } catch {
-        return false;
+        return { ladderOpen: false, partsOpen: false };
     }
 }
 
-function saveOpen(storage, ladderOpen) {
+function saveOpen(storage, open) {
     try {
-        storage()?.setItem(STORAGE_KEY, JSON.stringify({ ladderOpen }));
+        storage()?.setItem(STORAGE_KEY, JSON.stringify(open));
     } catch {
         // not remembered, still applied
     }
@@ -83,10 +87,12 @@ export function createAnalysisPanel({
     setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
     const state = {
-        key: null, rate: null, details: null, profile: profile.getProfile(), ladder: new Map(),
-        ladderOpen: readOpen(storage),
+        key: null, rate: null, details: null, sections: undefined, partSel: null, profile: profile.getProfile(), ladder: new Map(),
+        ...readOpen(storage),
     };
+    const remember = () => saveOpen(storage, { ladderOpen: state.ladderOpen, partsOpen: state.partsOpen });
     let lastDetails = null; // the last analysis-details payload, kept in case it comes before its card
+    let lastSections = null; // the same for analysis-sections
     let ladderTimer = null;
     let staleKey = null; // main has another map than this one: its ladder is not asked for again
     let redrawQueued = false;
@@ -150,6 +156,8 @@ export function createAnalysisPanel({
             state.rate = key ? rateKey(result.rate ?? 1) : null;
             state.ladder = new Map();
             state.details = key && lastDetails?.key === key ? lastDetails.details ?? null : null;
+            state.sections = key && lastSections?.key === key ? lastSections.sections ?? null : undefined;
+            state.partSel = null;
             // the profile client asks main once a session (again after a failure, no sooner than 60 s)
             if (key) queueMicrotask(() => profile.ensureProfile());
         }
@@ -164,10 +172,38 @@ export function createAnalysisPanel({
         later();
     }
 
+    function onSections(payload) {
+        if (typeof payload?.key !== "string") return;
+        lastSections = payload;
+        if (payload.key !== state.key) return;
+        state.sections = payload.sections ?? null;
+        state.partSel = null;
+        later();
+    }
+
+    // the line under the parts' chart tells the part under the pointer, and the chosen one again once it leaves
+    function tell(target) {
+        const bar = target?.closest?.("[data-part]");
+        const info = card?.querySelector?.(".an-sec-info");
+        if (!info) return;
+        const chosen = card.querySelector(".an-sec-sel");
+        const text = (bar ?? chosen)?.dataset?.info;
+        if (typeof text === "string" && info.textContent !== text) info.textContent = text;
+    }
+
     // clicks on the blocks under the card, found by their data-* attributes on the way up to #card
     function act(target) {
         for (let node = target; node && node !== card; node = node.parentElement) {
             const data = node.dataset ?? {};
+            if (data.part !== undefined) {
+                const i = Number(data.part);
+                if (Number.isInteger(i) && i >= 0) {
+                    state.partSel = i;
+                    redraw();
+                    card?.querySelector?.(`[data-part="${i}"]`)?.focus?.(); // the bar was drawn anew
+                }
+                return;
+            }
             if (data.rate !== undefined) {
                 const rate = Number(data.rate);
                 if (validRate(rate)) dispatch(new CustomEvent("open-rate", { detail: { rate } }));
@@ -183,16 +219,26 @@ export function createAnalysisPanel({
             }
             if (data.toggle === "ladder") {
                 state.ladderOpen = !state.ladderOpen;
-                saveOpen(storage, state.ladderOpen);
+                remember();
                 maybeLadder(0);
                 redraw();
                 card?.querySelector?.("[data-toggle=ladder]")?.focus?.(); // the button was drawn anew
+                return;
+            }
+            if (data.toggle === "parts") {
+                state.partsOpen = !state.partsOpen;
+                remember();
+                redraw();
+                card?.querySelector?.("[data-toggle=parts]")?.focus?.();
                 return;
             }
         }
     }
 
     card?.addEventListener?.("click", (e) => act(e?.target));
+    card?.addEventListener?.("mouseover", (e) => tell(e?.target));
+    card?.addEventListener?.("focusin", (e) => tell(e?.target));
+    card?.addEventListener?.("mouseleave", () => tell(null));
     // the General / Detailed switch is shared by every tab: the card and the strip follow it
     onPatternMode(() => later());
     profile.onProfile((p) => {
@@ -204,12 +250,18 @@ export function createAnalysisPanel({
     } catch {
         // no details: the rest still works
     }
+    try {
+        api()?.onAnalysisSections?.(onSections);
+    } catch {
+        // no dan by part: the rest still works
+    }
 
     return {
         html(view) {
             follow(view);
             return renderExtras({
-                view, details: state.details, profile: state.profile, ladder: state.ladder, ladderOpen: state.ladderOpen,
+                view, details: state.details, sections: state.sections, partSel: state.partSel, partsOpen: state.partsOpen,
+                profile: state.profile, ladder: state.ladder, ladderOpen: state.ladderOpen,
             });
         },
         state,

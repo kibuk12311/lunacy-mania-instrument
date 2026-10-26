@@ -11,7 +11,7 @@
 // Kept up: a widget meant to be on screen that Windows minimized or hid (Win+D, minimizing the game or the app's own
 // window) is put back at once, and while any is shown a light watchdog re-asserts the top-most level every
 // KEEP_UP_MS (a borderless game taking focus can push itself above top-most windows).
-// The Dan widget's map data (app/overlay/danSource.js: the card's analysis per map and rate, the dan along the map,
+// The Dan widget's map data (app/overlay/danSource.js: the card's analysis per map and rate, the map's overall dan;
 // the player's skill from the main window, whether the local profile records) goes with its config, sent again only
 // when it changes.
 import path from "node:path";
@@ -55,7 +55,7 @@ export function saveOverlaySettings(file, settings) {
 
 // electron: { BrowserWindow, ipcMain, globalShortcut, screen }; headless (the smoke test): windows are never put on
 // the screen, only marked shown, so their pages can still be captured.
-// The Dan widget: danAnalyze({ text, rate, result }) → { result, details } (danSource.js makeDanAnalyzer; without it
+// The Dan widget: danAnalyze({ text, rate, result }) → { result } (danSource.js makeDanAnalyzer; without it
 // the widget says there is no estimate), interludeText(hash) → the .osu text of an Interlude chart, recording() →
 // whether the local profile records plays.
 export function createOverlay({
@@ -198,7 +198,7 @@ export function createOverlay({
         if (!checksum) return;
         const key = danKey(checksum, rate);
         const mania = mode === 3 || mode === null;
-        if (mania) dan.want(checksum, rate, { text: () => danText(checksum), interlude: checksum.startsWith("interlude:") });
+        if (mania) dan.want(checksum, rate, { text: () => danText(checksum) });
         if (recordingKey !== key) {
             recordingKey = key;
             Promise.resolve().then(recording).then((on) => {
@@ -398,7 +398,7 @@ export function createOverlay({
         if (!alive(win)) return;
         const w = settings.widgets[widget];
         const [x, y] = win.getPosition();
-        win.setBounds({ x, y, ...widgetSize(widget, w.style, w.scale) });
+        win.setBounds({ x, y, ...widgetSize(widget, w.style, w.scale, w.show) });
         win.webContents.send("overlay-config", configFor(widget));
     }
 

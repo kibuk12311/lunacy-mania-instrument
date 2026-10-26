@@ -1,6 +1,8 @@
 // Run with: npx electron tests/smoke/electron-ui.mjs <out.png> [calc=<id>] [lang=en] — renders the card with a sample view.
-// [details]: the analysis tab's blocks under the card too (difficulty line, strip, "for you", the ladder folded;
-// [ladder] opens it); exits 1 when the card scrolls sideways. [detailed]: the card and the strip in the Detailed mode
+// [details]: the analysis tab's blocks under the card too (difficulty line, strip, the dan by part, "for you", the
+// ladder folded; [ladder] opens it); exits 1 when the card scrolls sideways, or when the dan by part is missing, its
+// hardest part is not marked, a part under the pointer is not told or the card's dan changed. [parts]: the screenshot
+// at the dan by part with its list of parts unfolded and a part tapped. [detailed]: the card and the strip in the Detailed mode
 // (the «Общие / Подробно» switch clicked), with finder sub-types in the sample. [overlay]: the Settings page opened by ⚙
 // at its overlay block (the in-game overlay on, KPS off, as if set in the tray); exits 1 when it is missing or spills
 // out of the window.
@@ -23,6 +25,7 @@ const calc = process.argv.find((a) => a.startsWith("calc="))?.slice(5);
 // >>> analysis v2: details
 const details = process.argv.includes("details");
 const ladder = process.argv.includes("ladder");
+const partsShot = process.argv.includes("parts");
 const detailedMode = process.argv.includes("detailed");
 const overlayPanel = process.argv.includes("overlay");
 const client = process.argv.find((a) => a.startsWith("client="))?.slice(7) ?? null;
@@ -40,6 +43,19 @@ const sampleDetails = {
     families: Array.from({ length: 120 }, (_, i) => familyAt(i)),
     flavours: [{ id: "Jumptrill", share: 0.31 }, { id: "Anchor", share: 0.18 }, { id: "ChordTrills", share: 0.12 }],
     flavourBins: Array.from({ length: 120 }, (_, i) => flavourAt(i)),
+};
+// the dan by part as main sends it (src/analysis/sections.js): calm intro, a break, two hard stretches, a short outro
+const sampleSections = {
+    v: 1, rate: 1.5, durationSec: 161, top: 4,
+    parts: [
+        { fromSec: 0, toSec: 14.2, notes: 110, raw: 9.6, supportSec: 161, dan: lift(9.4), primary: "Stream", tech: false },
+        { fromSec: 14.2, toSec: 38.5, notes: 420, raw: 12.1, supportSec: 120, dan: lift(12.0), primary: "Jumpstream", tech: false },
+        { fromSec: 38.5, toSec: 52, notes: 20, raw: null, supportSec: null, dan: null, primary: null, tech: false },
+        { fromSec: 57.4, toSec: 89.1, notes: 610, raw: 12.6, supportSec: 96, dan: lift(12.5), primary: "Handstream", tech: false },
+        { fromSec: 89.1, toSec: 118.3, notes: 590, raw: 13.1, supportSec: 61, dan: lift(13.1), primary: "Handstream", tech: true },
+        { fromSec: 118.3, toSec: 147.9, notes: 540, raw: 12.8, supportSec: 90, dan: lift(12.7), primary: "Jumpstream", tech: false },
+        { fromSec: 147.9, toSec: 161, notes: 160, raw: 11.2, supportSec: 140, dan: lift(10.9), primary: "Minitrills", tech: false },
+    ],
 };
 const player = { id: 1, username: "TestPlayer", avatarUrl: "" };
 const skill = { overall: lift(12.4), overallLabel: LIFT ? "" : "Gamma low", tiles: { speed: lift(12.9), stamina: lift(12.5), tech: lift(11.8), jack: null },
@@ -85,6 +101,10 @@ app.whenReady().then(async () => {
     if (details) {
         win.webContents.send("view", { ...view, key: SMOKE_KEY });
         win.webContents.send("analysis-details", { key: SMOKE_KEY, details: sampleDetails });
+        // the dan by part comes a moment later than the details: «считаем…» first
+        await new Promise((r) => setTimeout(r, 120));
+        const waiting = await win.webContents.executeJavaScript(`document.querySelector("#card .an-sec-wait")?.textContent ?? null`);
+        win.webContents.send("analysis-sections", { key: SMOKE_KEY, sections: sampleSections });
         win.webContents.send("profile-changed", { player, skill });
         await new Promise((r) => setTimeout(r, 200));
         // the ladder's state is remembered in localStorage: make it what was asked for
@@ -109,11 +129,53 @@ app.whenReady().then(async () => {
             console.log("SMOKE detailed", JSON.stringify(now));
             if (now.mode !== "detailed" || !now.strip.length) process.exitCode = 1;
         }
+        // the dan by part: its bars, the hardest marked, the whole map's line, a part told under the pointer
+        const parts = await win.webContents.executeJavaScript(`(() => {
+            const block = document.querySelector("#card .an-sec");
+            if (!block) return null;
+            const bars = [...block.querySelectorAll(".an-sec-bar")];
+            const info = () => block.querySelector(".an-sec-info")?.textContent ?? "";
+            const before = info();
+            bars[1]?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+            const hovered = info();
+            document.getElementById("card").dispatchEvent(new MouseEvent("mouseleave"));
+            const r = block.getBoundingClientRect();
+            const plot = block.querySelector(".an-sec-plot").getBoundingClientRect();
+            return {
+                title: block.querySelector(".an-title")?.textContent, chip: block.querySelector(".an-chip")?.textContent,
+                bars: bars.length, top: bars.filter((b) => b.classList.contains("an-sec-top")).map((b) => b.dataset.part),
+                heights: bars.map((b) => Math.round(b.getBoundingClientRect().height)),
+                names: [...block.querySelectorAll(".an-sec-name")].map((n) => n.textContent),
+                axis: [...block.querySelectorAll(".an-sec-axis span")].map((n) => n.textContent),
+                map: block.querySelector(".an-sec-map") && block.querySelector(".an-sec-key")?.textContent, before, hovered, after: info(),
+                inside: r.left >= 0 && r.right <= innerWidth + 1, plotWidth: Math.round(plot.width),
+                card: document.querySelector("#card .dan-num, #card .numeric, #card .dan")?.textContent ?? null,
+                cardText: document.querySelector("#card").innerText.slice(0, 120),
+            };
+        })()`);
+        console.log("SMOKE parts", JSON.stringify({ waiting, ...parts }));
+        const partsOk = waiting && parts && parts.bars === 7 && parts.top.join() === "4" && parts.hovered !== parts.before
+            && parts.after === parts.before && parts.map && parts.axis.length >= 2 && parts.inside
+            && parts.cardText.includes((12.8 + LIFT).toFixed(1));
+        if (!partsOk) process.exitCode = 1;
+        if (partsShot) {
+            // the list's state is remembered in localStorage: open it unless it is
+            await win.webContents.executeJavaScript(`{ const b = document.querySelector("#card [data-toggle=parts]");
+                if (b && b.getAttribute("aria-expanded") !== "true") b.click(); } true`);
+            await new Promise((r) => setTimeout(r, 150));
+            await win.webContents.executeJavaScript(`document.querySelector("#card .an-sec-bar[data-part='5']")?.click(); true`);
+            await new Promise((r) => setTimeout(r, 150));
+            const rows = await win.webContents.executeJavaScript(`[...document.querySelectorAll("#card .an-srow")].map((r) => r.innerText.replace(/\\s+/g, " "))`);
+            const told = await win.webContents.executeJavaScript(`document.querySelector("#card .an-sec-info")?.textContent`);
+            console.log("SMOKE parts list", JSON.stringify({ rows, told }));
+            if (rows.length !== 7 || !told.startsWith("1:58–2:28")) process.exitCode = 1;
+        }
         const sideways = await win.webContents.executeJavaScript("(() => { const c = document.getElementById('card'); return c.scrollWidth - c.clientWidth; })()");
         console.log("SMOKE sideways", sideways);
         if (sideways > 0) process.exitCode = 1;
-        // the blocks sit under the card: scroll down to them for the screenshot
-        if (!detailedMode) await win.webContents.executeJavaScript("document.getElementById('card').scrollTop = 1e6");
+        // the blocks sit under the card: scroll down to them for the screenshot ([parts]: to the dan by part)
+        if (partsShot) await win.webContents.executeJavaScript(`document.querySelector("#card .an-sec").scrollIntoView({ block: "start" }); true`);
+        else if (!detailedMode) await win.webContents.executeJavaScript("document.getElementById('card').scrollTop = 1e6");
         // a hidden window does not paint a scroll by itself: a 1 px resize makes it draw a new frame
         const [w, h] = win.getSize();
         win.setSize(w + 1, h);

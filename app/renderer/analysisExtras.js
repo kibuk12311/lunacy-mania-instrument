@@ -1,5 +1,6 @@
 // The blocks under the analysis card as HTML (pure, so they can be tested in Node): the difficulty line and pattern
-// strip from the details job, "for you" against the player's mania-tracker dan, and the dan at other rates.
+// strip from the details job, the dan by part (sectionDans.js), "for you" against the player's mania-tracker dan, and
+// the dan at other rates.
 // Everything that comes from outside is escaped. Clicks are handled in analysisPanel.js through data-* attributes.
 import { t } from "../../src/i18n/i18n.js";
 import { labelBeside } from "../../src/core/labels.js";
@@ -9,6 +10,7 @@ import { TILE_NAMES } from "../../src/recommend/catalog.js";
 import { formatDuration } from "./view.js";
 import { isDetailed, patternModeHtml } from "./patternMode.js";
 import { FLAVOUR_FAMILY, flavourName, isFlavour } from "../../src/gen/flavours.js";
+import { sectionsBlock } from "./sectionDans.js";
 
 const escape = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -210,7 +212,8 @@ function ladderBlock({ result, ladder, ladderOpen, fit }) {
     return `<div class="an-ladder open">${head}<div class="an-lrows">${ladderRows(rows, { currentRate: current, growthRate: growth })}</div></div>`;
 }
 
-// state: { view, details (for view.key, or null), profile (getProfile()), ladder: Map rate → row, ladderOpen }
+// state: { view, details (for view.key, or null), sections (for view.key: undefined while worked out, null when it
+// failed), partSel (the part tapped, or null), partsOpen (its list unfolded), profile (getProfile()), ladder: Map rate → row, ladderOpen }
 export function renderExtras(state) {
     const result = state?.view?.screen === "result" ? state.view.result : null;
     if (result?.kind !== "ok") return "";
@@ -218,6 +221,8 @@ export function renderExtras(state) {
     const fit = profile.state === "ready" ? fitForSkill(result, profile.skill) : null;
     // the ladder asks main by the map's key: a view without one cannot have it
     const ladder = state.view.key ? ladderBlock({ result, ladder: state.ladder, ladderOpen: Boolean(state.ladderOpen), fit }) : "";
-    const blocks = timelineBlock(state.details) + forYouLine(fit, profile) + ladder;
+    // the dan by part comes by the map's key too
+    const parts = state.view.key ? sectionsBlock(state.sections, { mapDan: result.numeric, selected: state.partSel ?? null, open: Boolean(state.partsOpen) }) : "";
+    const blocks = timelineBlock(state.details) + parts + forYouLine(fit, profile) + ladder;
     return blocks ? `<div class="an-extras">${blocks}</div>` : "";
 }

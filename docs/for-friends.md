@@ -1,5 +1,10 @@
 # Lunacy mania — how to use it
 
+## What's new in 0.9.7
+
+- **Dan by part, in the Analysis tab.** Under the difficulty line there's a new block, "Dan by part": the map is cut into parts of about half a minute (at breaks and where the density changes), and each part gets a real dan from the same model as the card, as if it were a map of its own at your rate — then corrected for length and stamina (a short part alone plays easier than inside a long map). You see steps along the map with dan names on the side, the hardest part outlined and named ("hardest 1:29–1:58 · Gamma mid"), and the whole map's dan as a dashed line. Hover or tap a part to see its time, dan and main pattern; "All parts" lists them all. It takes a moment after the card ("working out each part's dan…"). The card's main dan doesn't change — it is still the map's overall dan.
+- **The overlay's Dan window shows only the map's overall dan now**: the number and its name, nothing else out of the box. The line along the map and "now: …" are gone (they were only an estimate — the real per-part dans are in Analysis now). The pattern with its confidence, "vs your level" and "this play" are still there as options, off until you tick them in the overlay settings. If you never changed those boxes in 0.9.6 they're switched off for you; if you did, your choice stays.
+
 ## What's new in 0.9.6
 
 - **The overlay has a "Dan" window now.** While you play it shows the map's dan at your rate (the same number as the card, e.g. "Gamma mid · 13.0") with how sure it is and the main pattern, a small line of how hard the map gets with a marker where you are and "now: Gamma high", and "+0.8 vs your level" against your profile (the one chosen in Picks). On the results screen it shows "this play: …" — the dan of your play by My profile (when "Record my plays" is on). Turn it on or off in the tray, the OV panel or the overlay settings, where each line can be switched off too. While the map is being worked out it says "working out…"; not-4K, LN and non-mania maps say so.

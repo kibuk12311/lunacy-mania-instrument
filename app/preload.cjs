@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld("danApi", {
         ipcRenderer.on("analysis-details", listener);
         return () => ipcRenderer.removeListener("analysis-details", listener);
     },
+    // the dan by part of the selected map { key, sections | null } (app/analysisSections.js); → unsubscribe
+    onAnalysisSections: (cb) => {
+        const listener = (_e, payload) => cb(payload);
+        ipcRenderer.on("analysis-sections", listener);
+        return () => ipcRenderer.removeListener("analysis-sections", listener);
+    },
     analysisRate: (key, rate) => ipcRenderer.invoke("analysis-rate", { key, rate }),
     // <<< analysis
     // >>> rate

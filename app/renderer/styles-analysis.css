@@ -68,3 +68,54 @@
 .an-head .pm-switch { margin-left: auto; }
 .an-head .pm-switch span { margin: 0 0 0 4px; padding: 0 7px; font-size: 10px; }
 .an-fam i.fl-edge { box-shadow: inset 1px 0 0 var(--bg); }
+
+/* ---- the dan by part (sectionDans.js) ---- */
+.an-sec .an-head { flex-wrap: wrap; row-gap: 3px; }
+.an-sec-wait { font-size: 12px; }
+.an-sec-chart { display: flex; gap: 4px; margin-top: 4px; }
+.an-sec-axis { position: relative; flex: 0 0 44px; height: 84px; font-size: 10px; color: var(--muted); }
+.an-sec-axis span { position: absolute; right: 0; transform: translateY(50%); white-space: nowrap; }
+.an-sec-plot { position: relative; flex: 1; height: 84px; border-bottom: 1px solid var(--line); }
+.an-sec-grid { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--line); opacity: 0.6; }
+.an-sec-bar {
+    position: absolute; bottom: 0; margin: 0; padding: 0; min-width: 2px; border: 0; border-radius: 3px 3px 0 0;
+    background: var(--muted); opacity: 0.55; cursor: pointer; box-shadow: inset -1px 0 0 var(--bg); overflow: visible;
+}
+.an-sec-bar:hover, .an-sec-bar:focus-visible { opacity: 0.85; outline: none; }
+.an-sec-bar.fam-stream { background: var(--blue); }
+.an-sec-bar.fam-jumpstream { background: var(--gold); }
+.an-sec-bar.fam-handstream { background: var(--orange); }
+.an-sec-bar.fam-chordjack { background: var(--red); }
+.an-sec-bar.fam-jack { background: var(--pink); }
+.an-sec-bar.fam-tech { background: var(--purple); }
+.an-sec-bar.an-sec-quiet { height: 3px !important; background: var(--line); opacity: 1; }
+.an-sec-bar.an-sec-top { opacity: 1; box-shadow: inset 0 0 0 2px var(--text); }
+.an-sec-bar.an-sec-sel { opacity: 1; }
+.an-sec-bar.an-sec-sel:not(.an-sec-top) { box-shadow: inset 0 0 0 1px var(--text); }
+.an-sec-plot { container-type: inline-size; }
+.an-sec-name {
+    display: none; position: absolute; left: 0; right: 0; bottom: 100%; padding-bottom: 1px; font-size: 9.5px; line-height: 1.1;
+    color: var(--text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+@container (min-width: 420px) { .an-sec-name { display: block; } }
+.an-sec-top .an-sec-name { font-weight: 700; color: var(--gold); }
+.an-sec-map { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--text); opacity: 0.75; pointer-events: none; }
+.an-sec-key { display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-sec-key i { flex: none; width: 14px; height: 0; border-top: 1px dashed var(--text); opacity: 0.75; }
+.an-sec-time { margin-left: 48px; }
+.an-sec-info { margin-top: 3px; font-size: 12px; color: var(--text); min-height: 1.3em; }
+.an-sec-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.an-srows { display: flex; flex-direction: column; gap: 1px; }
+.an-srow {
+    display: grid; grid-template-columns: 70px minmax(0, 1fr) 30px minmax(0, 0.9fr); column-gap: 6px; align-items: baseline; width: 100%;
+    background: transparent; border: 0; border-radius: 6px; padding: 2px 4px; font: inherit; font-size: 12px;
+    color: #cccccc; text-align: left; cursor: pointer;
+}
+.an-srow:hover, .an-srow-sel { background: var(--panel); }
+.an-srow:focus-visible { background: var(--panel); outline: none; box-shadow: inset 0 0 0 1px var(--blue); }
+.an-stime { color: var(--muted); white-space: nowrap; }
+.an-sname, .an-spat { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-sname { color: var(--text); }
+.an-srow-top .an-sname { color: var(--gold); font-weight: 700; }
+.an-snum { text-align: right; color: var(--muted); }
+.an-spat { color: var(--muted); }

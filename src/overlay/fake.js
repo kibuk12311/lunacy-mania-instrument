@@ -13,15 +13,12 @@ const PROFILE = Array.from({ length: 160 }, (_, i) => {
     return Math.max(0, edge * (9 + 4 * Math.sin(i / 11) + 2 * Math.sin(i / 3.1)));
 });
 const PEAK = Math.max(...PROFILE) + 1.5;
-// the Dan widget's made-up map: Gamma mid at 13.0, its dan along the map from the same density, a profile 0.8 under it
+// the Dan widget's made-up map: Gamma mid at 13.0, a profile 0.8 under it
 const FAKE_DAN = 13;
-const SECTIONS = PROFILE.filter((_, i) => i % 4 === 0).map((v) => (v < 1 ? null : Math.round((FAKE_DAN - 3 + (v / 15) * 4.5) * 10) / 10));
 
 // The Dan widget's payload as main sends it (src/overlay/dan.js), for the made-up map; preview: the play's own dan
-// is shown too (outside a results screen), so every line can be seen. Its playhead goes through the map again and
-// again, with the NPS preview's.
-export function fakeDan(clockMs = 0) {
-    const start = Math.max(0, clockMs) - (Math.max(0, clockMs) % FAKE_MAP_MS);
+// is shown too (outside a results screen), so every line turned on can be seen.
+export function fakeDan() {
     return {
         key: "fake|1.00",
         checksum: "fake",
@@ -31,9 +28,6 @@ export function fakeDan(clockMs = 0) {
         primary: "Jumpstream",
         tech: false,
         confidenceLevel: "high",
-        sections: SECTIONS,
-        firstMs: start,
-        lastMs: start + FAKE_MAP_MS,
         fit: { delta: 0.8, playerDan: 12.2, band: "challenge", source: "tile", tile: "stamina" },
         recording: true,
         preview: true,
@@ -66,7 +60,7 @@ export function fakeSnapshot(clockMs = 0) {
         mode: 3,
         mods: [],
         clock: t,
-        dan: fakeDan(t),
+        dan: fakeDan(),
         hits,
         ratio: formatRatio(hits.max, hits.n300),
         accuracy: maniaAccuracy(hits),

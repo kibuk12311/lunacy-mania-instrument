@@ -155,7 +155,7 @@ test("the ladder opens on a click, remembers that, and fills row by row from ana
     const { dom, card, panel, timers } = panelSetup({ api });
     assert.ok(panel.html(view("a"), {}).includes("Дан на рейтах ▸"));
     await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
-    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: true }));
+    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: true, partsOpen: false }));
     for (let i = 0; i < 20; i += 1) await flush();
     assert.deepEqual(asked.map(([, rate]) => rate), LADDER_RATES.filter((r) => r !== 1));
     const html = panel.html(view("a"), {});
@@ -174,7 +174,7 @@ test("the ladder opens on a click, remembers that, and fills row by row from ana
 
     // folded again: remembered, no rows
     await fire(card, "click", { target: { dataset: { toggle: "ladder" }, parentElement: card } });
-    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: false }));
+    assert.equal(dom.storage.get("analysis-extras"), JSON.stringify({ ladderOpen: false, partsOpen: false }));
     assert.ok(!panel.html(view("b"), {}).includes("data-rate="));
 });
 

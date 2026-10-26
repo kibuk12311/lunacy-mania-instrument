@@ -17,7 +17,8 @@ function getModel() {
     return modelPromise;
 }
 
-export async function analyzeChart(osuText, rate) {
+// minNotes: the fewest notes a chart needs for a dan (a part of a map, src/analysis/sections.js, asks for fewer)
+export async function analyzeChart(osuText, rate, { minNotes = MIN_NOTES } = {}) {
     try {
         const info = chartInfo(osuText, rate);
         if (info.mode !== 3) {
@@ -26,7 +27,7 @@ export async function analyzeChart(osuText, rate) {
         if (info.keys === null || !isRice(info)) {
             return { kind: "not-rice", reason: info.keys === 4 ? "ln" : "keys", keys: info.keys };
         }
-        if (info.noteCount < MIN_NOTES) {
+        if (info.noteCount < minNotes) {
             return { kind: "too-short" };
         }
 

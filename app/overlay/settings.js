@@ -19,7 +19,7 @@ const SHOW_TEXT = {
 // the key widget's "counts" is per key; the NPS widget's lines are about the map
 const NPS_TEXT = { now: "overlay.show.npsNow", peak: "overlay.show.peak", graph: "overlay.show.npsGraph" };
 const DAN_TEXT = {
-    map: "overlay.show.danMap", pattern: "overlay.show.danPattern", live: "overlay.show.danLive",
+    map: "overlay.show.danMap", pattern: "overlay.show.danPattern",
     forYou: "overlay.show.danForYou", play: "overlay.show.danPlay",
 };
 const showText = (widget, key) => {
@@ -47,7 +47,7 @@ const setWidget = (widget, patch) => set({ widgets: { [widget]: patch } });
 // a widget drawn at its real size in a box of its own, zoomed as asked
 function preview(widget, style, show, zoom) {
     const frame = el("div", "frame");
-    const size = widgetSize(widget, style, 1);
+    const size = widgetSize(widget, style, 1, show);
     frame.style.width = `${size.width}px`;
     frame.style.height = `${size.height}px`;
     frame.style.zoom = String(zoom);
