@@ -42,8 +42,9 @@ export function parseSessionSettings(raw) {
 }
 
 // The page's settings and the picks' profile → the session-build request; in the General mode a remembered kind
-// asks for its parent. manualProfile: the hand-set profile when the picks' source is "manual".
-export function sessionRequest(s, { manual = false, manualProfile = null, detailed = isDetailed(), avoidRecent = s.avoidRecent } = {}) {
+// asks for its parent. manualProfile: the hand-set profile when the picks' source is "manual"; local: the picks'
+// source is the local profile (main supplies its skill).
+export function sessionRequest(s, { manual = false, manualProfile = null, local = false, detailed = isDetailed(), avoidRecent = s.avoidRecent } = {}) {
     return {
         minutes: s.minutes,
         patternIds: patternIdsInMode(s.patternIds, detailed),
@@ -51,6 +52,7 @@ export function sessionRequest(s, { manual = false, manualProfile = null, detail
         allowRates: Boolean(s.allowRates),
         avoidRecent: Boolean(avoidRecent),
         ...(manual ? { manualProfile } : {}),
+        ...(local ? { local: true } : {}),
     };
 }
 
@@ -270,13 +272,13 @@ function sayAnswer(r, okText) {
 
 const needProfile = async () => {
     const s = shared.settings();
-    if (s.source !== "manual" && !(await shared.ensurePlayer())) return false;
+    if (s.source !== "manual" && s.source !== "local" && !(await shared.ensurePlayer())) return false;
     return true;
 };
 
 const request = () => {
     const s = shared.settings();
-    return sessionRequest(settings, { manual: s.source === "manual", manualProfile: shared.manualProfile(), avoidRecent: settings.avoidRecent && !$("ses-recent").disabled });
+    return sessionRequest(settings, { manual: s.source === "manual", manualProfile: shared.manualProfile(), local: s.source === "local", avoidRecent: settings.avoidRecent && !$("ses-recent").disabled });
 };
 
 async function build() {

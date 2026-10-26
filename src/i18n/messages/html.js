@@ -7,7 +7,9 @@ export default {
     "html.tab.marathon": { ru: "Марафон", en: "Marathon" },
     "html.tab.recommend": { ru: "Подбор", en: "Picks" },
     "html.tab.recommendTitle": { ru: "Рекомендации карт", en: "Map recommendations" },
-    "html.tab.create": { ru: "Создать карту", en: "Create map" },
+    // short, so six tabs fit the default 320 px window; the tooltip says it in full
+    "html.tab.create": { ru: "Создать", en: "Create" },
+    "html.tab.createTitle": { ru: "Создать карту", en: "Create a map" },
 
     // Picks tab
     "html.rec.skill": { ru: "Твой скилл", en: "Your skill" },

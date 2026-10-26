@@ -165,7 +165,8 @@ export function createRecommender({ api, pageBatch = 4, pageSize = 20, extraPlay
         let plays = { played: new Map(), partial: false };
         if (r.manual) {
             // a hand-set profile (manualProfile.js manualSkill) is used like a tracker one; else the one manual dan
-            const handSet = r.manualSkill?.manual ? r.manualSkill : null;
+            // the local profile (src/localProfile/model.js) comes the same way
+            const handSet = r.manualSkill?.manual || r.manualSkill?.local ? r.manualSkill : null;
             if (!custom && !handSet && !Number.isFinite(r.manualDan)) throw new Error(t("core.rec.needManualDan"));
             target = handSet ? targetOf(handSet, null) : targetOf(null, r.manualDan);
             // With a loaded profile its plays still get marked, and hidden when asked; only hiding needs them.

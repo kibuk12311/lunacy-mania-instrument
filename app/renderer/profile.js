@@ -1,7 +1,10 @@
 // The shared player profile in the window, for every tab: what main's profile service holds, or the profile set by
 // hand in the picks tab while its source is "manual" (no mania-tracker needed).
 // getProfile() → { state: "idle"|"loading"|"ready"|"none"|"failed", player?, skill?, message?, manual? };
-// a hand-set one is { state: "ready", manual: true, player: { id: null, username }, skill (manualSkill), profile }.
+// a hand-set one is { state: "ready", manual: true, player: { id: null, username }, skill (manualSkill), profile };
+// the local profile (source "local", learnt from the player's own plays in main: app/localProfileService.js) is
+// { state: "ready", local: true, player: { id: null, username }, skill }, or { state: "none", local: true, skill }
+// while it has no dan yet (too few plays), { state: "loading", local: true } before main answered.
 // onProfile(cb) → unsubscribe, cb on every change (also on "profile-changed" from main and on manualChanged());
 // ensureProfile() asks main at most once a session (after "failed", again no sooner than 60 s later), and not at
 // all while the hand-set profile is the one in use; getTrackerProfile() / ensureTrackerProfile() are mania-tracker's
@@ -10,7 +13,7 @@ import { manualProfileOf, manualSkill } from "../../src/recommend/manualProfile.
 import { t } from "../../src/i18n/i18n.js";
 
 const RETRY_MS = 60_000;
-// the picks tab's settings: { source: "tracker"|"manual", query, manualProfile: { name, speed, jack, stamina, tech } }
+// the picks tab's settings: { source: "tracker"|"manual"|"local", query, manualProfile: { name, speed, jack, stamina, tech } }
 const SETTINGS_KEY = "rec-settings";
 
 export function createProfileClient({
@@ -22,6 +25,8 @@ export function createProfileClient({
     let asked = false;
     let failedAt = null;
     let pending = null;
+    let local = null; // { skill } of the local profile once main told it
+    let localPending = null;
 
     function saved() {
         try {
@@ -42,7 +47,34 @@ export function createProfileClient({
         return { state: "ready", manual: true, player: { id: null, username: profile.name || t("recommend.manual.defaultName"), avatarUrl: null }, skill, profile };
     }
 
-    const effective = () => manualState() ?? state;
+    // the local profile while the picks tab's source is "local", else null
+    function localState() {
+        if (saved()?.source !== "local") return null;
+        if (!local) return { state: "loading", local: true };
+        const player = { id: null, username: t("profile.local.name"), avatarUrl: null };
+        if (!local.skill?.ready) return { state: "none", local: true, player, skill: local.skill ?? null, message: t("profile.local.notEnough") };
+        return { state: "ready", local: true, player, skill: local.skill };
+    }
+
+    function ensureLocal() {
+        if (local) return Promise.resolve();
+        if (localPending) return localPending;
+        const danApi = api();
+        if (typeof danApi?.localProfileStatus !== "function") {
+            local = { skill: null };
+            return Promise.resolve();
+        }
+        localPending = Promise.resolve()
+            .then(() => danApi.localProfileStatus())
+            .then((r) => { local = { skill: r?.ok ? r.skill : null }; }, () => { local = { skill: null }; })
+            .finally(() => {
+                localPending = null;
+                notify();
+            });
+        return localPending;
+    }
+
+    const effective = () => manualState() ?? localState() ?? state;
 
     function notify() {
         const now = effective();
@@ -66,6 +98,11 @@ export function createProfileClient({
         listening = true;
         try {
             api()?.onProfileChanged?.((p) => { if (p?.player) set({ state: "ready", player: p.player, skill: p.skill }); });
+            // every play the local profile keeps, every import step
+            api()?.onLocalProfileChanged?.((p) => {
+                local = { skill: p?.skill ?? null };
+                notify();
+            });
         } catch {
             // no event: ensureProfile still works
         }
@@ -117,12 +154,17 @@ export function createProfileClient({
             listen();
             return Promise.resolve(manual);
         }
+        if (saved()?.source === "local") {
+            listen();
+            return ensureLocal().then(() => effective());
+        }
         return ensureTrackerProfile().then(() => effective());
     }
 
     return {
         getProfile() {
             listen();
+            if (saved()?.source === "local" && !local) void ensureLocal();
             return effective();
         },
         getTrackerProfile() {
@@ -138,6 +180,14 @@ export function createProfileClient({
         ensureTrackerProfile,
         // the picks tab saved another source or hand-set profile: every tab hears the profile now in use
         manualChanged: notify,
+        // the local profile as main last told it (whatever the source), and a fresh read of it
+        getLocalSkill: () => local?.skill ?? null,
+        refreshLocal: () => {
+            local = null;
+            return ensureLocal();
+        },
+        // a mania-tracker player loaded elsewhere (the profile tab): the shared state takes it at once
+        trackerLoaded: (player, skill) => set({ state: "ready", player, skill }),
     };
 }
 
@@ -148,3 +198,6 @@ export const onProfile = (cb) => client.onProfile(cb);
 export const ensureProfile = () => client.ensureProfile();
 export const ensureTrackerProfile = () => client.ensureTrackerProfile();
 export const manualChanged = () => client.manualChanged();
+export const getLocalSkill = () => client.getLocalSkill();
+export const refreshLocal = () => client.refreshLocal();
+export const trackerLoaded = (player, skill) => client.trackerLoaded(player, skill);

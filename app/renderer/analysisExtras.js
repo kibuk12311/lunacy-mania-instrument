@@ -147,13 +147,15 @@ export function forYouLine(fit, profileState) {
     const state = profileState?.state;
     if (state === "loading") return `<div class="an-foryou an-muted">${escape(t("analysis.fit.loading"))}</div>`;
     if (state === "failed") return `<div class="an-foryou an-muted">${escape(t("app.shared.profileFailed", { message: profileState.message ?? "" }))}</div>`;
+    if (state === "none" && profileState.local) return `<div class="an-foryou an-muted">${escape(t("profile.local.notEnough"))}</div>`;
     if (state === "none") {
         return `<div class="an-foryou"><button type="button" class="an-link" data-go="recommend">${escape(t("analysis.fit.noProfile"))}</button></div>`;
     }
     if (state !== "ready") return "";
     // the nick keeps its own letter case under the upper-case heading; a hand-set profile says so
     const nick = profileState.player?.username ?? "";
-    const name = `<span class="an-name">${escape(profileState.manual ? `${nick} · ${t("recommend.manual.tag")}` : nick)}</span>`;
+    const tag = profileState.manual ? t("recommend.manual.tag") : profileState.local ? t("profile.local.tag") : null;
+    const name = `<span class="an-name">${escape(tag ? `${nick} · ${tag}` : nick)}</span>`;
     const head = `<div class="an-title">${escape(t("analysis.fit.title", { name: NAME_SLOT })).replace(NAME_SLOT, name)}</div>`;
     if (!fit) return `<div class="an-foryou">${head}<div class="an-muted">${escape(t("analysis.fit.noDan"))}</div></div>`;
     const who = fit.source === "tile" ? t("analysis.fit.tile", { tile: TILE_NAMES[fit.tile] ?? fit.tile }) : t("analysis.fit.overall");

@@ -81,7 +81,7 @@ function el(tag, className, text) {
 }
 
 // The profile's name; a hand-set one (the picks tab's manual source) says so.
-const profileName = (p) => (p.manual ? `${p.player?.username ?? ""} (${t("recommend.manual.tag")})` : p.player?.username ?? "");
+const profileName = (p) => (p.manual ? `${p.player?.username ?? ""} (${t("recommend.manual.tag")})` : p.local ? t("profile.local.name") : p.player?.username ?? "");
 
 function renderProfile() {
     const p = getProfile();
@@ -98,6 +98,8 @@ function renderProfile() {
         text = t("marathon.auto.profileLoading");
     } else if (p.state === "failed") {
         text = t("app.shared.profileFailed", { message: p.message ?? "" });
+    } else if (p.local) {
+        text = t("profile.local.notEnough");
     } else {
         text = t("marathon.err.noProfile");
     }
@@ -223,7 +225,8 @@ async function pick() {
     let r;
     // "by profile" with the hand-set profile: main has no copy of it, so it goes with the request
     const p = getProfile();
-    const handSet = settings.source === "profile" && p.manual ? { manualProfile: p.profile } : {};
+    // the local profile is main's own: only which one goes with the request
+    const handSet = settings.source !== "profile" ? {} : p.manual ? { manualProfile: p.profile } : p.local ? { localProfile: true } : {};
     try {
         r = await api.marathonAuto({
             templateId: settings.templateId, count: settings.count, step: settings.step,

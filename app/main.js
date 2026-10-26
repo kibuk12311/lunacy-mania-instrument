@@ -28,6 +28,7 @@ import { createOverlay } from "./overlay/overlayManager.js";
 import { createCache } from "../src/core/cache.js";
 import { createInterludeClient } from "./interludeClient.js";
 import { registerInterludeIpc } from "./interludeIpc.js";
+import { createLocalProfile, registerLocalProfileIpc } from "./localProfileIpc.js";
 import { createReaderProcess, readerArgs, readerPath } from "./interludeReader.js";
 import { createInterludeLive, liveText } from "./interludeLive.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
@@ -294,10 +295,19 @@ async function main() {
         },
     });
     const trackerApi = createTrackerApi();
-    // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked
+    // the local profile: the player's own plays, recorded live and imported, and the skill learnt from them
+    const localProfile = createLocalProfile({
+        userData, analysis, interlude, port: TOSU_PORT, log, send, tosuProfile: () => fetchProfile(TOSU_PORT),
+    });
+    // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked, and every
+    // map in the local profile's history
     const recommender = createRecommender({
         api: trackerApi,
-        extraPlayed: async () => ((await interlude.status()).linked ? interlude.library.playedBeatmaps() : new Map()),
+        extraPlayed: async () => {
+            const own = await localProfile.playedBeatmaps().catch(() => new Map());
+            const inInterlude = (await interlude.status()).linked ? await interlude.library.playedBeatmaps() : new Map();
+            return new Map([...own, ...inInterlude]);
+        },
     });
     const downloadsDir = path.join(docsDir, "скачанные");
     const downloader = createDownloader({ dir: downloadsDir });
@@ -332,7 +342,7 @@ async function main() {
         worker: workerClient,
         analysis,
         resultCache,
-        trackerApi, recommender, downloader, profile,
+        trackerApi, recommender, downloader, profile, localProfile,
         ffmpegPath,
         renderPng,
         hooks,
@@ -349,6 +359,7 @@ async function main() {
     registerCreateIpc(deps);
     registerExportIpc(deps);
     registerInterludeIpc(deps);
+    registerLocalProfileIpc(deps);
     registerSessionIpc(deps);
     // <<< tabs v2
 

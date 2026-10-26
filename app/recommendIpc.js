@@ -33,6 +33,7 @@ export function createRecommendHandlers({
     recommender, analyze, fetchText, openExternal, fetchProfile, log = () => {}, suggestRateImpl = defaultSuggestRate,
     downloader = null, openPath = async () => t("app.rec.noDownloader"), showFile = () => {}, progress = () => {},
     onPlayer = () => {}, store = null, planner = null, searchMaps = null, now = Date.now,
+    localSkill = async () => null,
 }) {
     // start/more share the recommender's paging state, so they run one at a time in the order asked.
     let queue = Promise.resolve();
@@ -104,7 +105,9 @@ export function createRecommendHandlers({
 
     // Manual mode's hand-set profile (Speed / Jack / Stamina / Tech) as a skill: undefined when none was sent,
     // null when what was sent is not a profile the editor can make.
+    // The local profile ({ local: true }, app/localProfileService.js) is used the same way: null until it has a dan.
     function handSetSkill(r) {
+        if (r?.local) return r.localSkill?.ready ? r.localSkill : null;
         if (!r?.manual || r.manualProfile === undefined || r.manualProfile === null) return undefined;
         return manualSkill(normalizeManualProfile(r.manualProfile));
     }
@@ -112,6 +115,13 @@ export function createRecommendHandlers({
     // Renderer request → the exact shape the recommender expects, or a reason in the current language.
     // A custom range ("custom" goal) brings { from, to } instead of using the manual dan: both inside the picker's ends.
     const inPicker = (dan) => dan !== null && dan >= MIN_DAN && dan <= MAX_DAN;
+    // a request for the local profile: main's own skill of it goes with it (the window never sends a skill)
+    async function withLocal(r) {
+        if (!r?.local) return r;
+        const skill = await Promise.resolve().then(localSkill).catch(() => null);
+        return { ...r, manual: true, manualProfile: undefined, localSkill: skill };
+    }
+    const noProfile = (r) => (r?.local ? t("profile.local.notEnough") : t("recommend.err.badManualProfile"));
     function cleanRequest(r) {
         const pattern = patternById(r?.patternId);
         const custom = r?.goalId === CUSTOM_GOAL;
@@ -129,7 +139,7 @@ export function createRecommendHandlers({
             range = { from: Math.min(from, to), to: Math.max(from, to) };
         }
         const skill = handSetSkill(r);
-        if (skill === null) return t("recommend.err.badManualProfile");
+        if (skill === null) return noProfile(r);
         const manualDan = manual && !custom && !skill ? danOf(r.manualDan) : null;
         if (manual && !custom && !skill && !inPicker(manualDan)) return t("app.rec.chooseDan");
         return {
@@ -138,7 +148,12 @@ export function createRecommendHandlers({
         };
     }
 
+    // the local profile's skill is asked first; any other request keeps its place in the line at once
     function start(request) {
+        return request?.local ? withLocal(request).then(startClean) : startClean(request);
+    }
+
+    function startClean(request) {
         const req = cleanRequest(request);
         if (typeof req === "string") return Promise.resolve({ ok: false, message: req });
         return serial(async () => {
@@ -146,7 +161,7 @@ export function createRecommendHandlers({
                 const out = await recommender.start(req);
                 const target = out.target;
                 const partial = Boolean(out.playedPartial);
-                log(`rec start ${req.patternId} ${req.goalId} ${target?.lo}..${target?.hi}${req.manual ? (req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${out.cards.length} cards, server ${out.total}${partial ? ", plays partial" : ""}`);
+                log(`rec start ${req.patternId} ${req.goalId} ${target?.lo}..${target?.hi}${req.manual ? (req.manualSkill?.local ? " (local profile)" : req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${out.cards.length} cards, server ${out.total}${partial ? ", plays partial" : ""}`);
                 rememberCards(out.cards);
                 return { ok: true, target, cards: out.cards, more: Boolean(out.more), total: out.total, playedPartial: partial };
             } catch (error) {
@@ -283,13 +298,17 @@ export function createRecommendHandlers({
         if (!length) return t("app.rec.chooseLength");
         const manual = Boolean(r.manual);
         const skill = handSetSkill(r);
-        if (skill === null) return t("recommend.err.badManualProfile");
+        if (skill === null) return noProfile(r);
         const manualDan = manual && !skill ? danOf(r.manualDan) : null;
         if (manual && !skill && !(manualDan >= MIN_DAN && manualDan <= MAX_DAN)) return t("app.rec.chooseDan");
         return { size: r.size, patternIds: unique, lengthId: length.id, rankedOnly: Boolean(r.rankedOnly), manual, manualDan, ...(skill ? { manualSkill: skill } : {}) };
     }
 
     function plan(request) {
+        return request?.local ? withLocal(request).then(planClean) : planClean(request);
+    }
+
+    function planClean(request) {
         const req = cleanPlanRequest(request);
         if (typeof req === "string") return Promise.resolve({ ok: false, message: req });
         return serialPlan(async () => {
@@ -297,7 +316,7 @@ export function createRecommendHandlers({
                 const out = await planner.build(req);
                 const cards = out.slots.map((s) => s.card).filter(Boolean);
                 rememberCards(cards);
-                log(`rec plan ${req.size} ${req.patternIds.join("+")}${req.manual ? (req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${cards.length}/${out.slots.length} cards, ${Math.round(out.totalSec)} s${out.playedPartial ? ", plays partial" : ""}`);
+                log(`rec plan ${req.size} ${req.patternIds.join("+")}${req.manual ? (req.manualSkill?.local ? " (local profile)" : req.manualSkill ? " (hand-set profile)" : " (manual)") : ""} → ${cards.length}/${out.slots.length} cards, ${Math.round(out.totalSec)} s${out.playedPartial ? ", plays partial" : ""}`);
                 return { ok: true, header: out.header, slots: out.slots, totalSec: out.totalSec, playedPartial: Boolean(out.playedPartial) };
             } catch (error) {
                 log(`rec plan failed: ${error?.message}`);
@@ -394,7 +413,7 @@ async function fetchText(url) {
 }
 
 // The "Подбор" tab's channels on the app's shared services (main.js deps).
-export function registerRecommendIpc({ ipcMain, shell, send, log, tosu, analysis, recommender, downloader, profile, trackerApi, paths }) {
+export function registerRecommendIpc({ ipcMain, shell, send, log, tosu, analysis, recommender, downloader, profile, trackerApi, paths, localProfile = null }) {
     // userData/favourites.json and picks.json; nothing is read before the first use
     const store = createRecStore({ dir: paths.userData });
     const recommend = createRecommendHandlers({
@@ -413,6 +432,7 @@ export function registerRecommendIpc({ ipcMain, shell, send, log, tosu, analysis
         store,
         planner: createPlanner({ api: trackerApi, recommender }),
         searchMaps: (params) => trackerApi.searchMaps(params),
+        localSkill: () => localProfile?.skill() ?? null,
     });
     const favourites = createFavHandlers({
         store,
@@ -425,7 +445,7 @@ export function registerRecommendIpc({ ipcMain, shell, send, log, tosu, analysis
         onExported: (file) => recommend.allowShow(file),
         client: () => tosu?.client?.() ?? null,
     });
-    const progressHandlers = createProgressHandlers({ store, trackerApi, recommender, log });
+    const progressHandlers = createProgressHandlers({ store, trackerApi, recommender, log, localProfile });
     ipcMain.handle("rec-player", (_e, query) => recommend.player(query));
     ipcMain.handle("rec-me", () => recommend.me());
     ipcMain.handle("rec-start", (_e, request) => recommend.start(request));

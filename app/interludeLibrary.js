@@ -274,6 +274,17 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
         return out;
     }
 
+    // Every score of Data\scores.db, oldest first: [{ hash, at (unix ms), rate, failed }] (the local profile's import;
+    // Interlude keeps the judgements only inside the replay, so there is no accuracy here).
+    async function scores() {
+        const { value } = await withDb("scores", SCORES_DB, (db) => {
+            const cols = new Set(db.prepare("PRAGMA table_info(scores)").all().map((c) => c.name));
+            const failed = cols.has("IsFailed") ? "IsFailed" : "0";
+            return db.prepare(`SELECT ChartId, Timestamp, Rate, ${failed} AS Failed FROM scores ORDER BY Timestamp`).all();
+        });
+        return value.map((r) => ({ hash: String(r.ChartId), at: Number(r.Timestamp), rate: Number(r.Rate), failed: Number(r.Failed) !== 0 }));
+    }
+
     // osu! beatmap id → { beatmapsetId, accuracy: null, rate: null, playedAt } for every chart played in Interlude
     // that came from osu! (the shape the picks use for their played maps).
     async function playedBeatmaps() {
@@ -302,7 +313,7 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
     }
 
     return {
-        search, list, chart, osuFor, played, playedBeatmaps, find,
+        search, list, chart, osuFor, played, playedBeatmaps, find, scores,
         meta: async (hash) => (await load()).byHash.get(String(hash)) ?? null,
         size: async () => (await load()).byHash.size,
         forget() {

@@ -12,7 +12,7 @@ const EPS = 1e-9;
 const MAX_PATTERNS = 3;
 
 // The request as the auto-marathon runs it, or the reason it can't run.
-function cleanRequest(req, profile) {
+function cleanRequest(req, profile, local = null) {
     if (!req || typeof req !== "object" || Array.isArray(req)) return t("marathon.err.badTemplate");
     const tpl = templateById(req.templateId);
     if (!tpl) return t("marathon.err.badTemplate");
@@ -36,7 +36,11 @@ function cleanRequest(req, profile) {
     } else if (req.source === "profile") {
         // the profile set by hand in the picks tab (no mania-tracker) comes with the request; else main's loaded one
         let skill;
-        if (req.manualProfile !== undefined && req.manualProfile !== null) {
+        if (req.localProfile === true) {
+            // the local profile (app/localProfileService.js): main's own skill of it
+            if (!local?.ready) return t("profile.local.notEnough");
+            skill = local;
+        } else if (req.manualProfile !== undefined && req.manualProfile !== null) {
             skill = manualSkill(normalizeManualProfile(req.manualProfile));
             if (!skill) return t("recommend.err.badManualProfile");
         } else {
@@ -59,18 +63,20 @@ function cleanRequest(req, profile) {
 }
 
 // auto: createAutoMarathon(...) (src/rate/autoMarathon.js); profile: the shared profile service (current()).
-export function createMarathonAutoHandlers({ auto, profile, log = () => {} }) {
+export function createMarathonAutoHandlers({ auto, profile, log = () => {}, localSkill = async () => null }) {
     let running = null; // { cancelled } of the auto-marathon in progress
 
     async function start(req) {
         if (running) return { ok: false, message: t("marathon.err.autoBusy") };
         let clean;
         try {
-            clean = cleanRequest(req, profile);
+            const local = req?.localProfile === true ? await Promise.resolve().then(localSkill).catch(() => null) : null;
+            clean = cleanRequest(req, profile, local);
         } catch (error) {
             return { ok: false, message: String(error?.message || t("marathon.err.badTemplate")) };
         }
         if (typeof clean === "string") return { ok: false, message: clean };
+        if (running) return { ok: false, message: t("marathon.err.autoBusy") }; // another one began meanwhile
         const token = { cancelled: false };
         running = token;
         const { tpl, finalDan, targets, run } = clean;

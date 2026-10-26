@@ -9,9 +9,11 @@ const MAX_HISTORY_PAGES = 8;
 
 const fail = (error) => ({ ok: false, message: error?.message || t("app.rec.unknownError") });
 
-// store: app/recStore.js; trackerApi: recent, skillHistory; recommender: currentPlayer, playedMaps.
+// store: app/recStore.js; trackerApi: recent, skillHistory; recommender: currentPlayer, playedMaps;
+// localProfile: app/localProfileService.js (history), for { local: true }: the plays and skill it learnt itself.
 export function createProgressHandlers({
     store, trackerApi, recommender, log = () => {}, now = Date.now, historyTtlMs = HISTORY_CACHE_MS, maxPages = MAX_HISTORY_PAGES,
+    localProfile = null,
 }) {
     // player id → the history pages read so far: { at, items (newest first), nextBefore, pages, done }
     const histories = new Map();
@@ -71,9 +73,25 @@ export function createProgressHandlers({
         }
     }
 
+    // the local profile's period: the picks joined with its own plays, its daily skill as the chart
+    async function runLocal(days) {
+        try {
+            const since = now() - days * DAY_MS;
+            const [picks, h] = await Promise.all([store.picks.list(), localProfile.history(days)]);
+            const joined = joinPicks(picks.filter((p) => p.at >= since), h.joinable ?? []);
+            const playedCount = joined.filter((p) => p.play).length;
+            log(`rec progress ${days}d (local): ${playedCount}/${joined.length} played, ${h.points.length} points`);
+            return { ok: true, local: true, since, picks: joined, played: playedCount, total: joined.length, points: h.points, change: h.change, partial: false };
+        } catch (error) {
+            log(`rec progress (local) failed: ${error?.message}`);
+            return fail(error);
+        }
+    }
+
     function progress(req) {
         const days = req?.days;
         if (!PROGRESS_DAYS.includes(days)) return Promise.resolve({ ok: false, message: t("recommend.err.badDays") });
+        if (req?.local && localProfile) return serial(() => runLocal(days));
         return serial(() => run(days));
     }
 

@@ -107,7 +107,8 @@ contextBridge.exposeInMainWorld("danApi", {
         ipcRenderer.on("rec-fav-export-progress", listener);
         return () => ipcRenderer.removeListener("rec-fav-export-progress", listener);
     },
-    recProgress: (days) => ipcRenderer.invoke("rec-progress", { days }),
+    // local: the local profile's own plays and skill instead of mania-tracker's
+    recProgress: (days, local = false) => ipcRenderer.invoke("rec-progress", { days, local: Boolean(local) }),
     // the session page: the player's own library, a session built from it, saved sessions and their export
     sessionLibraryStatus: () => ipcRenderer.invoke("session-library-status"),
     sessionLibraryScan: () => ipcRenderer.invoke("session-library-scan"),
@@ -148,6 +149,33 @@ contextBridge.exposeInMainWorld("danApi", {
     onInterludeLive: (cb) => ipcRenderer.on("interlude-live", (_e, info) => cb(info)),
 
     // <<< interlude
+    // >>> profile
+    // the local profile (app/localProfileIpc.js): status, history, imports, backup, and the tracker page's extras
+    localProfileStatus: () => ipcRenderer.invoke("local-profile-status"),
+    localProfileHistory: (days) => ipcRenderer.invoke("local-profile-history", { days }),
+    // source: "stable" | "interlude"
+    localProfileImport: (source) => ipcRenderer.invoke("local-profile-import", { source }),
+    localProfileImportCancel: () => ipcRenderer.invoke("local-profile-import-cancel"),
+    localProfilePickOsu: () => ipcRenderer.invoke("local-profile-pick-osu"),
+    localProfileRecord: (on) => ipcRenderer.invoke("local-profile-record", { on: Boolean(on) }),
+    localProfileExport: () => ipcRenderer.invoke("local-profile-export"),
+    localProfileImportFile: () => ipcRenderer.invoke("local-profile-import-file"),
+    localProfileReset: () => ipcRenderer.invoke("local-profile-reset"),
+    // { skill } after every play kept, import step and reset; → unsubscribe
+    onLocalProfileChanged: (cb) => {
+        const listener = (_e, payload) => cb(payload);
+        ipcRenderer.on("local-profile-changed", listener);
+        return () => ipcRenderer.removeListener("local-profile-changed", listener);
+    },
+    // { source, phase: "scan" | "analyse" | "end", done, total, added }; → unsubscribe
+    onLocalProfileImport: (cb) => {
+        const listener = (_e, payload) => cb(payload);
+        ipcRenderer.on("local-profile-import", listener);
+        return () => ipcRenderer.removeListener("local-profile-import", listener);
+    },
+    trackerRecent: () => ipcRenderer.invoke("tracker-recent"),
+    trackerOpenSite: () => ipcRenderer.invoke("tracker-open-site"),
+    // <<< profile
     // >>> overlay
     // the in-game overlay's own channels (app/overlay/overlayManager.js), the same ones its settings window uses
     overlayGet: () => ipcRenderer.invoke("overlay-get"),

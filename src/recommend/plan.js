@@ -98,7 +98,7 @@ export function createPlanner({ api, recommender, pages = PLAN_PAGES }) {
         let skill = null;
         let plays = { played: new Map(), partial: false };
         // a hand-set profile (manualProfile.js manualSkill) takes the place of the tracker's skill
-        const handSet = req.manual && req.manualSkill?.manual ? req.manualSkill : null;
+        const handSet = req.manual && (req.manualSkill?.manual || req.manualSkill?.local) ? req.manualSkill : null;
         if (handSet) {
             skill = handSet;
             // a loaded profile's plays and a linked Interlude's (recommend.js extraPlayed) are still left out
@@ -142,6 +142,7 @@ export function createPlanner({ api, recommender, pages = PLAN_PAGES }) {
                 tile: head.source === "tile" ? TILE_NAMES[head.tile] ?? null : null,
                 source: head.source,
                 ...(head.handSet ? { handSet: true } : {}),
+                ...(head.localProfile ? { localProfile: true } : {}),
                 patternId: head.patternId,
             },
             slots: targets.map((s, i) => ({ role: s.role, patternId: s.patternId, lo: s.target.lo, hi: s.target.hi, center: s.target.center, card: cards[i] })),

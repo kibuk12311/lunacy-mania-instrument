@@ -11,7 +11,8 @@ import { createSessionHandlers, recentIds, normalizeSaved, cleanSessionName, wit
 import { createJsonStore } from "../app/jsonStore.js";
 import { encodeCollectionDb, decodeCollectionDb } from "../src/recommend/collectionDb.js";
 import { exportItem } from "../app/interludeIpc.js";
-import { setLang } from "../src/i18n/i18n.js";
+import { setLang, t } from "../src/i18n/i18n.js";
+import { manualSkill, normalizeManualProfile } from "../src/recommend/manualProfile.js";
 
 const FAMILY_NAME = { stream: "Stream", jumpstream: "Jumpstream" };
 const HASH = (n) => n.toString(16).toUpperCase().padStart(64, "0");
@@ -247,4 +248,17 @@ test("the Interlude playlist takes a library chart by its hash, with the rate", 
     const hash = HASH(5);
     assert.deepEqual(exportItem({ hash, rate: 1.15, label: "L" }), { hash, md5: null, beatmapId: null, path: null, rate: 1.15, label: "L" });
     assert.equal(exportItem({ hash: "abc" }), null);
+});
+
+test("a session for the local profile: main's own skill, an error until it has a dan", async () => {
+    setLang("en");
+    const skill = { ...manualSkill(normalizeManualProfile(MANUAL)), ready: true };
+    const { h } = await setup({ maps: near(), localSkill: async () => skill });
+    const r = await h.build(req({ local: true }));
+    assert.equal(r.ok, true, r.message);
+    assert.ok(r.session.items.length >= 5);
+    const { h: early } = await setup({ maps: near(), localSkill: async () => ({ ready: false }) });
+    const r2 = await early.build(req({ local: true }));
+    assert.equal(r2.ok, false);
+    assert.equal(r2.message, t("profile.local.notEnough"));
 });

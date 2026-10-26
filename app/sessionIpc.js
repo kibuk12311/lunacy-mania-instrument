@@ -74,15 +74,20 @@ export function recentIds(maps, { beatmaps = new Map(), hashes = new Map() }, no
 // tab's copy, next to the map); copyOut(hash) → { path } of an Interlude chart in Documents\<app>\interlude;
 // makeMarathon({ entries, title, plan }) → { file, totalMs }; saved: a JSON store of the saved sessions.
 export function createSessionHandlers({
-    library, profile, played = async () => ({ known: false }), analyze, findRate = rateForDan, makeRateCopy = null,
+    library, profile, played = async () => ({ known: false }), localSkill = async () => null, analyze, findRate = rateForDan, makeRateCopy = null,
     copyOut = null, makeMarathon = null, saved, docsDir, fs = nodeFs, log = () => {}, progress = () => {},
     now = Date.now, seed = () => Math.floor(Math.random() * 2 ** 31),
 }) {
     let current = null; // { request, skill, manualDan, session, shown: Map index → [mapIds], name }
     let busy = false;
 
-    // The skill a session is built for: the hand-set profile sent along, else the mania-tracker one main holds.
-    function skillFor(req) {
+    // The skill a session is built for: the local profile's (when asked for), the hand-set profile sent along, else
+    // the mania-tracker one main holds.
+    async function skillFor(req) {
+        if (req?.local) {
+            const skill = await Promise.resolve().then(localSkill).catch(() => null);
+            return skill?.ready ? { skill } : t("profile.local.notEnough");
+        }
         if (req?.manualProfile !== undefined && req?.manualProfile !== null) {
             const skill = manualSkill(normalizeManualProfile(req.manualProfile));
             return skill ? { skill } : t("recommend.err.badManualProfile");
@@ -153,7 +158,7 @@ export function createSessionHandlers({
         if (busy) return { ok: false, message: t("session.err.busy") };
         const request = cleanSessionRequest(req);
         if (typeof request === "string") return { ok: false, message: request };
-        const who = skillFor(req);
+        const who = await skillFor(req);
         if (typeof who === "string") return { ok: false, message: who };
         busy = true;
         try {
@@ -393,7 +398,7 @@ const appVersion = () => {
 };
 
 // The session page's channels on the app's shared services (main.js deps).
-export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile, recommender, ffmpegPath, renderPng, paths, dialog, window, send, log }) {
+export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile, recommender, ffmpegPath, renderPng, paths, dialog, window, send, log, localProfile = null }) {
     const local = process.env.LOCALAPPDATA;
     // made on first use: registering touches no folder
     let made = null;
@@ -417,7 +422,8 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
     const saved = { get: () => savedFile().get(), update: (fn) => savedFile().update(fn) };
     const played = async ({ peek = false } = {}) => {
         const linked = Boolean((await interlude?.status?.().catch(() => null))?.linked);
-        const known = Boolean(recommender?.currentPlayer?.()) || linked;
+        const own = (await localProfile?.playedBeatmaps?.().catch(() => null))?.size > 0;
+        const known = Boolean(recommender?.currentPlayer?.()) || linked || own;
         if (peek) return { known };
         const beatmaps = (await recommender.playedMaps().catch(() => ({ played: new Map() }))).played ?? new Map();
         const hashes = linked ? await interlude.library.played().catch(() => new Map()) : new Map();
@@ -425,6 +431,7 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
     };
     const h = createSessionHandlers({
         library, profile, played,
+        localSkill: () => localProfile?.skill() ?? null,
         analyze: (osuText, rate) => analysis.analyzeQueued(osuText, rate),
         makeRateCopy: async ({ beatmapPath, rate }) => createRateMap({ ffmpeg: await ffmpegPath(), beatmapPath, rate, pitch: false }),
         copyOut: (hash) => interlude.copyOut(hash),

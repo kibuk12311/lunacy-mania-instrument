@@ -9,7 +9,7 @@ import { LEVELS, STEPS, targetNumeric } from "../../src/gen/request.js";
 import { CUSTOM_GOAL } from "../../src/recommend/skill.js";
 import { MANUAL_AXES, MANUAL_NAME_MAX, manualProfileOf, manualSkill, profileFromSkill, uniformProfile } from "../../src/recommend/manualProfile.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
-import { getTrackerProfile, onProfile, ensureTrackerProfile, manualChanged } from "./profile.js";
+import { getTrackerProfile, onProfile, ensureTrackerProfile, manualChanged, getProfile, ensureProfile } from "./profile.js";
 import { nearestLevelStep, fillDanSelects, readDanSelects } from "./danSelect.js";
 import {
     el, call, failText, fix2, cardElement, onDownloadProgress, favourites, onFavourites, loadFavourites, redrawOurs,
@@ -31,6 +31,8 @@ const VIEW_KEY = "rec-view";
 const SOURCES = [
     { id: "tracker", get name() { return t("recommend.source.tracker"); } },
     { id: "manual", get name() { return t("recommend.source.manual"); } },
+    // learnt from the player's own plays (the Profile tab's «Мой профиль», app/localProfileService.js)
+    { id: "local", get name() { return t("profile.source.local"); } },
 ];
 // the three goals around the player's dan, then a range picked on the dan picker (from … to)
 export const GOAL_CHIPS = [
@@ -73,11 +75,12 @@ const playsWord = (n) => pluralOf(n, {
 // [main line, tiles line] of the loaded profile; a hand-set one (skill.manual) says so instead of its plays.
 export function skillLines(username, skill) {
     const parts = [username];
+    if (skill.local && !Number.isFinite(skill.overall)) return [`${username} · ${t("profile.local.notEnough")}`, ""];
     if (Number.isFinite(skill.overall)) {
         parts.push(t("recommend.skill.overall", { label: labelBeside(skill.overall, skill.overallLabel), dan: fix2(skill.overall) }));
     }
     const plays = Number(skill.analyzedPlays) || 0;
-    parts.push(skill.manual ? t("recommend.manual.tag") : `${plays} ${playsWord(plays)}`);
+    parts.push(skill.manual ? t("recommend.manual.tag") : skill.local ? `${t("profile.local.tag")} · ${plays} ${playsWord(plays)}` : `${plays} ${playsWord(plays)}`);
     const tiles = Object.entries(TILE_NAMES)
         .filter(([tile]) => Number.isFinite(skill.tiles?.[tile]))
         .map(([tile, name]) => `${name} ${numericToLabel(skill.tiles[tile]).text}`);
@@ -96,7 +99,7 @@ export function targetText(target, patternName) {
     const label = labelBeside(target.playerDan, target.playerDanLabel);
     // a hand-set profile reads like a tracker one, with "set by hand" after its dan
     const own = target.source === "overall" ? t("recommend.target.overall", { dan: fix2(target.playerDan) }) : fix2(target.playerDan);
-    const dan = target.handSet ? `${own}, ${t("recommend.manual.tag")}` : own;
+    const dan = target.handSet ? `${own}, ${t("recommend.manual.tag")}` : target.localProfile ? `${own}, ${t("profile.local.tag")}` : own;
     if (target.goalId === CUSTOM_GOAL) {
         const params = { pattern: patternName, range: rangeLabel(target.rangeFrom, target.rangeTo), lo: fix2(target.lo), hi: fix2(target.hi) };
         // a range without the player's dan (manual mode) has nothing else to tell
@@ -167,6 +170,8 @@ export function requestFrom(s, { detailed = isDetailed() } = {}) {
     const manual = s.source === "manual";
     const custom = s.goalId === CUSTOM_GOAL;
     return {
+        // the local profile: main has its skill, so only which one goes
+        ...(s.source === "local" ? { local: true } : {}),
         manual,
         // the hand-set profile stands in for the tracker's (a custom range takes its dan as the reference too)
         manualDan: null,
@@ -260,11 +265,14 @@ function renderChips(box, items, selected, onPick) {
 
 function applySource() {
     const manual = settings.source === "manual";
-    $("rec-tracker").hidden = manual;
+    const local = settings.source === "local";
+    $("rec-tracker").hidden = manual || local;
     $("rec-manual").hidden = !manual;
+    $("rec-local").hidden = !local;
     if (manual) renderManualSkill();
+    else if (local) renderLocalSkill();
     else if (player && trackerSkill) renderSkill(trackerSkill);
-    $("rec-skill").hidden = !manual && !player;
+    $("rec-skill").hidden = !manual && !local && !player;
     applyHidePlayed();
     renderCopy();
 }
@@ -334,6 +342,24 @@ function renderManualSkill() {
     $("rec-skill").replaceChildren(el("div", "rec-skill-main", main), el("div", "muted", tiles), el("div", "muted rec-axis-hint", t("recommend.manual.overallNote")));
 }
 
+// the local profile's summary (profile.js asks main for it once, then follows every change)
+function renderLocalSkill() {
+    const p = getProfile();
+    const box = $("rec-skill");
+    if (!p.local) return;
+    if (p.state === "loading") {
+        box.replaceChildren(el("div", "muted", t("profile.local.loading")));
+        void ensureProfile();
+        return;
+    }
+    if (!p.skill) {
+        box.replaceChildren(el("div", "muted", t("profile.local.notEnough")));
+        return;
+    }
+    const [main, tiles] = skillLines(t("profile.local.name"), p.skill);
+    box.replaceChildren(el("div", "rec-skill-main", main), ...(tiles ? [el("div", "muted", tiles)] : []));
+}
+
 // the tracker profile loaded here, else the one main holds for another tab
 function trackerSource() {
     if (player && trackerSkill) return { name: player.username, skill: trackerSkill };
@@ -384,8 +410,8 @@ function initRange() {
 function renderSkill(skill) {
     trackerSkill = skill;
     renderCopy();
-    // in manual mode the summary is the hand-set profile's
-    if (settings.source === "manual") return;
+    // in manual (local) mode the summary is the hand-set (local) profile's
+    if (settings.source !== "tracker") return;
     const [main, tiles] = skillLines(player.username, skill);
     const box = $("rec-skill");
     box.replaceChildren(el("div", "rec-skill-main", main));
@@ -429,7 +455,7 @@ function adopt(profile) {
 
 // A nick typed but not loaded yet is loaded first, so what comes next is for that player.
 async function ensurePlayer() {
-    if (settings.source === "manual") return true;
+    if (settings.source !== "tracker") return true;
     const query = $("rec-user").value.trim();
     if (query && query !== loadedQuery) return loadPlayer();
     return true;
@@ -458,7 +484,7 @@ function afterCards(more) {
 
 async function go() {
     const request = requestFrom(settings);
-    if (!request.manual && !(await ensurePlayer())) return;
+    if (!request.manual && !request.local && !(await ensurePlayer())) return;
     const token = ++searchToken;
     lock(true);
     status(t("recommend.status.searching"));
@@ -521,13 +547,34 @@ export function initRecommendTab() {
     view = parseView(readStorage(VIEW_KEY));
     window.danApi.onRecDownloadProgress(onDownloadProgress);
 
-    renderChips($("rec-source"), SOURCES, settings.source, (id) => {
+    const pickSource = (id) => {
         settings.source = id;
         saveSettings();
         applySource();
-        // the profile in use changed for every tab: the hand-set one, or mania-tracker's
+        // the profile in use changed for every tab: the hand-set one, the local one, or mania-tracker's
         manualChanged();
+        window.dispatchEvent?.(new CustomEvent("profile-source", { detail: { source: id, from: "picks" } }));
+    };
+    const renderSources = () => renderChips($("rec-source"), SOURCES, settings.source, pickSource);
+    renderSources();
+    // the Profile tab picked another source, or loaded a mania-tracker player: the same here
+    window.addEventListener?.("profile-source", (e) => {
+        if (e.detail?.from === "picks" || !SOURCES.some((s) => s.id === e.detail?.source)) return;
+        settings = { ...settings, ...parseSettings(readStorage(SETTINGS_KEY)), source: e.detail.source };
+        renderSources();
+        applySource();
     });
+    window.addEventListener?.("tracker-player", (e) => {
+        const d = e.detail;
+        if (!d?.player || !d.skill) return;
+        player = d.player;
+        loadedQuery = d.query || d.player.username;
+        settings.query = loadedQuery;
+        $("rec-user").value = loadedQuery;
+        renderSkill(d.skill);
+        applySource();
+    });
+    $("rec-local-open").addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-tab", { detail: { tab: "profile", page: "local" } })));
     $("rec-user").value = settings.query;
     $("rec-user").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("rec-load").disabled) loadPlayer(); });
     $("rec-load").addEventListener("click", loadPlayer);
@@ -582,6 +629,7 @@ export function initRecommendTab() {
     // a profile main loads later (another tab asked first) shows up here too, unless another nick is typed
     onProfile((p) => {
         renderCopy();
+        if (settings.source === "local") renderLocalSkill();
         if (p.state !== "ready" || !p.player || p.manual || settings.source === "manual") return;
         if (player && player.id !== p.player.id) return;
         const typed = $("rec-user").value.trim();

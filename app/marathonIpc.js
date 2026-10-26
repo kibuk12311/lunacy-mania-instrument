@@ -23,7 +23,7 @@ function cleanPlan(plan) {
     return plan.every((d) => typeof d === "number" && Number.isFinite(d) && d > 0 && d < 25) ? plan : null;
 }
 
-export function registerMarathonIpc({ ipcMain, tosu, analysis, ffmpegPath, renderPng, paths, log, send, trackerApi, recommender, downloader, profile }) {
+export function registerMarathonIpc({ ipcMain, tosu, analysis, ffmpegPath, renderPng, paths, log, send, trackerApi, recommender, downloader, profile, localProfile = null }) {
     const describe = async (beatmapPath) => {
         const text = await readFile(beatmapPath, "utf8");
         const info = mapInfo(text);
@@ -116,7 +116,7 @@ export function registerMarathonIpc({ ipcMain, tosu, analysis, ffmpegPath, rende
         progress: (event) => send("marathon-auto-progress", event),
         log,
     });
-    const autoHandlers = createMarathonAutoHandlers({ auto, profile, log });
+    const autoHandlers = createMarathonAutoHandlers({ auto, profile, log, localSkill: () => localProfile?.skill() ?? null });
     ipcMain.handle("marathon-auto", (_e, req) => autoHandlers.start(req));
     ipcMain.handle("marathon-auto-cancel", () => autoHandlers.cancel());
 }

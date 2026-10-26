@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' blob:; img-src 'self' https://assets.ppy.sh data:">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' blob:; img-src 'self' https://assets.ppy.sh https://a.ppy.sh data:">
     <title>Lunacy mania</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="styles-analysis.css">
@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="styles-picks.css">
     <link rel="stylesheet" href="create.css">
     <link rel="stylesheet" href="export.css">
+    <link rel="stylesheet" href="styles-profile.css">
 </head>
 <body>
     <nav class="tabs">
@@ -18,7 +19,8 @@
         <button data-tab="rate" data-i18n="html.tab.rate">Рейт</button>
         <button data-tab="marathon" data-i18n="html.tab.marathon">Марафон</button>
         <button data-tab="recommend" title="Рекомендации карт" data-i18n="html.tab.recommend" data-i18n-title="html.tab.recommendTitle">Подбор</button>
-        <button data-tab="create" data-i18n="html.tab.create">Создать карту</button>
+        <button data-tab="profile" data-i18n="profile.html.tab">Профиль</button>
+        <button data-tab="create" title="Создать карту" data-i18n="html.tab.create" data-i18n-title="html.tab.createTitle">Создать</button>
     </nav>
     <section id="recommend-tab" hidden>
         <div class="group">
@@ -37,6 +39,10 @@
                     <button id="rec-manual-copy" class="small" data-i18n="recommend.html.manualCopy">Взять из mania-tracker</button>
                 </div>
                 <div id="rec-manual-status" class="muted rec-manual-status"></div>
+            </div>
+            <div id="rec-local" class="rec-manual" hidden>
+                <div class="muted rec-manual-intro" data-i18n="profile.html.picksIntro">Твой скилл по твоим же играм: приложение записывает игры и само оценивает дан по паттернам.</div>
+                <div class="row"><button id="rec-local-open" class="small" data-i18n="profile.html.openProfile">Открыть «Профиль»</button></div>
             </div>
             <div id="rec-skill" class="rec-skill" hidden></div>
         </div>
@@ -173,6 +179,88 @@
                 <div class="flabel" data-i18n="session.html.saved">Сохранённые сессии</div>
                 <div id="ses-saved" class="ses-saved"></div>
             </div>
+        </div>
+    </section>
+    <section id="profile-tab" hidden>
+        <div id="prof-pages" class="chips prof-pages"></div>
+        <div class="group">
+            <div class="flabel" data-i18n="profile.html.useFor">Профиль для подбора, марафона и анализа</div>
+            <div id="prof-source" class="chips"></div>
+            <div id="prof-manual-line" class="muted prof-manual-line" hidden></div>
+        </div>
+
+        <div id="prof-tracker-page" class="prof-page" hidden>
+            <div class="row">
+                <input id="prof-user" class="rec-input" type="text" maxlength="64" placeholder="ник или id в osu!" data-i18n-placeholder="profile.html.userPlaceholder" spellcheck="false">
+                <button id="prof-load" class="small" data-i18n="profile.html.load">Загрузить</button>
+                <button id="prof-me" class="small" title="Взять ник из запущенной osu!" data-i18n="profile.html.me" data-i18n-title="profile.html.meTitle">из osu!</button>
+            </div>
+            <div id="prof-tracker-status" class="muted"></div>
+            <div id="prof-tracker-card" hidden></div>
+            <div id="prof-tracker-more" class="prof-more" hidden>
+                <div class="group">
+                    <div class="flabel" data-i18n="profile.html.history">История</div>
+                    <div id="prof-tracker-days" class="chips"></div>
+                    <div id="prof-tracker-axes" class="chips"></div>
+                    <div id="prof-tracker-chart" class="rec-chart"></div>
+                    <div id="prof-tracker-change" class="rec-progress-change"></div>
+                </div>
+                <div class="group">
+                    <div class="flabel" data-i18n="profile.html.recent">Последние игры</div>
+                    <div id="prof-tracker-recent" class="prof-list"></div>
+                </div>
+                <div class="row"><button id="prof-tracker-site" class="small" data-i18n="profile.html.openSite">Открыть на mania-tracker.com</button></div>
+            </div>
+        </div>
+
+        <div id="prof-local-page" class="prof-page" hidden>
+            <label class="check"><input id="prof-record" type="checkbox" checked> <span data-i18n="profile.html.record">Записывать мои игры</span></label>
+            <div class="muted prof-note" data-i18n="profile.html.recordNote">Каждая игра, дошедшая до экрана результатов в osu! (stable или lazer), записывается и анализируется. Всё хранится только на этом компьютере.</div>
+            <div id="prof-local-status" class="muted"></div>
+            <div id="prof-local-card"></div>
+            <div id="prof-local-counts" class="muted"></div>
+            <div id="prof-compare" class="prof-compare" hidden></div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.patterns">По паттернам</div>
+                <div id="prof-local-patterns"></div>
+            </div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.history">История</div>
+                <div id="prof-local-days" class="chips"></div>
+                <div id="prof-local-axes" class="chips"></div>
+                <div id="prof-local-chart" class="rec-chart"></div>
+                <div id="prof-local-change" class="rec-progress-change"></div>
+            </div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.top">Лучшие игры</div>
+                <div id="prof-top-axis" class="chips"></div>
+                <div id="prof-local-top" class="prof-list"></div>
+            </div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.recent">Последние игры</div>
+                <div id="prof-local-recent" class="prof-list"></div>
+            </div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.importHead">История игр</div>
+                <div class="row">
+                    <button id="prof-import-stable" class="small" data-i18n="profile.html.importStable">Импорт из osu! stable</button>
+                    <button id="prof-pick-osu" class="small" data-i18n="profile.html.pickOsu">Папка osu!…</button>
+                    <button id="prof-import-interlude" class="small" data-i18n="profile.html.importInterlude">Импорт из Interlude</button>
+                    <button id="prof-import-cancel" class="small" hidden data-i18n="profile.html.importCancel">Стоп</button>
+                </div>
+                <div id="prof-import-status" class="muted"></div>
+                <div class="muted prof-note" data-i18n="profile.html.importNote">osu! stable: scores.db и папка Songs (только чтение). Interlude: его Data\scores.db (без точности — слабее как довод). osu! lazer хранит игры в своей базе realm, её не прочитать — у lazer записываются только новые игры.</div>
+            </div>
+            <div class="group">
+                <div class="flabel" data-i18n="profile.html.backupHead">Резервная копия</div>
+                <div class="row">
+                    <button id="prof-export" class="small" data-i18n="profile.html.export">Экспорт…</button>
+                    <button id="prof-import-file" class="small" data-i18n="profile.html.importFile">Импорт…</button>
+                    <button id="prof-reset" class="small prof-danger" data-i18n="profile.html.reset">Сбросить профиль</button>
+                </div>
+                <div id="prof-backup-status" class="muted"></div>
+            </div>
+            <div class="muted prof-note" data-i18n="profile.html.modelNote">Дан игры = дан карты на её рейте, поправленный на точность (полный при 96.5%). По каждой оси — среднее лучших 20 игр с весами 0.95^i; старые игры понемногу теряют вес.</div>
         </div>
     </section>
     <section id="marathon-tab" hidden>

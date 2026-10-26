@@ -220,7 +220,8 @@ test("index.html: every marked key exists and its Russian text is the one in the
 
 test("index.html texts have English", () => inEnglish(() => {
     assert.equal(tr("html.tab.recommend"), "Picks");
-    assert.equal(tr("html.tab.create"), "Create map");
+    assert.equal(tr("html.tab.create"), "Create");
+    assert.equal(tr("html.tab.createTitle"), "Create a map");
     assert.equal(tr("html.mar.defaultTitle"), "My marathon");
     assert.equal(tr("html.rec.userPlaceholder"), "osu! name or id");
 }));

@@ -1,5 +1,9 @@
 # Lunacy mania — how to use it
 
+## What's new in 0.9.3
+
+- **New "Profile" tab** (the "Create map" tab is now just "Create"). Two pages: **mania-tracker** (your tracker profile, history chart, recent plays, a link to the site) and **My profile** — the app learns your skill from your own plays: every osu! play (stable or lazer) that reaches the results screen is recorded and analysed, and "Import from osu! stable" reads your old local scores once (it may take a while the first time; you can stop it and go on later). Interlude's history can be imported too. You get an overall dan, Speed / Jack / Stamina / Tech and every pattern with a ± and how sure it is, the best and recent plays and a history chart. Choose "My profile" as the source in Picks (or at the top of the Profile tab) and picks, the plan, the auto-marathon and "For you" use it. Nothing leaves your PC; export / import a backup or reset it in the same place; untick "Record my plays" to stop recording. osu! lazer's old plays can't be read — lazer counts from now on.
+
 ## What's new in 0.9.2
 
 - **Interlude works now** too (the free VSRG client, portable). Press **IL** at the bottom of the card and pick your Interlude folder (the one with Interlude.exe, Songs and Data) or press "Find".

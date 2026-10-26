@@ -30,7 +30,10 @@ export function togglePattern(list, id, max = MAX_PLAN_PATTERNS) {
 // manualProfile: the hand-set profile (src/recommend/manualProfile.js) the manual source plans for.
 export function planRequest(view, settings, manualProfile, { detailed = isDetailed() } = {}) {
     const manual = settings.source === "manual";
+    // the local profile: main has its skill, so only which one goes
+    const local = settings.source === "local";
     return {
+        ...(local ? { local: true } : {}),
         size: view.planSize,
         patternIds: patternIdsInMode(view.planPatterns, detailed),
         lengthId: settings.lengthId,
@@ -47,7 +50,7 @@ export function planHeaderText(header, count, totalSec) {
     const label = labelBeside(header.playerDan, header.label);
     const own = header.tile ? `${header.tile} ${label}` : label;
     // a hand-set profile says so
-    const who = header.handSet ? `${own} (${t("recommend.manual.tag")})` : own;
+    const who = header.handSet ? `${own} (${t("recommend.manual.tag")})` : header.localProfile ? `${own} (${t("profile.local.tag")})` : own;
     return t("recommend.plan.header", { who, dan: fix2(header.playerDan), n: count, maps: mapsWord(count), time: mmss(totalSec) });
 }
 
@@ -139,7 +142,7 @@ function renderPlan() {
 async function build() {
     if (busy) return;
     const settings = shared.settings();
-    if (settings.source !== "manual" && !(await shared.ensurePlayer())) return;
+    if (settings.source === "tracker" && !(await shared.ensurePlayer())) return;
     const run = ++token;
     lock(true);
     status(t("recommend.plan.building"));

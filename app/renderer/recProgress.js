@@ -6,6 +6,7 @@ import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
 import { numericToLabel, labelKey } from "../../src/core/labels.js";
 import { el, button, call, failText, rateText } from "./recCard.js";
 import { ensureTrackerProfile } from "./profile.js";
+import { LOCAL_AXES, localAxisName, localChangeText, localAxesText, lineChart } from "./profileViews.js";
 
 export const PROGRESS_DAYS = [7, 30, 90];
 // the chart's axes: the dan, then the ratings
@@ -130,7 +131,26 @@ function pickRow(pick, now) {
     return row;
 }
 
+// the local profile's period: its own axes and patterns on the chart (src/localProfile/model.js dailySkill)
+let localAxis = "dan";
+function renderLocal(r) {
+    $("rec-progress-summary").textContent = summaryText(r);
+    $("rec-progress-list").replaceChildren(...r.picks.map((p) => pickRow(p, r.now)));
+    $("rec-progress-change").replaceChildren(...(r.change ? [el("div", "rec-progress-dan", localChangeText(r.change)), el("div", "muted", localAxesText(r.change))] : []));
+    const axes = LOCAL_AXES.filter((a) => a === "dan" || r.points.some((p) => Number.isFinite(p.ratings?.[a])));
+    if (!axes.includes(localAxis)) localAxis = "dan";
+    renderChips($("rec-progress-axes"), axes, localAxis, localAxisName, (id) => {
+        localAxis = id;
+        renderLocal(r);
+    });
+    const marks = r.picks.filter((p) => p.play && Number.isFinite(p.play.at)).map((p) => p.play.at);
+    $("rec-progress-chart").replaceChildren(lineChart(r.points, localAxis, { from: r.since, to: r.now, marks }) ?? el("div", "muted", t("recommend.progress.noChart")));
+    if (!r.total) status(t("recommend.progress.noPicks"));
+    else status("");
+}
+
 function render(r) {
+    if (r.local) return renderLocal(r);
     $("rec-progress-summary").textContent = summaryText(r);
     $("rec-progress-list").replaceChildren(...r.picks.map((p) => pickRow(p, r.now)));
     const change = el("div", "rec-progress-dan", danChangeText(r.change));
@@ -151,6 +171,17 @@ function clear() {
 async function load() {
     const run = ++token;
     status(t("recommend.progress.loading"));
+    // the local profile answers from main's own plays: no mania-tracker needed
+    if (shared.settings().source === "local") {
+        const r = await call(() => window.danApi.recProgress?.(shared.view().progressDays, true) ?? Promise.resolve({ ok: false }));
+        if (run !== token) return;
+        if (!r?.ok) {
+            clear();
+            return status(failText(r));
+        }
+        last = { ...r, now: Date.now() };
+        return render(last);
+    }
     // main answers for the loaded player: the shared profile brings in the saved one if there is none yet
     const tracker = shared.hasPlayer() ? { state: "ready" } : await ensureTrackerProfile();
     if (run !== token) return;

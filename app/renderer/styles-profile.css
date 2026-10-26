@@ -1,0 +1,47 @@
+/* The "Профиль" tab. Classes start with .prof- only; colours come from the tokens in styles.css :root. */
+#profile-tab { flex: 1; overflow-y: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+#profile-tab[hidden], #profile-tab [hidden] { display: none; }
+#profile-tab button.small:disabled { opacity: 0.4; cursor: default; }
+.prof-pages { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.prof-pages span.sel { border-color: var(--gold); color: var(--gold); background: var(--accent-bg); }
+.prof-page { display: flex; flex-direction: column; gap: 12px; }
+.prof-manual-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.prof-note { font-size: 11px; line-height: 1.35; }
+
+/* a profile's summary: name, overall, the four axes */
+.prof-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; user-select: text; }
+.prof-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.prof-avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; background: var(--line); color: var(--gold); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; object-fit: cover; }
+.prof-name { color: var(--blue); font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prof-tag { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.prof-overall { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.prof-dan { color: var(--gold); font-size: 20px; font-weight: 700; }
+.prof-num { color: var(--text); font-size: 14px; }
+.prof-partial { font-size: 11px; }
+.prof-axes { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 3px; font-size: 12px; }
+.prof-axis { display: contents; }
+.prof-axis-name { color: var(--muted); grid-column: 1; }
+.prof-axis-dan { color: var(--text); font-weight: 600; grid-column: 2; }
+.prof-axis-sub { grid-column: 2; font-size: 11px; margin-top: -3px; }
+.prof-msd { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+/* the seven patterns */
+.prof-table { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+.prof-trow { display: contents; }
+.prof-tname { grid-column: 1; color: #cccccc; }
+.prof-tdan { grid-column: 2; font-weight: 600; }
+.prof-trow.few .prof-tdan { color: var(--muted); font-weight: 400; }
+.prof-tsub { grid-column: 2; font-size: 11px; margin-top: -2px; margin-bottom: 2px; }
+
+/* plays */
+.prof-list { display: flex; flex-direction: column; gap: 4px; user-select: text; }
+.prof-play { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 12px; min-width: 0; }
+.prof-play .rec-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prof-play.bad .prof-play-line { color: var(--red); }
+.prof-play-line { font-size: 11px; }
+.prof-compare { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.prof-danger { color: var(--red) !important; }
+.rec-chart-dot { fill: var(--blue); }
+/* the history charts' scale: readable at the window's width (the viewBox is 300 wide) */
+.prof-chart-label { fill: var(--muted); font-size: 12px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.prof-chart-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }

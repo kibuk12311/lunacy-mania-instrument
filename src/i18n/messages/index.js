@@ -10,6 +10,7 @@ import core from "./core.js";
 import gen from "./gen.js";
 import overlay from "./overlay.js";
 import interlude from "./interlude.js";
+import profile from "./profile.js";
 import session from "./session.js";
 
-export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, session };
+export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, profile, session };

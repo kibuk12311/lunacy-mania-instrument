@@ -18,7 +18,7 @@
 | **Rate** | Makes rate versions of a map next to the original (audio included, pitch kept or not). Finds the rate that puts a map at a target dan, does several rates at once, mirrors a chart or strips its LNs, and remembers presets. |
 | **Marathon** | Joins maps into one marathon or dan course `.osz`, with breaks you choose. Course templates, an automatic marathon built from your skill profile, and a difficulty curve of the whole course. |
 | **Picks** | Maps worth playing for your skill, by pattern and goal (comfort, growth, challenge) or your own dan range. Your skill comes from [mania-tracker](https://mania-tracker.com). One-click download, a training plan, similar maps, favourites exported as an osu! collection, and progress over time. |
-| **Create map** | Maps a song for you: detects BPM and offset (also songs with several BPMs, 1/3 and 1/6 snaps), finds the song's parts and lets you give each part its own dan and patterns. Several variants, a preview player with a playfield, locking a part and regenerating the rest, a whole mapset or a dan ladder in one click, rate versions, metadata and background. It can also remap an existing map one dan up or down. |
+| **Create** (Create map) | Maps a song for you: detects BPM and offset (also songs with several BPMs, 1/3 and 1/6 snaps), finds the song's parts and lets you give each part its own dan and patterns. Several variants, a preview player with a playfield, locking a part and regenerating the rest, a whole mapset or a dan ladder in one click, rate versions, metadata and background. It can also remap an existing map one dan up or down. |
 
 The interface is in Russian and English (the RU/EN button under the card, or the tray menu).
 
@@ -56,6 +56,10 @@ The app isn't code-signed, so Windows may show "Windows protected your PC". Clic
 3. Rate copies made in the Rate tab are written next to the original map in your `Songs` folder (a new difficulty plus its sped-up audio), the way rate changers usually work; press F5 in song select to see them (on osu! lazer they come as an .osz instead, see above). Everything else the app makes (marathons, generated maps, downloads, collections) goes to `Documents\Lunacy mania` (if you have the folder of an older version, `Sneezey's dan calculator` or `Анализатор данов`, the app keeps using it), and finished `.osz` files are opened in osu! so the game imports them.
 
 More detail for friends: [docs/for-friends.md](docs/for-friends.md).
+
+## Profile
+
+The **Profile** tab holds both profiles. **mania-tracker**: your tracker player (dan, the four tiles, MinaCalc ratings, history chart, recent plays, a link to the site). **My profile** is learnt from your own plays, offline: plays that reach the results screen in osu! stable or lazer are recorded (through tosu), and your history can be imported once from osu! stable's `scores.db` (matched to your `Songs` folder) and from Interlude. Each play gets a performance dan (the map's dan at its rate, adjusted for accuracy, full at 96.5%), attributed to Speed / Jack / Stamina / Tech and the seven patterns by the map's pattern shares; each is the weighted mean of your best 20 maps, with a ± range and a confidence, and the overall dan is the mean of the four axes. Choose it as the source in Picks and it drives picks, the plan, the auto-marathon and "for you". It's stored in the app's user data folder; export, import and reset are on the page. osu! lazer's past plays can't be read. How it works: [docs/local-profile.md](docs/local-profile.md).
 
 ## Generated maps and osu! rules
 
