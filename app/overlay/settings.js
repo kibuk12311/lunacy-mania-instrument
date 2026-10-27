@@ -2,6 +2,7 @@
 // opacity, size, what it shows) with a live preview, then every style side by side. All numbers are made up.
 import { applyI18n, setLang, t } from "../../src/i18n/i18n.js";
 import { fakeSnapshot } from "../../src/overlay/fake.js";
+import { createPaintLoop } from "../../src/overlay/paintLoop.js";
 import { OPACITY, SCALE, SHOW, STYLES, WIDGETS, hotkeyLabel, widgetSize } from "../../src/overlay/settings.js";
 import { mountWidget } from "./render.js";
 
@@ -30,7 +31,7 @@ const showText = (widget, key) => {
 
 let settings = null;
 let edit = false;
-const previews = []; // { view, key } painted every frame
+const previews = []; // { widget, view } painted every frame while the window is on screen
 const cards = {};
 
 const $ = (id) => document.getElementById(id);
@@ -168,19 +169,27 @@ $("results").addEventListener("change", (e) => set({ showOnResults: e.target.che
 $("edit").addEventListener("click", () => api.setEdit(!edit));
 api.onSettings(render);
 
+// the previews move every frame while the window is on screen, and stop while it is minimized or hidden
 let lastUpdate = 0;
-function frame(now) {
-    if (now - lastUpdate > 100) {
-        const fake = fakeSnapshot(now);
-        for (const p of previews) p.view.update(fake);
-        lastUpdate = now;
-    }
-    for (const p of previews) p.view.paint(now);
-    requestAnimationFrame(frame);
-}
+const loop = createPaintLoop({
+    paint(now) {
+        if (now - lastUpdate > 100) {
+            const fake = fakeSnapshot(now);
+            for (const p of previews) p.view.update(fake);
+            lastUpdate = now;
+        }
+        for (const p of previews) p.view.paint(now);
+        return false;
+    },
+    live: () => true,
+    requestFrame: (fn) => requestAnimationFrame(fn),
+    cancelFrame: (id) => cancelAnimationFrame(id),
+});
+const onScreen = () => loop.setVisible(document.visibilityState === "visible");
+document.addEventListener("visibilitychange", onScreen);
 
 api.get().then((payload) => {
     render(payload);
     buildGallery();
-    requestAnimationFrame(frame);
+    onScreen();
 });

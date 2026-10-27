@@ -29,13 +29,21 @@
 // exp(chord × its notes over one) more (up to the family's CHORD_ROOM), the model is conditioned on the dan + danLift,
 // `snaps` are allowed beside the request's and `denser` leans the grid choice towards the finer grids. Absent or
 // null: exactly as before.
+// Batches (stream W, D3/D4 of docs/2026-10-26-webgpu-stream-w.md): when the source's prepare has a GPU batch
+// (opts.nnBackend that decodes, src/gen/nn/webgpu/gpuBatch.js), builds that do not depend on each other run together,
+// one GPU decode per beat for all of them: the candidates (when that batch is not slower than building them one by one
+// up to the deadline, candidates.js), a block's retry candidates, and the evaluations a search
+// step may ask for (searchSteps.js prefetch: the coarse scan, both ways of the bisection, the reseeds). Each build keeps its
+// own seeds, guard, context and echo rows; the search decides exactly as before. Fewer than MIN_BATCH builds, a
+// source without a batch, or a batch that failed: every build on prep, one after another, as before.
 import { timingSections, sectionsToPoints, beatsFromTiming, slotsForBeats } from "./grid.js";
 import { slotFeatures, AUDIO_FEATURES } from "./slotFeatures.js";
 import { slotEnergy, slotStrengths } from "./intensity.js";
 import { assignByParts, assignFlavours } from "./assign.js";
 import { toOsu, beatDivisorFor } from "./writer.js";
 import { mulberry32, deriveSeed } from "./rng.js";
-import { searchKnob, searchRange, patternScore, flavourAwareScore, planShares } from "./search.js";
+import { patternScore, flavourAwareScore, planShares } from "./search.js";
+import { searchKnob, searchRange } from "./searchSteps.js";
 import { detectedFlavours } from "./flavourMetrics.js";
 import { normalizeRequest, normalizeParts } from "./request.js";
 import { detectParts, partIndexOfSlots } from "./songParts.js";
@@ -82,6 +90,9 @@ const NN2_SPAN = { min: -2, max: 1 };
 const FREE = 255;
 const NO_RNGS = { fill: () => 0, size: () => 0, pattern: () => 0 };
 const WARM_OFFSET = -1e9; // a step this far down gives no row: it only runs the decoder up to that slot's beat
+const WAIT = -1; // a batch stream's step: its beat is not decoded yet (gpuBatch.js STEP_WAIT)
+const MIN_BATCH = 2; // builds that run together on the GPU decoder at the least (gpuBatch.js MIN_BATCH)
+const SAMPLE = Symbol("sample"); // echoCopy's answer when the slot is to be sampled
 // boost.chord: how many notes over one a family's rows gain weight for (a stream becomes at most a jumpstream)
 export const CHORD_ROOM = Object.freeze({ Stream: 1, Jumpstream: 1, Handstream: 2, Tech: 1, Chordjack: 3, Jack: 2 });
 const STREAM_CHORD = 0.5; // streams take half the chord boost: single notes are what makes them streams
@@ -97,6 +108,15 @@ function percentile(values, q) {
 }
 
 export async function generateLearnedMap(input, analyze, model, opts = {}) {
+    const held = { prep: null };
+    try {
+        return await learnedMap(input, analyze, model, opts, held);
+    } finally {
+        held.prep?.release?.(); // the GPU's decode session of this variant (stream W), also when a step throws
+    }
+}
+
+async function learnedMap(input, analyze, model, opts, held) {
     const { envelope, durationMs, meta = {}, locked = null } = input;
     const stems = input.stems ?? null;
     const onProgress = opts.onProgress ?? (() => {});
@@ -174,12 +194,21 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         for (const r of lockedRows) known[r.i] = (known[r.i] === FREE ? 0 : known[r.i]) | (r.mask & 15);
     }
     const audio = { envelope, ...features, ...(stems ? { stems } : {}) };
+    const clock = () => performance.now(); // timings for debug (never opts.now: the candidate deadline reads that one)
+    const timing0 = { prepareMs: 0, buildMs: 0, snapshotMs: 0, builds: 0, batched: 0 };
+    const t0 = clock();
     // awaited: the GPU source (stream W, opts.nnBackend) prepares asynchronously; a plain prepare is unchanged
     const prep = await source.prepare({
         model, audio, slots, dan, family: assign, ...(anyFlavour ? { flavour } : {}),
         ...(infill ? { known, cond: { msd: msdPriorOf(model, request.target + danLift, request.patterns), style, rate: 1, source: "osu" }, structure } : {}),
         ...(!infill && style !== null ? { style } : {}),
     });
+    held.prep = prep;
+    timing0.prepareMs = clock() - t0;
+    // the GPU batch (stream W) for builds that step together; null: every build on prep, one after another (as also
+    // when this model's batches do not pay on this machine: batch.pays())
+    const batch = infill ? prep.batch ?? null : null;
+    const batchOn = (n) => Boolean(batch) && !batch.off && n >= MIN_BATCH && (batch.pays?.() ?? true);
     const echo = repeats ? createEcho({ structure, slots, assign }) : null;
     const looseAt = infill && looseLocked.length ? new Set(looseLocked.map((r) => r.i)) : null;
     onProgress({ phase: "prepare", i: 0, n: 1 });
@@ -229,7 +258,9 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
     // An infill source starts each build with prep.begin() and gets the kept rows that come before a drawn block as
     // step(i, …, fixed), so its decoder reads every row of the map; slots it is not asked about count as their known
     // mask, else as empty.
-    function build({ knobOf, fixed = new Map(), seedOf, scale = 1, only = null, echoSeed = null, resume = null }) {
+    // The build runs over src: prep (build(), as always), or one stream of a GPU batch (buildMany), whose step may
+    // answer WAIT; the build then yields, and the batch resumes it with the row once its beat is decoded.
+    function* buildSteps({ knobOf, fixed = new Map(), seedOf, scale = 1, only = null, echoSeed = null, resume = null }, src) {
         const out = [];
         let guard = null;
         let ctx = null;
@@ -242,9 +273,10 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         if (infill) {
             for (let k = blocks.length - 1; k >= 0 && lastDrawn < 0; k -= 1) if (!fixed.has(blocks[k].index) && (!only || only.has(blocks[k].part))) lastDrawn = k;
             if (resume) {
-                prep.restore(resume.snap);
-                fedTo = resume.fedTo;
-            } else prep.begin?.();
+                const at = src === prep ? cpuSnapshot(resume) : resume.gpu;
+                src.restore(at.snap);
+                fedTo = at.fedTo;
+            } else src.begin?.();
         }
         const isFixedPart = (p) => blocks.every((b) => b.part !== p || fixed.has(b.index));
         const pushRow = (row) => {
@@ -280,7 +312,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
                     out.push(r);
                     if (decided && Number.isInteger(r.i)) decided[r.i] = r.mask & 15;
                     if (feed && r.i > fedTo) {
-                        prep.step(r.i, 0, ctx, NO_RNGS, null, r.mask & 15);
+                        src.step(r.i, 0, ctx, NO_RNGS, null, r.mask & 15);
                         fedTo = r.i;
                     }
                 }
@@ -307,13 +339,19 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
                 let mask;
                 if (echoRun) {
                     // a repeated bar: the source bar's row of this build, through the guard (a veto is re-sampled)
-                    const copy = echoCopy(echoRun.copyAt(i, decided), weightOf, () => prep.step(i, offset, ctx, rngs, weightOf));
+                    const copy = echoCopy(echoRun.copyAt(i, decided), weightOf, () => SAMPLE);
                     if (copy.echoed) echoRun.stats.copied += 1;
                     if (copy.vetoed) echoRun.stats.vetoed += 1;
-                    mask = copy.echoed && infill ? prep.step(i, offset, ctx, rngs, weightOf, copy.mask) : copy.mask;
+                    if (copy.mask === SAMPLE) {
+                        mask = src.step(i, offset, ctx, rngs, weightOf);
+                        if (mask === WAIT) mask = yield WAIT;
+                    } else {
+                        mask = copy.echoed && infill ? src.step(i, offset, ctx, rngs, weightOf, copy.mask) : copy.mask;
+                    }
                     decided[i] = mask & 15;
                 } else {
-                    mask = prep.step(i, offset, ctx, rngs, weightOf);
+                    mask = src.step(i, offset, ctx, rngs, weightOf);
+                    if (mask === WAIT) mask = yield WAIT;
                 }
                 if (infill) fedTo = i;
                 if (!mask || looseAt?.has(i)) continue; // a loose locked row is added at the end (an infill source returns it here)
@@ -331,32 +369,107 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         return out;
     }
 
+    // a build on prep (its steps never wait) → rows
+    const runOnPrep = (steps) => {
+        const r = steps.next();
+        if (!r.done) throw new Error("a build on the row source waited for the GPU");
+        return r.value;
+    };
+    function build(plan) {
+        const t = clock();
+        const rows = runOnPrep(buildSteps(plan, prep));
+        timing0.buildMs += clock() - t;
+        timing0.builds += 1;
+        return rows;
+    }
+    // Several builds that do not depend on each other → their rows, in order: with the GPU batch and at least
+    // MIN_BATCH of them stepped together (their resume snapshots taken on the GPU first), else build() one by one.
+    // afterFailure (gpuBatch.js run): what is finished on the CPU when the GPU fails mid-batch; undefined where a build
+    // was given up then.
+    async function buildMany(plans, { afterFailure = "finish" } = {}) {
+        if (!batchOn(plans.length)) return oneByOne(plans, afterFailure);
+        const t = clock();
+        for (const resume of new Set(plans.map((p) => p.resume).filter(Boolean))) {
+            resume.gpu ??= await batch.snapshot((s) => snapshotSteps(resume, s));
+            if (!resume.gpu) break;
+        }
+        const ready = !batch.off && plans.every((p) => !p.resume || p.resume.gpu);
+        const rows = ready ? await batch.run(plans.map((plan) => (s) => buildSteps(plan, s)), { afterFailure }) : null;
+        timing0.buildMs += clock() - t;
+        timing0.builds += plans.length;
+        timing0.batched += ready ? plans.length : 0;
+        return rows ?? oneByOne(plans, afterFailure);
+    }
+    // the same builds one by one on prep, as many as afterFailure lets go on (all with "finish")
+    function oneByOne(plans, afterFailure) {
+        const out = [];
+        for (const plan of plans) {
+            if (!(afterFailure === "finish" || (typeof afterFailure === "function" && afterFailure(out.length)))) break;
+            out.push(build(plan));
+        }
+        return out;
+    }
+    // A search's builds by knob and seed: the evaluations its next step may ask for (searchSteps.js prefetch) are built
+    // together; an evaluation not built ahead is built then, as always. planOf(knob, seed) → the build plan.
+    function searchBuilds(planOf) {
+        const ready = new Map();
+        const keyOf = (knob, seed) => `${knob}|${seed}`;
+        return {
+            rows: (knob, seed) => ready.get(keyOf(knob, seed)) ?? build(planOf(knob, seed)),
+            prefetch: batch ? async (pairs) => {
+                const todo = new Map();
+                for (const [knob, seed] of pairs) if (!ready.has(keyOf(knob, seed))) todo.set(keyOf(knob, seed), [knob, seed]);
+                if (!batchOn(todo.size)) return;
+                const list = [...todo.values()];
+                const got = await buildMany(list.map(([knob, seed]) => planOf(knob, seed)), { afterFailure: "abandon" });
+                list.forEach(([knob, seed], k) => { if (got[k]) ready.set(keyOf(knob, seed), got[k]); });
+            } : null,
+        };
+    }
+
     // An infill source's state just before block k of a build whose rows before it are `before` (sorted by slot), with
     // the decoder already run up to there: builds that resume from it decode only from block k on (§5.2). The decoder
     // runs one beat at a time when a row is drawn, so a draw far below the knob (WARM_OFFSET: no row) at the last empty,
     // free slot before the block runs it up to that beat; rows on either side are passed as `fixed`, as a build does.
+    // → resume { k0, … }: taken on prep at once (cpu: { snap, fedTo }) without a GPU batch, as always; with one, taken
+    // where it is used: on prep for a build there (cpuSnapshot), on the GPU for a batch (buildMany: resume.gpu).
     const snapshots = infill && opts.snapshots !== false && typeof prep.snapshot === "function" && typeof prep.restore === "function";
-    function snapshotAt(k, before = []) {
-        const i0 = blocks[k].i0;
-        prep.begin?.();
+    function* snapshotSteps({ k0, before }, src) {
+        const i0 = blocks[k0].i0;
+        src.begin?.();
         const taken = new Set(before.map((r) => r.i));
         let j = i0 - 1;
         while (j >= 0 && (taken.has(j) || known[j] !== FREE)) j -= 1;
         let fed = -1;
         const feed = (r) => {
             if (r.i > fed && r.i < i0) {
-                prep.step(r.i, 0, null, NO_RNGS, null, r.mask & 15);
+                src.step(r.i, 0, null, NO_RNGS, null, r.mask & 15);
                 fed = r.i;
             }
         };
         for (const r of before) if (r.i < j) feed(r);
         if (j >= 0) {
-            prep.step(j, WARM_OFFSET, null, NO_RNGS, null);
+            if (src.step(j, WARM_OFFSET, null, NO_RNGS, null) === WAIT) yield WAIT;
             fed = j;
         }
         for (const r of before) if (r.i > j) feed(r);
-        return { k0: k, snap: prep.snapshot(), fedTo: fed };
+        return { snap: src.snapshot(), fedTo: fed };
     }
+    function snapshotAt(k, before = []) {
+        const resume = { k0: k, before, cpu: null, gpu: null };
+        if (!batch) {
+            const t = clock();
+            resume.cpu = runOnPrep(snapshotSteps(resume, prep));
+            timing0.snapshotMs += clock() - t;
+        }
+        return resume;
+    }
+    // (taken inside the build that needs it, so its time is the build's)
+    const cpuSnapshot = (resume) => (resume.cpu ??= runOnPrep(snapshotSteps(resume, prep)));
+    // a resume's GPU ring is freed once its builds are done
+    const dropResume = (resume) => {
+        if (resume?.gpu) batch?.drop(resume.gpu.snap);
+    };
 
     const familiesOfPart = (p) => [...new Set(blocks.filter((b) => b.part === p).flatMap((b) => b.families))];
     const wantedFamilies = [...new Set(assign.filter(Boolean))];
@@ -384,9 +497,9 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         // an infill source decodes the song up to the part once; every attempt restarts from there
         const k0 = blocks.findIndex((b) => b.part === p);
         const resume = snapshots ? snapshotAt(k0) : null;
+        const builds = searchBuilds((knob, seed) => ({ knobOf: () => knob, only: new Set([p]), seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), echoSeed: seed, resume }));
         const evaluate = async (knob, seed) => {
-            const rows = build({ knobOf: () => knob, only: new Set([p]), seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), echoSeed: seed, resume })
-                .filter((r) => partOf[r.i] === p);
+            const rows = builds.rows(knob, seed).filter((r) => partOf[r.i] === p);
             const result = rows.length ? await analyze(excerptOsu(rows, part, timing), 1) : null;
             return { rows, result, numeric: numericOf(result) };
         };
@@ -396,7 +509,11 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         const score = (a) => (anyFlavour
             ? flavourAwareScore({ rows: a.rows, top3: a.result?.top3, families, shares, familyScoreOf: (fams) => partFamilyScore(a, fams) }).score
             : partFamilyScore(a));
-        const { best } = await searchRange({ evaluate, lo: part.range.lo, hi: part.range.hi, min: KNOB_MIN, max: Math.max(KNOB_MAX, boost?.knobMax ?? KNOB_MAX), seed: request.noteSeed, score, budget: nn2 ? NN2_BUDGET : PART_BUDGET });
+        const { best } = await searchRange({
+            evaluate, lo: part.range.lo, hi: part.range.hi, min: KNOB_MIN, max: Math.max(KNOB_MAX, boost?.knobMax ?? KNOB_MAX), seed: request.noteSeed,
+            score, budget: nn2 ? NN2_BUDGET : PART_BUDGET, prefetch: builds.prefetch,
+        });
+        dropResume(resume);
         frozen.set(p, { knob: best.knob, rows: best.rows });
     }
     const baseFixed = new Map(lockedFixed);
@@ -405,9 +522,10 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
 
     // ---- one shared density for every other part ----
     const globalSearch = async ({ min, max, scale }) => {
+        const builds = searchBuilds((knob, seed) => ({ knobOf: knobOfWith(knob), fixed: baseFixed, seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), scale, echoSeed: seed }));
         const evaluate = async (knob, seed) => {
             tick("search");
-            const rows = build({ knobOf: knobOfWith(knob), fixed: baseFixed, seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), scale, echoSeed: seed });
+            const rows = builds.rows(knob, seed);
             const result = await analyze(render(rows, ""), 1);
             return { rows, result, numeric: numericOf(result), scale };
         };
@@ -418,10 +536,10 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
             return { best: one, reachable: inside };
         }
         if (range) {
-            const r = await searchRange({ evaluate, lo: range.lo, hi: range.hi, min, max, seed: request.noteSeed, score: mapScore, ...(nn2 ? { budget: NN2_BUDGET } : {}) });
+            const r = await searchRange({ evaluate, lo: range.lo, hi: range.hi, min, max, seed: request.noteSeed, score: mapScore, ...(nn2 ? { budget: NN2_BUDGET } : {}), prefetch: builds.prefetch });
             return { best: r.best, reachable: r.inRange };
         }
-        return searchKnob({ evaluate, target: request.target, min, max, seed: request.noteSeed, ...(nn2 ? { budget: NN2_BUDGET } : {}) });
+        return searchKnob({ evaluate, target: request.target, min, max, seed: request.noteSeed, ...(nn2 ? { budget: NN2_BUDGET } : {}), prefetch: builds.prefetch });
     };
     const span = locked && Number.isFinite(locked.knob)
         ? { min: Math.max(KNOB_MIN, locked.knob - LOCK_KNOB_SPAN), max: Math.min(KNOB_MAX, locked.knob + LOCK_KNOB_SPAN) }
@@ -469,14 +587,29 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         const msdTarget = msdPriorOf(model, request.target, request.patterns);
         const wanted = labelKey(request.target);
         const insideOf = (n) => (range ? Number.isFinite(n) && n >= range.lo && n < range.hi : Number.isFinite(n) && labelKey(n) === wanted);
+        const candidatePlan = (k) => {
+            const seed = candidateSeed(request.noteSeed, k);
+            return { seed, plan: { knobOf, fixed: baseFixed, seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), scale: chosenScale, echoSeed: seed } };
+        };
+        const deadlineMs = opts.deadlineMs ?? input.deadlineMs ?? DEFAULT_DEADLINE_MS;
         criticRun = await pickCandidate({
             n: free ? request.candidates : 1,
             first: picked,
             build: (k) => {
-                const seed = candidateSeed(request.noteSeed, k);
-                const rowsK = build({ knobOf, fixed: baseFixed, seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), scale: chosenScale, echoSeed: seed });
-                return { seed, echoSeed: seed, rows: rowsK };
+                const { seed, plan } = candidatePlan(k);
+                return { seed, echoSeed: seed, rows: build(plan) };
             },
+            // the candidates in one GPU batch (D3); a GPU that fails mid-batch finishes them on the CPU by the deadline
+            buildMany: batchOn(MIN_BATCH) ? async (ks, { keepGoing }) => {
+                const list = ks.map(candidatePlan);
+                const rowsOf = await buildMany(list.map((c) => c.plan), { afterFailure: keepGoing });
+                return rowsOf.map((r, j) => (r ? { seed: list[j].seed, echoSeed: list[j].seed, rows: r } : null));
+            } : null,
+            // only when that batch is not slower than the candidates one by one up to the deadline: each draws every
+            // slot of the blocks not fixed, from the song's start
+            estimate: batchOn(MIN_BATCH) && batch.estimate
+                ? (ks) => batch.estimate({ builds: ks.length, ranges: blocks.filter((b) => !baseFixed.has(b.index)).map((b) => [b.i0, b.i1]) })
+                : null,
             stage1: scoreRows,
             analyze: (rowsK) => analyze(render(rowsK, ""), 1),
             judge: (c) => ({
@@ -485,7 +618,7 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
                 msdFit: msdFit(msdVector(c.result?.msd), msdTarget),
                 issues: findIssues(c.rows, slots).length,
             }),
-            deadlineMs: opts.deadlineMs ?? input.deadlineMs ?? DEFAULT_DEADLINE_MS,
+            deadlineMs,
             now: opts.now ?? (() => performance.now()),
             onProgress,
         });
@@ -521,9 +654,15 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
             let bestRows = null;
             // an infill source decodes up to the block once; each candidate re-decodes only the block
             const resume = snapshots ? snapshotAt(blocks.indexOf(b), rows.filter((r) => r.i < b.i0).sort((x, y) => x.i - y.i)) : null;
-            for (let k = 0; k < RETRY_CANDIDATES; k += 1) {
+            const plans = Array.from({ length: RETRY_CANDIDATES }, (_, k) => {
                 const seed = deriveSeed(picked.seed, partSeed(b.part), b.inPart, round + 1, k);
-                const candidate = build({ knobOf, fixed, seedOf: () => seed, scale: chosenScale, echoSeed: picked.echoSeed, resume });
+                return { knobOf, fixed, seedOf: () => seed, scale: chosenScale, echoSeed: picked.echoSeed, resume };
+            });
+            // with a GPU batch the candidates are built together (D4); without one each is built just before it is judged
+            const together = batchOn(plans.length) ? await buildMany(plans) : null;
+            dropResume(resume);
+            for (let k = 0; k < RETRY_CANDIDATES; k += 1) {
+                const candidate = together ? together[k] : build(plans[k]);
                 const value = blockValue(candidate, b).value + criticTerm(candidate);
                 if (value > bestValue) {
                     bestValue = value;
@@ -580,6 +719,11 @@ export async function generateLearnedMap(input, analyze, model, opts = {}) {
         debug.known = known;
         debug.echo = echo ? { plan: echoPlan(structure, picked.echoSeed), echoSlot: echo.echoSlot, barOf: echo.barOf, seed: picked.echoSeed } : null;
         debug.retried = [...replaced];
+        debug.timing = { ...timing0 };
+        debug.batch = batch ? {
+            ...batch.stats, off: batch.off, costs: batch.costs?.() ?? null,
+            candidates: criticRun ? { batched: criticRun.batched, ...criticRun.fit } : null,
+        } : null;
     }
     return {
         osuText: render(rows, label),

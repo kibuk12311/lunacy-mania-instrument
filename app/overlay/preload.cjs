@@ -5,9 +5,11 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("overlayApi", {
     // the same synchronous language answer the main window's preload gets
     lang: ipcRenderer.sendSync("get-lang"),
-    // widget windows: { widget, style, opacity, scale, show, edit, hotkey } and the play's snapshots
+    // widget windows: { widget, style, opacity, scale, show, edit, hotkey }, the play's snapshots, shown or hidden
     onConfig: (cb) => ipcRenderer.on("overlay-config", (_e, config) => cb(config)),
     onState: (cb) => ipcRenderer.on("overlay-state", (_e, state) => cb(state)),
+    // whether the window is meant to be on screen: a hidden one draws nothing
+    onVisible: (cb) => ipcRenderer.on("overlay-visible", (_e, on) => cb(Boolean(on))),
     setScale: (widget, scale) => ipcRenderer.send("overlay-scale", { widget, scale }),
     // the settings window: read, change (a patch), the edit mode
     get: () => ipcRenderer.invoke("overlay-get"),

@@ -11,9 +11,17 @@
 //   dan, and an out-of-range candidate never beats an in-range search best.
 //
 //   pickCandidate({ n, first, build(k) → { seed, rows, …}, stage1(rows) → { score, …, features }, analyze(rows) → result,
-//                   judge(candidate) → { inside, patternScore, msdFit, issues }, deadlineMs, now, onProgress })
-//     → { winner, list, of, analysed, ms }   (winner/list items: { k, seed, rows, result?, s1, judged? })
+//                   judge(candidate) → { inside, patternScore, msdFit, issues }, deadlineMs, now, onProgress, buildMany?,
+//                   estimate? })
+//     → { winner, list, of, analysed, ms, batched, fit }   (winner/list items: { k, seed, rows, result?, s1, judged? })
 // Progress: { phase: "candidates", i, n } after each candidate (i increasing), { phase: "critic", i, n } per analysis.
+// buildMany(ks, { keepGoing }) (stream W, D3): the candidates k = 1 … n−1 built together (one batch on the GPU
+// decoder), → their { seed, rows, … } in order (a missing one ends the list); keepGoing(done) is the deadline above
+// for builds that must go on one by one (a GPU that failed mid-batch). Without it, one by one, as always.
+// estimate(ks) → { batchMs, buildMs } or null: that batch's time, and one build's one by one. A batch takes about its
+// rounds' time whatever its size, so the deadline cannot cut it short: it goes only when it is not slower than the loop
+// would be (stageMs: the time box above with builds of buildMs each), else the loop, as without a GPU (batched: which
+// one ran; fit: { batchMs, buildMs, stageMs } when there was an estimate).
 import { deriveSeed } from "./rng.js";
 import { criticFor, heuristicCritic } from "./critic.js";
 
@@ -48,15 +56,35 @@ export function compareStage2(a, b) {
 
 const byStage1 = (a, b) => (b.s1.score - a.s1.score) || (a.k - b.k);
 
-export async function pickCandidate({ n, first, build, stage1, analyze, judge, deadlineMs = DEFAULT_DEADLINE_MS, now = () => performance.now(), onProgress = () => {}, minBuilt = MIN_CANDIDATES, top = STAGE2_TOP }) {
+// The one-by-one stage's time with builds of buildMs each: candidate k (from 1) is built while k < minBuilt or the
+// k − 1 before it took less than the deadline, so ⌈deadline / buildMs⌉ of them, at least minBuilt − 1, at most n − 1.
+export function stageMs({ n, buildMs, deadlineMs = DEFAULT_DEADLINE_MS, minBuilt = MIN_CANDIDATES }) {
+    if (!(buildMs > 0) || n < 2) return 0;
+    return Math.min(n - 1, Math.max(minBuilt - 1, Math.ceil(deadlineMs / buildMs))) * buildMs;
+}
+
+export async function pickCandidate({ n, first, build, stage1, analyze, judge, deadlineMs = DEFAULT_DEADLINE_MS, now = () => performance.now(), onProgress = () => {}, minBuilt = MIN_CANDIDATES, top = STAGE2_TOP, buildMany = null, estimate = null }) {
     const t0 = now();
     const list = [{ ...first, k: 0, s1: stage1(first.rows) }];
     onProgress({ phase: "candidates", i: 0, n });
-    for (let k = 1; k < n; k += 1) {
-        if (k >= minBuilt && now() - t0 >= deadlineMs) break;
-        const c = build(k);
-        list.push({ ...c, k, s1: stage1(c.rows) });
-        onProgress({ phase: "candidates", i: k, n });
+    const ks = Array.from({ length: Math.max(0, n - 1) }, (_, j) => j + 1);
+    const guess = buildMany && n > 2 && estimate ? estimate(ks) : null;
+    const fit = guess ? { batchMs: guess.batchMs, buildMs: guess.buildMs, stageMs: stageMs({ n, buildMs: guess.buildMs, deadlineMs, minBuilt }) } : null;
+    const batched = Boolean(buildMany) && n > 2 && (!fit || fit.batchMs <= fit.stageMs);
+    if (batched) {
+        // the next build (k = done + 1) goes on while the sequential loop below would have built it
+        const built = await buildMany(ks, { keepGoing: (done) => !(done + 1 >= minBuilt && now() - t0 >= deadlineMs) });
+        for (let j = 0; j < ks.length && built[j]; j += 1) {
+            list.push({ ...built[j], k: ks[j], s1: stage1(built[j].rows) });
+            onProgress({ phase: "candidates", i: ks[j], n });
+        }
+    } else {
+        for (let k = 1; k < n; k += 1) {
+            if (k >= minBuilt && now() - t0 >= deadlineMs) break;
+            const c = build(k);
+            list.push({ ...c, k, s1: stage1(c.rows) });
+            onProgress({ phase: "candidates", i: k, n });
+        }
     }
     // stage 2: the best few by stage 1, and the search best (analysed already)
     const chosen = [...list].sort(byStage1).slice(0, top);
@@ -78,5 +106,5 @@ export async function pickCandidate({ n, first, build, stage1, analyze, judge, d
         };
     }
     chosen.sort((a, b) => compareStage2(a.judged, b.judged));
-    return { winner: chosen[0], list, of: list.length, analysed: chosen.length, ms: now() - t0 };
+    return { winner: chosen[0], list, of: list.length, analysed: chosen.length, ms: now() - t0, batched, fit };
 }

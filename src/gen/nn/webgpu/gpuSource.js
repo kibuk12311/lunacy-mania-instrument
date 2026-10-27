@@ -5,12 +5,17 @@
 //   decoder and the sampler stay infillSource's own (CPU), so step() is synchronous and draws the same RNG as the CPU
 //   path. A backend failure falls back to the CPU encoder for that prepare. The caller awaits prepare (awaiting a
 //   plain object is harmless, so `await source.prepare(…)` works for every source).
+//   A backend that can decode too (gpuClient's: backend.decode) keeps the encode on the GPU as a decode session:
+//   prep.batch (gpuBatch.js) then steps several builds together on the GPU decoder, and prep.release() frees the
+//   session (the generator calls it at the end of the variant). One build at a time still runs on prep.step.
 //
 // createGpuDecodeSession(gpu, encoded, inputs): the decoder on the GPU too, for builds that run concurrently: each
 //   stream() is one build with async step(); the decoder steps of all streams waiting at the same time go to the GPU
 //   in one dispatch (one workgroup per build). Same semantics as infillSource's step (known and fixed rows are
 //   teacher-forced and draw no RNG; a slot below the last one starts a new build), same pickRow.
 import { infillSource, loadInfill, buildInfillInputs, pickRow, createHistory, IN_DIM, N_LANES, DIV_CLASSES } from "../infillModel.js";
+import { createKeepAlive } from "./infillGpu.js";
+import { createGpuBatch } from "./gpuBatch.js";
 
 const FREE = 255;
 const HIST_LEN = 68;
@@ -28,8 +33,10 @@ export function encoderPayload(inp) {
     return { T, x, visible, fam, dan, danKnown, msd, style, source, rate, echo, div };
 }
 
-// backend.encode(model, inputs) → Promise<{ e2d: Float32Array(T·dd), cross: Float32Array[dec_layers] (T·2dd each) }>
-export function createGpuInfillSource(backend, { onError = null } = {}) {
+// backend.encode(model, inputs[, { keep: true }]) → Promise<{ e2d: Float32Array(T·dd), cross: Float32Array[dec_layers]
+// (T·2dd each), session? }> (session: with keep, when the GPU kept the encode for decoding)
+export function createGpuInfillSource(backend, { onError = null, batch = {} } = {}) {
+    const canDecode = typeof backend.decode === "function";
     return {
         kind: "nn-v2",
         caps: { infill: true },
@@ -39,11 +46,14 @@ export function createGpuInfillSource(backend, { onError = null } = {}) {
             const inputs = buildInfillInputs(net, args);
             if (!inputs.T) return infillSource.prepare({ ...args, encoded: { inputs } });
             let enc = null;
+            let session = null;
             try {
-                const got = await backend.encode(args.model, inputs);
+                const got = await (canDecode ? backend.encode(args.model, inputs, { keep: true }) : backend.encode(args.model, inputs));
                 if (got?.e2d?.length === inputs.T * net.arch.dec_d && got.cross?.length === net.arch.dec_layers) {
                     enc = { T: inputs.T, d: net.arch.d, out: null, xn: normalizedInputs(net, inputs), e2d: got.e2d, cross: got.cross };
+                    session = got.session ?? null;
                 } else {
+                    if (got?.session !== undefined && got?.session !== null) backend.release?.(got.session);
                     throw new Error("nn-v2 GPU: the encoder answered with the wrong shapes");
                 }
             } catch (error) {
@@ -51,6 +61,10 @@ export function createGpuInfillSource(backend, { onError = null } = {}) {
             }
             const prep = infillSource.prepare({ ...args, encoded: { inputs, ...(enc ? { enc } : {}) } });
             prep.stats.gpu = Boolean(enc);
+            if (enc && session !== null) {
+                prep.batch = createGpuBatch({ ...batch, backend, session, net, enc, inputs, known: args.known ?? null, onError });
+                prep.release = () => prep.batch.release();
+            }
             return prep;
         },
     };
@@ -78,36 +92,13 @@ export function createGpuDecodeSession(gpu, encoded, inputs, { known = null, sch
         };
         ch.port2.postMessage(0);
     });
-    let inFlight = 0;
-    let alive = 0;
-    let lastAsk = 0;
-    // a keep-alive chain: a 16-byte copy and its readback, again and again (each one a real GPU process round trip)
-    const pulse = async () => {
-        alive += 1;
-        const dev = gpu.device;
-        const src = dev.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-        const dst = dev.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-        try {
-            while (inFlight > 0 || performance.now() - lastAsk < 20) {
-                const e = dev.createCommandEncoder();
-                e.copyBufferToBuffer(src, 0, dst, 0, 16);
-                dev.queue.submit([e.finish()]);
-                await dst.mapAsync(GPUMapMode.READ);
-                dst.unmap();
-            }
-        } finally {
-            src.destroy();
-            dst.destroy();
-            alive -= 1;
-        }
-    };
+    const alive = createKeepAlive(gpu.device, keepAlive);
     async function flush() {
         scheduled = false;
         const list = pending.splice(0, maxBatch);
         if (pending.length) later(flush);
         if (!list.length) return;
-        inFlight += 1;
-        while (alive < keepAlive) pulse();
+        alive.begin();
         stats.dispatches += 1;
         stats.batched += list.length;
         stats.maxBatch = Math.max(stats.maxBatch, list.length);
@@ -119,12 +110,12 @@ export function createGpuDecodeSession(gpu, encoded, inputs, { known = null, sch
         } catch (error) {
             list.forEach((r) => r.reject(error));
         } finally {
-            inFlight -= 1;
+            alive.end();
         }
     }
     const request = (item) => new Promise((resolve, reject) => {
         pending.push({ item, resolve, reject });
-        lastAsk = performance.now();
+        alive.ask();
         stats.beats += item.n;
         if (!scheduled) {
             scheduled = true;
@@ -224,7 +215,8 @@ export { buildInfillInputs };
 
 // The nn-v2 row source for a job: over the GPU encoder when the job has a backend (generatorJobs' opts.nnBackend),
 // else the plain-JS infillSource. For the generator's sourceFor (G3): `return infillSourceFor(opts.nnBackend)`, and
-// `await source.prepare(…)` (the GPU one is async; awaiting the CPU one changes nothing).
+// `await source.prepare(…)` (the GPU one is async; awaiting the CPU one changes nothing). A backend that decodes as
+// well gives each prepare a batch (prep.batch) for builds that step together.
 const gpuSources = new WeakMap();
 export function infillSourceFor(nnBackend = null) {
     if (!nnBackend) return infillSource;

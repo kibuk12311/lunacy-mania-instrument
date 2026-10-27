@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickCandidate, compareStage2, candidateSeed, resolveCritic, MIN_CANDIDATES, STAGE2_TOP } from "../../src/gen/candidates.js";
+import { pickCandidate, compareStage2, candidateSeed, resolveCritic, stageMs, MIN_CANDIDATES, STAGE2_TOP } from "../../src/gen/candidates.js";
 import { deriveSeed } from "../../src/gen/rng.js";
 import { heuristicCritic } from "../../src/gen/critic.js";
 
@@ -98,4 +98,47 @@ test("resolveCritic: a loaded critic as it is, a critic.json loaded, nothing (or
     assert.equal(resolveCritic(c), c);
     assert.equal(resolveCritic(null).kind, "heuristic");
     assert.equal(resolveCritic({ kind: "critic-v1", features: [] }).kind, "heuristic");
+});
+
+test("stageMs is the time box's own time with builds of one length", async () => {
+    for (const buildMs of [80, 333, 1000, 1100, 1300, 4000, 5000]) {
+        for (const n of [2, 3, 5, 12]) {
+            for (const deadlineMs of [1, 100, 1000, 4000, 1e9]) {
+                const s = setup({ n, deadlineMs });
+                const out = await s.run({ build: (k) => { s.built.push(k); s.tick(buildMs); return { seed: k, rows: [k] }; } });
+                assert.equal(stageMs({ n, buildMs, deadlineMs }), out.ms, `n ${n}, builds of ${buildMs} ms, deadline ${deadlineMs}`);
+            }
+        }
+    }
+});
+
+test("a GPU batch of the candidates goes only when it is not slower than the time box; else one by one by the deadline", async () => {
+    const run = async ({ batchMs, buildMs, estimate = true, deadlineMs = 4000 }) => {
+        const s = setup({ n: 12, deadlineMs });
+        let together = null;
+        const out = await s.run({
+            build: (k) => { s.built.push(k); s.tick(buildMs); return { seed: k, rows: [k] }; },
+            buildMany: async (ks) => { together = ks; s.tick(batchMs); return ks.map((k) => ({ seed: 100 + k, rows: [k] })); },
+            estimate: estimate ? () => ({ batchMs, buildMs }) : null,
+        });
+        return { out, together, built: s.built, progress: s.progress.filter((p) => p.phase === "candidates").map((p) => p.i) };
+    };
+    const all = Array.from({ length: 11 }, (_, j) => j + 1);
+    // L on an RTX 5080: 11 together in ≈ 3.3 s, where builds of 1.1 s one by one stop after 4 of them (4.4 s)
+    const fast = await run({ batchMs: 3300, buildMs: 1100 });
+    assert.deepEqual([fast.together, fast.built, fast.out.of, fast.out.batched], [all, [], 12, true]);
+    assert.deepEqual(fast.out.fit, { batchMs: 3300, buildMs: 1100, stageMs: 4400 });
+    assert.deepEqual(fast.progress, [0, ...all]);
+    // rounds 1.5× as slow: the batch would take 5 s, so the loop builds 4 by the deadline (as 0.10.2 did) in 4.4 s
+    const slow = await run({ batchMs: 5000, buildMs: 1100 });
+    assert.deepEqual([slow.together, slow.built, slow.out.of, slow.out.batched, slow.out.ms], [null, [1, 2, 3, 4], 5, false, 4400]);
+    assert.deepEqual(slow.progress, [0, 1, 2, 3, 4]);
+    // without a deadline the loop would build all 11 (12.1 s): the batch goes
+    assert.equal((await run({ batchMs: 5000, buildMs: 1100, deadlineMs: 1e9 })).out.batched, true);
+    // builds so quick that all 11 fit in the box (M one by one: 11 × 0.35 s = 3.85 s), against a batch of 4 s: the loop
+    assert.equal((await run({ batchMs: 4000, buildMs: 350 })).out.of, 12);
+    assert.equal((await run({ batchMs: 4000, buildMs: 350 })).out.batched, false);
+    // no estimate (a batch that always goes: tests, measurements): together, as before
+    const always = await run({ batchMs: 1e6, buildMs: 1, estimate: false });
+    assert.deepEqual([always.together, always.out.batched, always.out.fit], [all, true, null]);
 });

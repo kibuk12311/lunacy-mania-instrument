@@ -169,7 +169,10 @@ export default {
     "create.ml.sizeHint.xgb3": { ru: "эксперимент: чаще попадает в дан, но паттерны чуть слабее", en: "experimental: hits the dan more often, but its patterns are a little weaker" },
     "create.ml.sizeHint.s": { ru: "эксперимент: точнее по дану, но ноты меньше похожи на ручные", en: "experimental: closer to the dan, but the notes feel less hand-made" },
     "create.ml.sizeHint.m": { ru: "эксперимент: лучше всех попадает в дан, но ноты меньше похожи на ручные", en: "experimental: best at hitting the dan, but the notes feel less hand-made" },
-    "create.ml.sizeHint.l": { ru: "эксперимент: самая большая нейросеть", en: "experimental: the largest neural net" },
+    "create.ml.sizeHint.l": {
+        ru: "эксперимент: из нейросетей ноты ближе всех к ручным и меньше всего неудобных мест, но самая медленная",
+        en: "experimental: of the neural nets, the most hand-made notes and the fewest awkward spots, but the slowest",
+    },
     "create.ml.notYet": { ru: "ещё обучается — придёт в обновлении", en: "still training — coming in a later update" },
     "create.ml.onGpu": { ru: "на видеокарте", en: "on the graphics card" },
     "create.ml.onCpu": { ru: "на процессоре", en: "on the CPU" },

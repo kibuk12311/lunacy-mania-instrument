@@ -1,6 +1,8 @@
 // The five overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
 // mountWidget(root, widget, { style, show, dan }) builds it once; update(snapshot) puts in the numbers,
-// paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment.
+// paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment and says
+// whether something it draws still eases (it wants another frame without a new snapshot). live: the widget moves with
+// the play's clock between two snapshots (the key lines), so a running play is drawn every frame.
 // The Dan widget's map data comes with its config (dan: src/overlay/dan.js's payload), or inside a made-up snapshot.
 import { t } from "../../src/i18n/i18n.js";
 import { formatAccuracy, formatCount, formatKps, formatUr } from "../../src/overlay/format.js";
@@ -111,13 +113,15 @@ function mountJudgements(box, { style, show }) {
             if (acc) acc.textContent = formatAccuracy(s.accuracy);
             if (ur) ur.textContent = formatUr(s.ur);
         },
-        paint() {},
+        paint: () => false,
+        live: false,
         style,
     };
 }
 
 const NOW_TAU_MS = 180; // the big number eases towards the rate this fast
 const TOP_TAU_MS = 600; // and a graph's scale towards its ceiling
+const EASED = 1e-3; // an easing this near its target (in its own units) has arrived: nothing more to draw
 
 // a graph's polyline, stroked and filled underneath; returns the points
 function strokeGraph(ctx, pts, { w, h, style, colour, glow }) {
@@ -161,14 +165,22 @@ function mountHead(box, show, { nowKey, nowUnit, maxKey, maxLabel }) {
     let last = null;
     return {
         set(nowValue, maxValue) {
+            // eased up to now towards the old value first: frames may not have come since (nothing was moving)
+            if (last !== null) {
+                const ms = performance.now();
+                eased = easeToward(eased, target, ms - last, NOW_TAU_MS);
+                last = ms;
+            }
             target = nowValue;
             if (max) max.textContent = formatKps(maxValue);
         },
+        // → whether the number still eases
         tick(ms) {
             eased = easeToward(eased, target, last === null ? 0 : ms - last, NOW_TAU_MS);
             last = ms;
             shown = holdRounded(shown, eased);
             if (now) now.textContent = formatKps(shown);
+            return Math.abs(target - eased) > EASED;
         },
     };
 }
@@ -187,18 +199,28 @@ function mountKps(box, { style, show, zoom }) {
         update(s) {
             head.set(s.kps.now, s.kps.max);
             history = s.kps.history;
-            ceiling = graphCeiling(s.kps.max);
+            const next = graphCeiling(s.kps.max);
+            // the scale eased up to now towards the old ceiling first (as the number)
+            if (last !== null && next !== ceiling) {
+                const ms = performance.now();
+                top = easeToward(top, ceiling, ms - last, TOP_TAU_MS);
+                last = ms;
+            }
+            ceiling = next;
         },
         paint() {
             const ms = performance.now();
-            head.tick(ms);
+            const moving = head.tick(ms);
             top = easeToward(top, ceiling, last === null ? 0 : ms - last, TOP_TAU_MS);
             last = ms;
-            if (!canvas || !canvas.clientWidth) return;
+            const easing = moving || Math.abs(ceiling - top) > EASED;
+            if (!canvas || !canvas.clientWidth) return easing;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const pal = paletteFor(style);
             strokeGraph(ctx, graphPoints(history, { width: w, height: h, top }), { w, h, style, colour: pal.graph, glow: pal.glow });
+            return easing;
         },
+        live: false,
         style,
     };
 }
@@ -217,11 +239,11 @@ function mountNps(box, { style, show, zoom }) {
             head.set(nps.now, nps.peak);
         },
         paint() {
-            head.tick(performance.now());
-            if (!canvas || !canvas.clientWidth) return;
+            const moving = head.tick(performance.now());
+            if (!canvas || !canvas.clientWidth) return moving;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const pal = paletteFor(style);
-            if (!nps.profile.length) return;
+            if (!nps.profile.length) return moving;
             // the map's own peak is the top: the profile is fixed for the play, so is its scale
             const pts = graphPoints(nps.profile, { width: w, height: h, top: graphCeiling(Math.max(...nps.profile), 5) });
             const x = Math.round(nps.progress * w);
@@ -246,7 +268,9 @@ function mountNps(box, { style, show, zoom }) {
             ctx.shadowBlur = pal.glow ?? 0;
             ctx.fillRect(Math.min(w - 2, Math.max(0, x - 1)), 0, 2, h);
             ctx.shadowBlur = 0;
+            return moving;
         },
+        live: false,
         style,
     };
 }
@@ -282,7 +306,7 @@ function mountKeys(box, { style, show, zoom }) {
             });
         },
         paint(clock) {
-            if (!canvas || !canvas.clientWidth || !last) return;
+            if (!canvas || !canvas.clientWidth || !last) return false;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const { keys, spanMs, bars } = last.lanes;
             const pal = paletteFor(style);
@@ -306,7 +330,9 @@ function mountKeys(box, { style, show, zoom }) {
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
             keyCells.forEach((k, i) => k.cell.classList.toggle("lit", Boolean(lit[i])));
+            return false;
         },
+        live: true,
         style,
     };
 }
@@ -357,14 +383,15 @@ function mountDan(box, { show, style, dan = null }) {
             setText(fit, view.forYou);
             if (fit) fit.className = `d-fit${view.band ? ` band-${view.band}` : ""}`;
         },
-        paint() {},
+        paint: () => false,
+        live: false,
         style,
     };
 }
 
 const MOUNTS = { judgements: mountJudgements, kps: mountKps, nps: mountNps, keys: mountKeys, dan: mountDan };
 
-// root gets the style's classes; returns { update(snapshot), paint(clock) }
+// root gets the style's classes; returns { update(snapshot), paint(clock) → still easing, live }
 export function mountWidget(root, widget, { style, show, zoom = 1, dan = null }) {
     root.replaceChildren();
     root.className = `ov ov-${widget} style-${style}`;

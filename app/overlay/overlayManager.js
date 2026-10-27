@@ -5,7 +5,9 @@
 // playing (and on the results screen if asked), fed by their own tosu sockets: /websocket/v2 for the judgements
 // and the clock, /websocket/v2/precise for the key counters. Settings live in userData\overlay.json.
 // Showing and hiding go through a gate with hysteresis (src/overlay/visibility.js): one stray frame of another state
-// (song select, a score opened from the leaderboard, a reconnect) never flashes the windows.
+// (song select, a score opened from the leaderboard, a reconnect) never flashes the windows. Each page is told whether
+// it is shown ("overlay-visible") and draws nothing while hidden; snapshots go only to shown ones, and only new ones
+// unless a play runs.
 // Interlude's plays come from the main process (onInterlude(), the lines of app/interludeReader.js) into a session of
 // their own; the widgets show whichever game is playing.
 // Kept up: a widget meant to be on screen that Windows minimized or hid (Win+D, minimizing the game or the app's own
@@ -83,6 +85,7 @@ export function createOverlay({
     let settingsWin = null;
     let sockets = [];
     let pushTimer = null;
+    let lastPush = null; // the last snapshot pushed, as JSON
     let saveTimer = null;
     let mapLoading = null;
     let hotkeyOn = false;
@@ -284,6 +287,7 @@ export function createOverlay({
         win.webContents.on("did-finish-load", () => {
             win.webContents.send("overlay-config", configFor(widget));
             win.webContents.send("overlay-state", active().snapshot(now()));
+            win.webContents.send("overlay-visible", shown.get(widget) === true);
         });
         win.on("moved", () => {
             const [x, y] = win.getPosition();
@@ -359,10 +363,12 @@ export function createOverlay({
             if (want && !alive(win)) win = makeWindow(widget);
             if (!alive(win) || shown.get(widget) === want) continue;
             shown.set(widget, want);
+            // the page gets the play of now before it is shown, so the last play's frame never flashes up; it draws
+            // only while it is meant to be on screen (a hidden window would go on painting at the screen's rate)
+            if (want) win.webContents.send("overlay-state", active().snapshot(now()));
+            win.webContents.send("overlay-visible", want);
             if (headless) continue;
             if (want) {
-                // the page gets the play of now before it is shown, so the last play's frame never flashes up
-                win.webContents.send("overlay-state", active().snapshot(now()));
                 if (win.isMinimized?.()) win.restore();
                 win.showInactive();
                 win.setAlwaysOnTop(true, "screen-saver");
@@ -376,6 +382,7 @@ export function createOverlay({
         if (!anyShown && pushTimer) {
             clearInterval(pushTimer);
             pushTimer = null;
+            lastPush = null;
         }
         if (anyShown && !keepUpTimer && !headless) {
             watchMain();
@@ -389,6 +396,13 @@ export function createOverlay({
 
     function push() {
         const snap = active().snapshot(now());
+        // the same snapshot again (a results screen, a pause: the clock stands) is not sent: it would only be drawn again.
+        // A running play's still is: when its frames stop for a moment the session's clock runs on 300 ms and stands
+        // there, and the page runs each snapshot's clock on from when it came (render.js clockAt), so without new ones
+        // the key lines would run on another 300 ms past the last frame and then jump back
+        const sig = JSON.stringify(snap);
+        if (sig === lastPush && !snap.running) return;
+        lastPush = sig;
         for (const [widget, win] of windows) if (shown.get(widget) && alive(win)) win.webContents.send("overlay-state", snap);
     }
 

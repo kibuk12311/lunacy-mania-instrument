@@ -1,0 +1,46 @@
+[
+ {
+  "name": "nn2 range",
+  "hash": "484135b028233a2a"
+ },
+ {
+  "name": "nn2 candidates 6 + flavours",
+  "hash": "31d634ac4674682c"
+ },
+ {
+  "name": "nn2 own-range part + retry",
+  "hash": "cdaa035427ffd793"
+ },
+ {
+  "name": "nn2 narrow (refine)",
+  "hash": "1f85612d1c4b19eb"
+ },
+ {
+  "name": "nn2 target",
+  "hash": "b907701b0150a866"
+ },
+ {
+  "name": "nn2 far low (dan retry)",
+  "hash": "1a4610c70c3d4fcd"
+ },
+ {
+  "name": "nn2 boost rung 2",
+  "hash": "c08092838d4d2357"
+ },
+ {
+  "name": "nn2 locked part",
+  "hash": "e5bb53a1bf671113"
+ },
+ {
+  "name": "nn2 repeats + stems",
+  "hash": "f5f2e88e83fb6ddf"
+ },
+ {
+  "name": "xgb candidates 4 + parts",
+  "hash": "92dcd1c33d422d7c"
+ },
+ {
+  "name": "nn2 S repeats + candidates 3",
+  "hash": "098ffcfd6d070e71"
+ }
+]

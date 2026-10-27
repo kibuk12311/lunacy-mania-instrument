@@ -115,6 +115,30 @@ export async function runSuite({ device, models = {}, archs = {}, tol = 2e-3 }) 
             const ref = teacherForced(net, inp, inp.rows, wanted);
             return { worst: maxDiff2(got, ref) };
         });
+        // the batches' snapshots (src/gen/nn/webgpu/gpuBatch.js): a ring copied to another slot decodes on exactly as
+        // the original, and both as one dispatch over all the beats
+        await check(`${label} decoder ring copy (snapshots), T ${T}`, async () => {
+            const enc = await gpu.encode(inp, { read: false });
+            const dec = gpu.decoder(enc);
+            const [a, b, c] = [dec.slot(), dec.slot(), dec.slot()];
+            try {
+                const k = Math.min(T - 1, 40);
+                const prev = (b0, n) => {
+                    const out = new Uint8Array(n * N_LANES);
+                    for (let j = 0; j < n; j += 1) if (b0 + j > 0) out.set(inp.rows.subarray((b0 + j - 1) * N_LANES, (b0 + j) * N_LANES), j * N_LANES);
+                    return out;
+                };
+                await dec.run([{ slot: a, b0: 0, n: k, rows: prev(0, k) }]);
+                dec.copy(a, b);
+                const [fromA, fromB, whole] = await dec.run([
+                    { slot: a, b0: k, n: 1, rows: prev(k, 1) }, { slot: b, b0: k, n: 1, rows: prev(k, 1) }, { slot: c, b0: 0, n: k + 1, rows: prev(0, k + 1) },
+                ], { last: true });
+                return { worst: Math.max(maxDiff(fromA, fromB), maxDiff(fromA, whole)), tol: 0 };
+            } finally {
+                [a, b, c].forEach((s) => dec.free(s));
+                enc.release();
+            }
+        });
         gpu.destroy();
     }
     return results;

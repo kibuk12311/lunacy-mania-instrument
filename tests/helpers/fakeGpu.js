@@ -2,7 +2,11 @@
 // path, so the GPU-side logic (sources, decode sessions, the worker ↔ renderer protocol) is testable without a GPU.
 // encode() gives encodeBeats' numbers; decoder(enc).run() gives, per beat, createDecoder's z and the lane head's first
 // layer without the history (the same split as the GPU kernel).
+// exactBackend(): a decode-capable backend (gpuClient's interface) in process, whose decoder answers are createDecoder's
+// z, read by exactHead: the lane head exactly as the CPU source computes it, so a batch over it samples the CPU's very
+// rows (the generator's batch path must then give the CPU path's maps bit for bit).
 import { loadInfill, encodeBeats, createDecoder, IN_DIM, N_LANES, LANE_VALUES } from "../../src/gen/nn/infillModel.js";
+import { createGpuInfillSource } from "../../src/gen/nn/webgpu/gpuSource.js";
 import { linearRows } from "../../src/gen/nn/kernels.js";
 import { createLaneHead } from "../../src/gen/nn/webgpu/infillGpu.js";
 
@@ -59,10 +63,10 @@ export function fakeInfillGpu(model, { calls = [] } = {}) {
                 slot: () => (freed.length ? freed.pop() : next++),
                 free: (slot) => freed.push(slot),
                 copy: (from, to) => decOf(to).restore(decOf(from).snapshot()),
-                async run(list) {
+                async run(list, { last = false } = {}) {
                     calls.push(["run", list.length]);
                     await Promise.resolve();
-                    return list.map(({ slot, b0, n, rows }) => {
+                    const all = list.map(({ slot, b0, n, rows }) => {
                         const dec = decOf(slot);
                         if (b0 === 0) dec.reset();
                         if (dec.beat !== b0) throw new Error(`fake decoder: slot ${slot} at beat ${dec.beat}, asked for ${b0}`);
@@ -79,9 +83,78 @@ export function fakeInfillGpu(model, { calls = [] } = {}) {
                         }
                         return out;
                     });
+                    return last ? all.map((out, k) => out.slice((list[k].n - 1) * per)) : all;
                 },
             };
         },
         destroy() {},
     };
 }
+
+// fail(round) → true makes that decode round throw ("device lost"); hang(round) → true makes it never answer;
+// rounds: every decode's item count; sessions: the open ones.
+export function exactBackend({ fail = null, hang = null } = {}) {
+    const sessions = new Map();
+    const rounds = [];
+    let next = 0;
+    return {
+        rounds,
+        sessions,
+        released: [],
+        async encode(model, inputs, { keep = false } = {}) {
+            const net = loadInfill(model);
+            const enc = encodeBeats(net, inputs);
+            const statics = staticsOf(net, enc);
+            if (!keep) return statics;
+            const id = ++next;
+            sessions.set(id, { net, enc: { ...enc, ...statics }, inputs, rings: new Map() });
+            return { ...statics, session: id };
+        },
+        async decode(session, { ops = [], items = [] } = {}) {
+            const s = sessions.get(session);
+            if (!s) throw new Error(`decode session ${session} is not open`);
+            const ring = (ref) => {
+                if (!s.rings.has(ref)) s.rings.set(ref, createDecoder(s.net, s.enc, s.inputs));
+                return s.rings.get(ref);
+            };
+            for (const [kind, a, b] of ops) {
+                if (kind === "copy") ring(b).restore(ring(a).snapshot());
+                else s.rings.delete(a);
+            }
+            if (!items.length) return {};
+            rounds.push(items.length);
+            if (fail?.(rounds.length)) throw new Error("device lost");
+            if (hang?.(rounds.length)) return new Promise(() => {});
+            await Promise.resolve();
+            const dd = s.net.arch.dec_d;
+            const out = new Float32Array(items.length * dd);
+            items.forEach(({ ref, b0, n, rows }, k) => {
+                const dec = ring(ref);
+                if (b0 === 0) dec.reset();
+                if (dec.beat !== b0) throw new Error(`exact decoder: ring ${ref} at beat ${dec.beat}, asked for ${b0}`);
+                for (let j = 0; j < n; j += 1) dec.advance(b0 + j ? rows : null, j * N_LANES);
+                out.set(dec.snapshot().z, k * dd);
+            });
+            return { out, stride: dd };
+        },
+        release(session) {
+            this.released.push(session);
+            sessions.delete(session);
+        },
+    };
+}
+
+// the CPU source's lane head over a decoder state z (as createDecoder.laneLogits computes it, on a scratch decoder):
+// a head factory for createGpuBatch
+export function exactHead(net, enc, inputs) {
+    const dec = createDecoder(net, enc, inputs);
+    const ring = dec.snapshot().ring;
+    return (z, lane, hist, logits, b) => {
+        dec.restore({ beat: b + 1, z, ring });
+        return dec.laneLogits(lane, hist, logits);
+    };
+}
+
+// the GPU source over exactBackend's answers; its batches go together whenever 2 or more builds can (a tiny model's
+// CPU decoder is far cheaper than any GPU round, so batches would never pay for it)
+export const exactGpuSource = (backend, opts = {}) => createGpuInfillSource(backend, { ...opts, batch: { head: exactHead, policy: "always", ...opts.batch } });

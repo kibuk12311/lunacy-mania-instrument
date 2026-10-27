@@ -5,13 +5,15 @@
 //   const enc = await gpu.encode(inp, { read })               // inp = buildInfillInputs(net, …) → { T, xn, e2d, cross, out }
 //   const logits = await gpu.teacherForced(inp, rows, wanted)  // all on the GPU (the decoder kernel too), as teacherForced
 //   const dec = gpu.decoder(enc)                              // batched decode: dec.run([{ slot, b0, n, rows }]) → z + base
+//   gpu.warmDecoder()                                         // compile the decoder kernel now (it is lazy)
 //
 // encode() reads back what the CPU decoder needs (e2d and the cross K/V; read: true adds the encoder output), so a CPU
 // build over a GPU encode gives infillSource's numbers up to float32 rounding (measured ≤ 4e-6 on logits; the probes
 // allow 2e-3). That is the path generation uses (docs/2026-10-26-webgpu-stream-w.md). decoder() keeps everything on the
 // GPU and returns, per decoded beat, the decoder state z and the lane head's first layer without the history: `base`
 // (the history needs the rows sampled on the CPU, so the CPU adds it: createLaneHead). Its kernel is compiled on first
-// use only (2–3 s with Windows' D3D compiler).
+// use only (2–3 s with Windows' D3D compiler), or ahead of it with warmDecoder(). The generator's batches of builds
+// (gpuBatch.js, through gpuServer.js) use it, one dispatch per beat for all builds of a batch.
 import { loadInfill, createHistory, IN_DIM, LANE_VALUES, N_LANES } from "../infillModel.js";
 import { matvec, geluInPlace } from "../kernels.js";
 import { LINEAR, LAYERNORM, LAYER_TENSORS, assembleShader, encAttentionShader, decoderShader } from "./wgsl.js";
@@ -170,8 +172,49 @@ export function encoderInputs(net, inp) {
 
 const ceil = (a, b) => Math.ceil(a / b);
 
+// Keep-alive chains for a waiting decode: while GPU work is asked for (in flight, or asked within the last 20 ms),
+// `chains` loops of a 16-byte copy and its readback keep the GPU process polling, which roughly halves the readback
+// latency on Windows (docs/2026-10-26-webgpu-stream-w.md). ask() at each request, begin()/end() around its await.
+// Without a real device (tests) it does nothing.
+export function createKeepAlive(device, chains = 0) {
+    let inFlight = 0;
+    let alive = 0;
+    let lastAsk = 0;
+    const real = Boolean(device?.createBuffer && globalThis.GPUBufferUsage && globalThis.GPUMapMode);
+    const pulse = async () => {
+        alive += 1;
+        const src = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+        const dst = device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        try {
+            while (inFlight > 0 || performance.now() - lastAsk < 20) {
+                const e = device.createCommandEncoder();
+                e.copyBufferToBuffer(src, 0, dst, 0, 16);
+                device.queue.submit([e.finish()]);
+                await dst.mapAsync(GPUMapMode.READ);
+                dst.unmap();
+            }
+        } catch {
+            // a lost device ends the chain; the decode itself reports the loss
+        } finally {
+            src.destroy();
+            dst.destroy();
+            alive -= 1;
+        }
+    };
+    return {
+        ask() { lastAsk = performance.now(); },
+        begin() {
+            inFlight += 1;
+            if (real) while (alive < chains) pulse();
+        },
+        end() { inFlight -= 1; },
+    };
+}
+
 // device: a GPUDevice; model: the nn-v2 model JSON (or an already loaded net from loadInfill).
-export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
+// maxSlots: decoder rings (one per concurrent build or snapshot; a batch of 20 candidates and the snapshots of two
+// sessions fit, ≈ 10 MB for L)
+export async function createInfillGpu(device, model, { maxSlots = 64 } = {}) {
     const net = model?.W ? model : loadInfill(model);
     const { arch } = net;
     const { d, dec_d: dd, lane_hidden: hh, enc_ffn: ef, enc_heads: H, n_glob: G } = arch;
@@ -199,11 +242,12 @@ export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
         pipeline(assembleShader({ d, offsets: o }), "nn2 assemble"),
         pipeline(encAttentionShader({ d, H, win: arch.win, G }), "nn2 encoder attention"),
     ]);
-    // the decoder kernel only when a GPU decoder is asked for (its D3D compile takes 2–3 s; generation decodes on the CPU)
+    // the decoder kernel only when a GPU decoder is asked for (its D3D compile takes 2–3 s; single builds decode on the CPU)
     let decStepPromise = null;
     const decoderPipeline = () => (decStepPromise ??= pipeline(decoderShader(arch, packed.dec), "nn2 decoder"));
     const ringFloats = arch.dec_layers * arch.dec_win * 2 * dd;
     let ring = buf(maxSlots * ringFloats * 4, "storage", "nn2 decoder rings");
+    let ringScratch = null;
     const freeSlots = Array.from({ length: maxSlots }, (_, k) => maxSlots - 1 - k);
 
     // ---- a recorder for one command buffer: uniform blocks packed into one buffer ----
@@ -337,8 +381,8 @@ export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
 
     // The batched decoder over one encode. run(list) decodes, for each { slot, b0, n, rows } (rows: Uint8Array of the
     // rows of beats b0−1 … b0+n−2, 8 per beat), n beats from b0 in that slot's ring, in one dispatch; → per item a
-    // Float32Array of n × (dd + 8·hh): z, then base per lane. slot() / free(slot) hand out rings; copy(from, to) copies
-    // a ring (snapshots).
+    // Float32Array of n × (dd + 8·hh): z, then base per lane (run(list, { last: true }): only its last beat's, which is
+    // all a build reads back). slot() / free(slot) hand out rings; copy(from, to) copies a ring (snapshots).
     function decoder(enc) {
         const T = enc.T;
         const per = dd + N_LANES * hh;
@@ -349,12 +393,15 @@ export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
                 return freeSlots.pop();
             },
             free(slot) { freeSlots.push(slot); },
+            // through a scratch ring: WebGPU refuses a copy within one buffer (a validation error, and nothing copied)
             copy(from, to) {
+                ringScratch ??= buf(ringFloats * 4, "storage", "nn2 ring copy");
                 const e = device.createCommandEncoder();
-                e.copyBufferToBuffer(ring, from * ringFloats * 4, ring, to * ringFloats * 4, ringFloats * 4);
+                e.copyBufferToBuffer(ring, from * ringFloats * 4, ringScratch, 0, ringFloats * 4);
+                e.copyBufferToBuffer(ringScratch, 0, ring, to * ringFloats * 4, ringFloats * 4);
                 device.queue.submit([e.finish()]);
             },
-            async run(list) {
+            async run(list, { last = false } = {}) {
                 const rowsAt = [];
                 let rowsLen = 0;
                 let outLen = 0;
@@ -378,6 +425,11 @@ export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
                 const decStep = await decoderPipeline();
                 r.op(decStep, Uint32Array.of(T, enc.gpu.crossOff, 0, 0), [bbuf, enc.gpu.stat, enc.gpu.codes, enc.gpu.xn, wall, ring, obuf], [list.length, 1, 1]);
                 const ubuf = r.finish();
+                if (last) {
+                    const got = await readBack(list.map((it, k) => [obuf, (outAt[k] + (it.n - 1) * per) * 4, per * 4]));
+                    for (const b of [bbuf, obuf, ubuf]) b.destroy();
+                    return got;
+                }
                 const [all] = await readBack([[obuf, 0, outLen * 4]]);
                 for (const b of [bbuf, obuf, ubuf]) b.destroy();
                 return list.map((it, k) => all.subarray(outAt[k], outAt[k] + it.n * per));
@@ -420,10 +472,12 @@ export async function createInfillGpu(device, model, { maxSlots = 32 } = {}) {
 
     return {
         net, arch, device, encode, decoder, teacherForced, laneHead,
+        warmDecoder: () => decoderPipeline().then(() => true),
         weightsBytes: packed.wall.byteLength,
         destroy() {
             wall.destroy();
             ring.destroy();
+            ringScratch?.destroy();
             ring = null;
         },
     };

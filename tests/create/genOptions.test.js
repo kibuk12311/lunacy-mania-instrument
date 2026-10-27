@@ -65,7 +65,7 @@ test("the picker: Classic is the proven default; each experimental option says w
         assert.ok(textOf(sizeButton(noGpu.root, "m")).includes("experimental: best at hitting the dan, but the notes feel less hand-made"));
         const l = sizeButton(noGpu.root, "l");
         assert.equal(l.disabled, true);
-        assert.ok(textOf(l).includes("experimental: the largest neural net · needs a graphics card — none found here"), textOf(l));
+        assert.ok(textOf(l).includes("experimental: of the neural nets, the most hand-made notes and the fewest awkward spots, but the slowest · needs a graphics card — none found here"), textOf(l));
         await fire(l);
         assert.equal(noGpu.opts.request().modelSize, "auto", "a greyed-out choice cannot be picked");
         await fire(sizeButton(noGpu.root, "xgb3"));

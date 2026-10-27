@@ -11,6 +11,8 @@
 // Sources: XGBoost note/size models plus the pattern Markov tables (xgbMarkovSource); "nn-v1" models bring their own
 // (src/gen/nnModel.js); "nn-v2" is the infill transformer (src/gen/nn/infillModel.js infillSource, caps.infill), which
 // also takes prepare({ known, cond, structure }), step(…, fixed) and begin/snapshot/restore (plan §2.7, addendum §5.2).
+// Over a GPU that decodes (stream W) its prepare also has `batch` and release(): streams for builds stepped together
+// on the GPU decoder, whose step may answer −1 (wait for the beat; src/gen/nn/webgpu/gpuBatch.js STEP_WAIT).
 // An nn-v2 model never goes to xgbMarkovSource.
 import { treeRaw, sizeProbabilities, sampleRow, familySizeRates, STYLE_ALPHA } from "./learnedModel.js";
 import { motifWeights } from "./flavours.js";
@@ -50,16 +52,19 @@ export function nnV2Source(inner) {
     };
     function withFlavour(prep, flavour) {
         if (!flavour?.some?.(Boolean)) return prep;
+        const flavoured = (inner) => function step(i, offset, ctx, rngs, weightOf = null, fixed = undefined) {
+            const fl = flavour[i];
+            if (!fl || fixed !== undefined) return inner.step(i, offset, ctx, rngs, weightOf, fixed);
+            const bias = motifWeights(fl.id, ctx?.recent?.map((r) => r.mask) ?? [ctx?.prev ?? 0, ctx?.prev2 ?? 0], fl.phrase);
+            if (!bias) return inner.step(i, offset, ctx, rngs, weightOf);
+            const biased = Object.assign((m) => bias[m] * (weightOf ? weightOf(m) : 1), { fallback: weightOf?.fallback ?? (() => 0) });
+            return inner.step(i, offset, ctx, rngs, biased);
+        };
         return {
             ...prep,
-            step(i, offset, ctx, rngs, weightOf = null, fixed = undefined) {
-                const fl = flavour[i];
-                if (!fl || fixed !== undefined) return prep.step(i, offset, ctx, rngs, weightOf, fixed);
-                const bias = motifWeights(fl.id, ctx?.recent?.map((r) => r.mask) ?? [ctx?.prev ?? 0, ctx?.prev2 ?? 0], fl.phrase);
-                if (!bias) return prep.step(i, offset, ctx, rngs, weightOf);
-                const biased = Object.assign((m) => bias[m] * (weightOf ? weightOf(m) : 1), { fallback: weightOf?.fallback ?? (() => 0) });
-                return prep.step(i, offset, ctx, rngs, biased);
-            },
+            step: flavoured(prep),
+            // the GPU batch's streams (stream W, src/gen/nn/webgpu/gpuBatch.js) take the same motif weighting
+            ...(prep.batch ? { batch: prep.batch.withStreams((s) => ({ ...s, step: flavoured(s) })) } : {}),
         };
     }
     nnV2Cache.set(inner, wrapped);

@@ -319,6 +319,42 @@ test("protocol: hello gives the capability; the encoder over the port equals the
     }
 });
 
+test("protocol: each worker's models are its own on the one GPU renderer, and go when its port closes", async () => {
+    // a worker that replaced a hung one starts its own model count again: its first model, here one of the same
+    // size, must not get the old worker's first model's weights
+    const created = [];
+    const { server } = serverWith({
+        create: async (_device, m) => {
+            const g = fakeInfillGpu(m);
+            g.destroy = () => { g.destroyed = true; };
+            created.push(g);
+            return g;
+        },
+    });
+    const other = randomInfillModel(TINY, { seed: 8, std: 1.5, styles: [{ key: "a", name: "A", maps: 3 }] });
+    const otherNet = loadInfill(other);
+    const old = linked(server);
+    const inputs = buildInfillInputs(net, args);
+    await old.client.ready(3000);
+    await old.client.backend.encode(model, inputs);
+    const fresh = linked(server);
+    try {
+        await fresh.client.ready(3000);
+        const got = await fresh.client.backend.encode(other, inputs);
+        assert.equal(created.length, 2, "the second worker's model is uploaded on its own");
+        assert.deepEqual(got.e2d, staticsOf(otherNet, encodeBeats(otherNet, inputs)).e2d);
+        old.close();
+        for (let i = 0; i < 50 && !created[0].destroyed; i++) await new Promise((r) => setTimeout(r, 10));
+        assert.equal(created[0].destroyed, true, "the closed worker's model goes with its port");
+        assert.equal(created[1].destroyed, undefined);
+        const again = await fresh.client.backend.encode(other, inputs);
+        assert.deepEqual(again.e2d, got.e2d);
+    } finally {
+        old.close();
+        fresh.close();
+    }
+});
+
 test("protocol: no WebGPU, no adapter, or a failed probe → gpuAvailable false with the reason; loads are refused", async () => {
     const cases = [
         [{ gpu: undefined }, "no WebGPU"],

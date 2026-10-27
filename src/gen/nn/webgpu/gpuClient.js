@@ -6,6 +6,9 @@
 //   await gpu.ready(4000)            // the capability, or null when the renderer did not answer in time
 //   gpu.available()                  // an adapter, and the start-up probe passed
 //   gpu.backend.encode(model, inp)   // → { e2d, cross } (the model is uploaded and checked once, on first use)
+//   gpu.backend.encode(model, inp, { keep: true })      // … and session: the encode stays on the GPU for decoding
+//   gpu.backend.decode(session, { ops, items })         // one batch round (gpuBatch.js) → { out, stride }
+//   gpu.backend.release(session)                        // the session's GPU memory and rings go (no answer awaited)
 //
 // Without a port (no GPU renderer, tests, the CLI tools) nothing is available and nothing waits.
 import { encoderPayload } from "./gpuSource.js";
@@ -26,6 +29,9 @@ export function createGpuClient({ timeoutMs = 30_000 } = {}) {
     const pending = new Map();
     const waiters = new Set();
     const keys = new WeakMap(); // model object → { key, loaded: Promise }
+    // one GPU renderer serves every worker, also the one that replaced a hung worker: a bare m1, m2, … gave that
+    // worker's first model the GPU model of the old worker's first (another size fails its shapes: the CPU encoder)
+    const prefix = `c${Math.random().toString(36).slice(2, 10)}`;
     let nextKey = 0;
 
     function settle(id, msg) {
@@ -92,16 +98,26 @@ export function createGpuClient({ timeoutMs = 30_000 } = {}) {
     }
 
     const backend = {
-        async encode(model, inputs) {
+        async encode(model, inputs, { keep = false } = {}) {
             let entry = keys.get(model);
             if (!entry) {
-                const key = `m${++nextKey}`;
+                const key = `${prefix}.m${++nextKey}`;
                 entry = { key, loaded: request("load", { key, model }, 120_000) };
                 keys.set(model, entry);
             }
             await entry.loaded; // a model that failed its GPU checks keeps failing here: the source then uses the CPU
-            const out = await request("encode", { key: entry.key, inputs: encoderPayload(inputs) });
-            return { e2d: out.e2d, cross: out.cross };
+            const out = await request("encode", { key: entry.key, inputs: encoderPayload(inputs), ...(keep ? { keep: true } : {}) });
+            const session = keep ? out.session ?? null : null;
+            return { e2d: out.e2d, cross: out.cross, ...(session !== null ? { session } : {}) };
+        },
+        // ops: [["copy", fromRef, toRef] | ["free", ref]] on the session's decoder rings, applied first, in order;
+        // items: [{ ref, b0, n, rows }] → out: per item, the 8 lane bases of its last decoded beat (stride floats)
+        async decode(session, { ops = [], items = [] } = {}, { timeoutMs: ms = timeoutMs } = {}) {
+            const out = await request("decode", { session, ops, items }, ms);
+            return { out: out.out, stride: out.stride, serverMs: out.ms ?? null };
+        },
+        release(session) {
+            return request("release", { session }, 10_000).then(() => {}, () => {});
         },
     };
 
