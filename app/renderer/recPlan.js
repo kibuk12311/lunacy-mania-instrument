@@ -175,17 +175,30 @@ async function swap(i) {
     status("");
 }
 
-// One after another, each through its own card (the card shows its progress and result).
-async function eachCard(progressKey, fn) {
+// fn(item, k) for every item of the list in turn, up to `lanes` at once; once stopped() no new one is begun.
+// → how many answered ok
+export async function eachInLanes(list, lanes, fn, stopped = () => false) {
+    let next = 0;
+    let done = 0;
+    const lane = async () => {
+        while (next < list.length && !stopped()) {
+            const k = next++;
+            if ((await fn(list[k], k))?.ok) done += 1;
+        }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(lanes, list.length)) }, lane));
+    return done;
+}
+
+// Each through its own card (the card shows its progress and result), one after another or `lanes` at once.
+async function eachCard(progressKey, fn, lanes = 1) {
     const run = token;
     const list = nodes.filter((node) => node.actions);
     lock(true);
-    let done = 0;
-    for (const [k, node] of list.entries()) {
-        if (run !== token) break;
+    const done = await eachInLanes(list, lanes, (node, k) => {
         status(t(progressKey, { i: k + 1, n: list.length }));
-        if ((await fn(node))?.ok) done += 1;
-    }
+        return fn(node);
+    }, () => run !== token);
     lock(false);
     return { done, total: list.length };
 }
@@ -195,8 +208,12 @@ async function downloadAll() {
     status(t("recommend.plan.downloaded", { done, total }));
 }
 
+// a card's rate fit is analyses in main's background line, which runs as many at once as it has workers (the rest
+// wait their turn there): a few cards are asked at once, the downloads stay one after another
+const RATE_LANES = 4;
+
 async function ratesForPlan() {
-    await eachCard("recommend.plan.rating", (node) => node.actions.ours());
+    await eachCard("recommend.plan.rating", (node) => node.actions.ours(), RATE_LANES);
     status("");
 }
 

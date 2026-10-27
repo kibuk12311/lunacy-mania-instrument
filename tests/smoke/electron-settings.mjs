@@ -153,7 +153,9 @@ app.whenReady().then(async () => {
             await js(`[...document.querySelectorAll("#st-about button")].find((b) => b.textContent === "GitHub").click(); true`);
             await sleep(200);
             check(calls.some((c) => c[0] === "openExternal" && /github\.com/.test(c[1])), `${l}: GitHub opens the project's page`);
-            await js(`document.querySelector("#st-author .st-discord").click(); true`);
+            // the author once, in About (no second line under it)
+            check((await js(`document.getElementById("settings-page").textContent.split("sneezey123").length - 1`)) === 1 && !(await js(`Boolean(document.getElementById("st-author"))`)), `${l}: the author is named once`);
+            await js(`document.querySelector("#st-about .st-discord").click(); true`);
             await sleep(250);
             check(calls.some((c) => c[0] === "copy" && c[1] === "sneezey123") && (await js(`!document.getElementById("st-toast").hidden && document.getElementById("st-toast").textContent`)) === t("settings.about.copied"),
                 `${l}: the Discord name is copied, «${t("settings.about.copied")}»`);

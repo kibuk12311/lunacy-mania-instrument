@@ -203,7 +203,8 @@ app.whenReady().then(async () => {
     // 41 jumpstream + 19 jack + 6 stream in Songs (one also in Interlude) + 2 Interlude-only
     check(st.counts.total === TOTAL && st.counts.both === 1 && st.counts.interlude === 2, `${TOTAL} maps: ${TOTAL - 2} in Songs (1 also in Interlude), 2 only in Interlude (${JSON.stringify(st.counts)})`);
     check(st.counts.analysed === TOTAL && st.counts.pending === 0, "every map analysed");
-    check((await text("ses-lib-notes")).includes(t("session.lib.lazer").slice(0, 30)), "the page says lazer's library can't be read");
+    // no lazer here (none passed in): the page says nothing of it — no "can't be read" note any more, no count
+    check(!(await text("ses-lib-notes")).includes("lazer") && !(await text("ses-lib-status")).includes("osu! lazer"), "without lazer the page says nothing of it");
     check((await sideways()) <= 0, "the page fits the window");
     await shot("2-library.png");
 

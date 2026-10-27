@@ -44,7 +44,8 @@ export function createSectionsService({
         }
         if (!isCurrent(key)) return undefined;
         const started = Date.now();
-        const answer = await analysis.enqueue(() => worker.sections(text, rate), { isCancelled: () => !isCurrent(key) });
+        // on the worker the line runs on (its pool when there is one), else this one
+        const answer = await analysis.enqueue((on = worker) => on.sections(text, rate), { isCancelled: () => !isCurrent(key) });
         if (answer?.cancelled) return undefined;
         if (answer?.kind !== "sections" || !looksLikeSections(answer.sections)) {
             log(`sections ${key} fail ${answer?.message ?? ""}`.trimEnd());

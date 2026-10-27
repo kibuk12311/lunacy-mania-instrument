@@ -114,7 +114,7 @@ test("the overlay block is on the Settings page, not under the card; no compact 
     const footer = html.slice(html.indexOf("<footer>"), html.indexOf("</footer>"));
     assert.ok(!footer.includes("overlay-toggle") && !footer.includes("id=\"lang\"") && !footer.includes("id=\"pin\"") && !footer.includes("id=\"calc\""));
     assert.match(footer, /id="settings-open"[^>]*>⚙</);
-    const page = html.slice(html.indexOf("id=\"settings-page\""), html.indexOf("id=\"st-author\""));
+    const page = html.slice(html.indexOf("id=\"settings-page\""), html.indexOf("id=\"st-toast\""));
     for (const id of ["overlay-panel", "interlude-panel", "calc", "pin", "st-lang"]) assert.ok(page.includes(`id="${id}"`), id);
     const css = readFileSync(path.join(root, "app/renderer/styles.css"), "utf8");
     assert.ok(!/body\.compact/.test(css) && !html.includes("id=\"compact\""));

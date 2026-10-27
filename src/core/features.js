@@ -9,9 +9,11 @@ import {
     analyzeEtternaFromText,
     calculateInterludeStar,
     analyzePatternFromText,
+    OsuFileParser,
 } from "./leoblack.js";
 import { isRice } from "./rice.js";
 import { patternShares } from "./patterns.js";
+import { minOf, maxOf } from "../../vendor/leoblack/js/lunacyExtremes.js";
 
 const EST_KEYS = ["sunny", "daniel", "azusa", "roxy", "companella", "mixed"];
 // Estimators on the dan scale; Sunny is a star rating and stays out of the spread stats.
@@ -83,8 +85,8 @@ export function chartInfo(osuText, rate) {
     const objects = sectionLines(osuText, "HitObjects").map((l) => l.split(","));
     const times = objects.map((p) => Number(p[2])).filter(Number.isFinite);
     const lnCount = objects.filter((p) => (Number(p[3]) & 128) !== 0).length;
-    const first = times.length ? Math.min(...times) : 0;
-    const last = times.length ? Math.max(...times) : 0;
+    const first = times.length ? minOf(times) : 0;
+    const last = times.length ? maxOf(times) : 0;
 
     const points = sectionLines(osuText, "TimingPoints")
         .map((l) => l.split(","))
@@ -118,8 +120,8 @@ function spreadStats(prefix, values) {
     if (!xs.length) {
         return { [`${prefix}_min`]: null, [`${prefix}_max`]: null, [`${prefix}_mean`]: null, [`${prefix}_range`]: null };
     }
-    const min = Math.min(...xs);
-    const max = Math.max(...xs);
+    const min = minOf(xs);
+    const max = maxOf(xs);
     return {
         [`${prefix}_min`]: min,
         [`${prefix}_max`]: max,
@@ -156,27 +158,38 @@ function buildVector({ est, msd, interlude, info, report }) {
     return v;
 }
 
-export async function computeFeatures(osuText, rate) {
-    const info = chartInfo(osuText, rate);
+// info: chartInfo(osuText, rate) when the caller already has it.
+export async function computeFeatures(osuText, rate, info = chartInfo(osuText, rate)) {
     const rice = info.mode === 3 && info.keys !== null && isRice(info);
     const base = { keys: info.keys, lnRatio: info.lnRatio, rice, noteCount: info.noteCount, durationSec: info.durationSec, bpm: info.bpm };
     if (!rice) {
         return { ...base, est: null, msd: null, interlude: null, patternReport: null, vector: null };
     }
 
+    // One parse shared by the estimators that would each parse this same text again (they only read it). Not
+    // Roxy's: it analyses its own rewritten copy of the text. If the parse throws, each estimator parses for itself.
+    const parsed = trySync(() => {
+        const parser = new OsuFileParser(osuText);
+        parser.process();
+        return parser;
+    });
     const options = { speedRate: rate };
-    const sunnyResult = trySync(() => runSunnyEstimatorFromText(osuText, options));
+    const sunnyResult = trySync(() => runSunnyEstimatorFromText(osuText, options, parsed));
     const withSunny = { ...options, precomputedSunnyResult: sunnyResult ?? undefined };
-    const danielResult = trySync(() => runDanielEstimatorFromText(osuText, options));
-    const azusaResult = trySync(() => runAzusaEstimatorFromText(osuText, withSunny));
+    const danielResult = trySync(() => runDanielEstimatorFromText(osuText, options, parsed));
+    // Azusa would run Daniel on this same chart and rate again; it gets the result instead.
+    const azusaResult = trySync(() => runAzusaEstimatorFromText(osuText, { ...withSunny, precomputedDanielResult: danielResult ?? undefined }, parsed));
     const roxyResult = trySync(() => runRoxyEstimatorFromText(osuText, withSunny));
-    const mixedResult = trySync(() => runMixedEstimatorFromText(osuText, withSunny));
+    // Mixed's routing runs Roxy, Azusa and Daniel again with these same inputs; it takes these results instead
+    // (with no Sunny result Mixed fails on its own Sunny before any of them, as it did).
+    const mixedOptions = sunnyResult ? { ...withSunny, reuse: { roxy: roxyResult, azusa: azusaResult, daniel: danielResult } } : withSunny;
+    const mixedResult = trySync(() => runMixedEstimatorFromText(osuText, mixedOptions));
 
     const ett = await tryAsync(() => analyzeEtternaFromText(osuText, { musicRate: rate }));
     const msd = ett?.values
         ? Object.fromEntries(Object.entries(MSD_KEYS).map(([k, src]) => [k, finiteOrNull(ett.values[src])]))
         : null;
-    const interlude = finiteOrNull(await tryAsync(() => calculateInterludeStar(osuText, rate)));
+    const interlude = finiteOrNull(await tryAsync(() => calculateInterludeStar(parsed ?? osuText, rate)));
     const sunnyStar = finiteOrNull(sunnyResult?.star);
 
     const companellaResult = ett?.values && interlude !== null && sunnyStar !== null

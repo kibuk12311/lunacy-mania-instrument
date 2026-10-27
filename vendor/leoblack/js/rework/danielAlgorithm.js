@@ -1,6 +1,7 @@
 import { OsuFileParser } from "../parser/osuFileParser.js";
 import {
     bisectLeft,
+    bisectLeftFrom,
     bisectRight,
     cumulativeSum,
     queryCumsum,
@@ -10,6 +11,10 @@ import {
     gaussianFilter1d,
     rescaleHigh,
     mergeByHead,
+    cornerUnion,
+    mergeSortedUnique,
+    stableArgsort,
+    sortedCornerCounts,
     computeCAndKs,
     applyProximityEnvelope,
     smoothDForGraph,
@@ -121,7 +126,18 @@ function preprocessDaniel(osuText, speedRate, _odFlag, parsed = null) {
     };
 }
 
+// Lunacy mania: the corner lists by cornerUnion / mergeSortedUnique (reworkMathCore.js): the same numbers in the
+// same order as the original Sets and comparator sorts, getCornersWithSets below, which still serves the times
+// cornerUnion leaves to it.
 function getCorners(T, noteSeq) {
+    const times = noteSeq.map((n) => n[1]);
+    const baseCorners = cornerUnion(times, [0, 501, -499, 1], T);
+    const ACorners = baseCorners && cornerUnion(times, [0, 1000, -1000], T);
+    if (!ACorners) return getCornersWithSets(T, noteSeq);
+    return { allCorners: mergeSortedUnique(baseCorners, ACorners), baseCorners, ACorners };
+}
+
+function getCornersWithSets(T, noteSeq) {
     const cornersBase = new Set();
     for (const [, h] of noteSeq) {
         cornersBase.add(h);
@@ -160,11 +176,14 @@ function getKeyUsage(K, T, noteSeq, baseCorners) {
         keyUsage[k] = new Uint8Array(baseCorners.length);
     }
 
+    // Lunacy mania: bisectLeft(baseCorners, …) as cursors over the notes in time order, see bisectLeftFrom.
+    const startAt = bisectLeftFrom(baseCorners);
+    const endAt = bisectLeftFrom(baseCorners);
     for (const [k, h] of noteSeq) {
         const startTime = Math.max(h - 150, 0);
         const endTime = Math.min(h + 150, T - 1);
-        const leftIdx = bisectLeft(baseCorners, startTime);
-        const rightIdx = bisectLeft(baseCorners, endTime);
+        const leftIdx = startAt(startTime);
+        const rightIdx = endAt(endTime);
         for (let idx = leftIdx; idx < rightIdx; idx += 1) {
             keyUsage[k][idx] = 1;
         }
@@ -182,10 +201,14 @@ function getKeyUsage400(K, noteSeq, baseCorners) {
     // Loop-invariant coefficient — hoisted out of the per-note loops.
     const k400Scale = 3.75 / (400 ** 2);
 
+    // Lunacy mania: bisectLeft(baseCorners, …) as cursors over the notes in time order, see bisectLeftFrom.
+    const left400At = bisectLeftFrom(baseCorners);
+    const centerAt = bisectLeftFrom(baseCorners);
+    const right400At = bisectLeftFrom(baseCorners);
     for (const [k, h] of noteSeq) {
-        const left400Idx = bisectLeft(baseCorners, h - 400);
-        const centerIdx = bisectLeft(baseCorners, h);
-        const right400Idx = bisectLeft(baseCorners, h + 400);
+        const left400Idx = left400At(h - 400);
+        const centerIdx = centerAt(h);
+        const right400Idx = right400At(h + 400);
 
         if (centerIdx >= 0 && centerIdx < baseCorners.length) {
             keyUsage400[k][centerIdx] += 3.75;
@@ -205,17 +228,17 @@ function getKeyUsage400(K, noteSeq, baseCorners) {
 
 function computeAnchor(K, keyUsage400, baseCorners) {
     const anchor = new Float64Array(baseCorners.length);
+    // Lunacy mania: one array for every corner's sorted positive counts, see sortedCornerCounts.
+    const nonZero = new Array(K).fill(0);
+    const positive = (v) => v > 0;
 
     for (let idx = 0; idx < baseCorners.length; idx += 1) {
-        const counts = new Array(K).fill(0).map((_, k) => keyUsage400[k][idx]);
-        counts.sort((a, b) => b - a);
-
-        const nonZero = counts.filter((v) => v > 0);
+        const nonZeroLength = sortedCornerCounts(keyUsage400, K, idx, nonZero, positive);
         let raw = 0;
-        if (nonZero.length > 1) {
+        if (nonZeroLength > 1) {
             let walk = 0;
             let maxWalk = 0;
-            for (let i = 0; i < nonZero.length - 1; i += 1) {
+            for (let i = 0; i < nonZeroLength - 1; i += 1) {
                 const ratio = nonZero[i + 1] / nonZero[i];
                 const weight = 1 - 4 * ((0.5 - ratio) ** 2);
                 walk += nonZero[i] * weight;
@@ -244,13 +267,16 @@ function computeJbar(K, x, noteSeqByColumn, baseCorners) {
 
     for (let k = 0; k < K; k += 1) {
         const notes = noteSeqByColumn[k] || [];
+        // Lunacy mania: bisectLeft(baseCorners, …) as cursors over the column's notes, see bisectLeftFrom.
+        const startAt = bisectLeftFrom(baseCorners);
+        const endAt = bisectLeftFrom(baseCorners);
         for (let i = 0; i < notes.length - 1; i += 1) {
             const start = notes[i][1];
             const end = notes[i + 1][1];
             if (end <= start) continue;
 
-            const leftIdx = bisectLeft(baseCorners, start);
-            const rightIdx = bisectLeft(baseCorners, end);
+            const leftIdx = startAt(start);
+            const rightIdx = endAt(end);
             if (leftIdx >= rightIdx) continue;
 
             const delta = 0.001 * (end - start);
@@ -323,13 +349,16 @@ function computeXbar(K, x, noteSeqByColumn, activeColumns, baseCorners) {
             notesInPair = mergeByHead(noteSeqByColumn[k - 1] || [], noteSeqByColumn[k] || []);
         }
 
+        // Lunacy mania: bisectLeft(baseCorners, …) as cursors over the pair's notes, see bisectLeftFrom.
+        const startAt = bisectLeftFrom(baseCorners);
+        const endAt = bisectLeftFrom(baseCorners);
         for (let i = 1; i < notesInPair.length; i += 1) {
             const start = notesInPair[i - 1][1];
             const end = notesInPair[i][1];
             if (end <= start) continue;
 
-            const leftIdx = bisectLeft(baseCorners, start);
-            const rightIdx = bisectLeft(baseCorners, end);
+            const leftIdx = startAt(start);
+            const rightIdx = endAt(end);
             if (rightIdx <= leftIdx) continue;
 
             const delta = 0.001 * (end - start);
@@ -395,13 +424,16 @@ function computePbar(x, noteSeq, anchor, baseCorners) {
     const baseInc = (0.08 * xInv * (1 - 24 * xInv * (xSixth ** 2))) ** 0.25;
     const spike = 1000 * ((0.02 * (4 / x - 24)) ** 0.25);
 
+    // Lunacy mania: bisectLeft(baseCorners, …) as cursors over the notes in time order, see bisectLeftFrom.
+    const leftAt = bisectLeftFrom(baseCorners);
+    const rightAt = bisectLeftFrom(baseCorners);
     for (let i = 0; i < noteSeq.length - 1; i += 1) {
         const hL = noteSeq[i][1];
         const hR = noteSeq[i + 1][1];
         const deltaTime = hR - hL;
 
         if (deltaTime < 1e-9) {
-            const leftIdx = bisectLeft(baseCorners, hL);
+            const leftIdx = leftAt(hL);
             const rightIdx = bisectRight(baseCorners, hL);
             for (let idx = leftIdx; idx < rightIdx; idx += 1) {
                 PStep[idx] += spike;
@@ -409,8 +441,8 @@ function computePbar(x, noteSeq, anchor, baseCorners) {
             continue;
         }
 
-        const leftIdx = bisectLeft(baseCorners, hL);
-        const rightIdx = bisectLeft(baseCorners, hR);
+        const leftIdx = leftAt(hL);
+        const rightIdx = rightAt(hR);
         if (rightIdx <= leftIdx) continue;
 
         const delta = 0.001 * deltaTime;
@@ -452,8 +484,9 @@ function computeAbar(K, activeColumns, deltaKs, ACorners, baseCorners) {
 
     const AStep = new Float64Array(ACorners.length).fill(1);
 
+    const cornerAt = bisectLeftFrom(baseCorners); // Lunacy mania: bisectLeft(baseCorners, …), see bisectLeftFrom
     for (let i = 0; i < ACorners.length; i += 1) {
-        let idx = bisectLeft(baseCorners, ACorners[i]);
+        let idx = cornerAt(ACorners[i]);
         idx = Math.max(0, Math.min(idx, baseCorners.length - 1));
 
         const cols = activeColumns[idx] || [];
@@ -544,7 +577,7 @@ export function calculateDaniel(osuText, speedRate = 1.0, odFlag = null, options
     }
 
     const effectiveWeights = CArr.map((c, i) => c * gaps[i]);
-    const sortedIndices = DAll.map((_, i) => i).sort((a, b) => DAll[a] - DAll[b]);
+    const sortedIndices = stableArgsort(DAll); // Lunacy mania: DAll.map((_, i) => i).sort((a, b) => DAll[a] - DAll[b])
     const DSorted = sortedIndices.map((i) => DAll[i]);
     const wSorted = sortedIndices.map((i) => effectiveWeights[i]);
 

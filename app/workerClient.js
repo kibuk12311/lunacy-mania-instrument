@@ -79,6 +79,10 @@ export function createWorkerClient({ spawn, timeoutMs = 20_000, generateTimeoutM
     }
 
     return {
+        // the process started ahead of its first request (app/workerPool.js warm)
+        warm() {
+            if (!disposed) ensureWorker();
+        },
         analyze: (osuText, rate) => request({ kind: "analyze", osuText, rate }, timeoutMs),
         // >>> analysis v2: details (the strain line and pattern strip under the card, src/analysis/timeline.js)
         details: (osuText, rate) => request({ kind: "details", osuText, rate }, timeoutMs),

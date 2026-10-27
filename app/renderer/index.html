@@ -304,10 +304,11 @@
                     <button id="prof-import-stable" class="small" data-i18n="profile.html.importStable">Импорт из osu! stable</button>
                     <button id="prof-pick-osu" class="small" data-i18n="profile.html.pickOsu">Папка osu!…</button>
                     <button id="prof-import-interlude" class="small" data-i18n="profile.html.importInterlude">Импорт из Interlude</button>
+                    <button id="prof-import-lazer" class="small" data-i18n="profile.html.importLazer">Импорт из osu! lazer</button>
                     <button id="prof-import-cancel" class="small" hidden data-i18n="profile.html.importCancel">Стоп</button>
                 </div>
                 <div id="prof-import-status" class="muted"></div>
-                <div class="muted prof-note" data-i18n="profile.html.importNote">osu! stable: scores.db и папка Songs (только чтение). Interlude: его Data\scores.db (без точности — слабее как довод). osu! lazer хранит игры в своей базе realm, её не прочитать — у lazer записываются только новые игры.</div>
+                <div class="muted prof-note" data-i18n="profile.html.importNote">osu! stable: scores.db и папка Songs (только чтение). Interlude: его Data\scores.db (без точности — слабее как довод). osu! lazer: копия его базы client.realm и карты из его папки files — в папке lazer ничего не меняется, только чтение.</div>
             </div>
             <div class="group">
                 <div class="flabel" data-i18n="profile.html.backupHead">Резервная копия</div>
@@ -487,7 +488,6 @@
             <section class="st-group" id="st-osu"></section>
             <section class="st-group" id="st-caches"></section>
             <section class="st-group" id="st-about"></section>
-            <div id="st-author" class="st-author"></div>
         </div>
         <div id="st-toast" class="st-toast" hidden></div>
     </section>

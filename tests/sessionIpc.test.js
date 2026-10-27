@@ -1,13 +1,13 @@
 // The session page's handlers (app/sessionIpc.js) over fakes: the profile a session is built for, the rates checked by
 // an analysis, ↻, saved sessions, and the exports — an osu! collection (rate copies made first, the collections already
-// in collection.db kept, a backup), a marathon (Interlude charts copied out) — all in temp folders.
+// in collection.db kept, a backup), a marathon (Interlude charts and lazer maps copied out) — all in temp folders.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionHandlers, recentIds, normalizeSaved, cleanSessionName, withCollection } from "../app/sessionIpc.js";
+import { createSessionHandlers, recentIds, normalizeSaved, cleanSessionName, withCollection, lazerCopyOut } from "../app/sessionIpc.js";
 import { createJsonStore } from "../app/jsonStore.js";
 import { encodeCollectionDb, decodeCollectionDb } from "../src/recommend/collectionDb.js";
 import { exportItem } from "../app/interludeIpc.js";
@@ -16,16 +16,17 @@ import { manualSkill, normalizeManualProfile } from "../src/recommend/manualProf
 
 const FAMILY_NAME = { stream: "Stream", jumpstream: "Jumpstream" };
 const HASH = (n) => n.toString(16).toUpperCase().padStart(64, "0");
+const LZ = (n) => n.toString(16).padStart(64, "e");
 let n = 0;
-function map(pattern, numeric, { interludeOnly = false, both = false } = {}) {
+function map(pattern, numeric, { interludeOnly = false, both = false, lazerOnly = false } = {}) {
     n += 1;
     const md5 = n.toString(16).padStart(32, "0");
-    const sources = interludeOnly ? { interlude: { hash: HASH(n) } }
+    const sources = lazerOnly ? { lazer: { hash: LZ(n), md5 } } : interludeOnly ? { interlude: { hash: HASH(n) } }
         : { stable: { path: `C:\\songs\\${n}\\${n}.osu`, md5 }, ...(both ? { interlude: { hash: HASH(n) } } : {}) };
     return {
-        id: interludeOnly ? `il:${HASH(n)}` : `osu:${md5}`, artist: `Artist ${n}`, title: `Song ${n}`, version: `${pattern} ${numeric}`, creator: "M",
+        id: lazerOnly ? `lz:${LZ(n)}` : interludeOnly ? `il:${HASH(n)}` : `osu:${md5}`, artist: `Artist ${n}`, title: `Song ${n}`, version: `${pattern} ${numeric}`, creator: "M",
         numeric, label: "x", primary: FAMILY_NAME[pattern], top3: [{ name: FAMILY_NAME[pattern], share: 0.8 }], tech: false, durationSec: 150, bpm: 180,
-        beatmapId: interludeOnly ? null : 7000 + n, sources,
+        beatmapId: interludeOnly || lazerOnly ? null : 7000 + n, sources,
     };
 }
 const MANUAL = { name: "TestPlayer", speed: 13, jack: 13, stamina: 13, tech: 13 };
@@ -216,6 +217,62 @@ test("the marathon: every map with its rate and slot dan, Interlude charts copie
     assert.deepEqual(made[0].plan, built.session.items.map((x) => x.slot.dan));
     assert.equal(copied.length, built.session.items.filter((x) => !x.sources.stable).length);
     assert.ok(copied.length > 0);
+});
+
+test("lazer-only maps: the marathon takes them copied out of lazer's store, the collection skips them", async () => {
+    setLang("en");
+    const maps = Array.from({ length: 10 }, (_, i) => map("jumpstream", 13 + (i % 6) / 10, { lazerOnly: i % 2 === 0 }));
+    const made = [];
+    const copied = [];
+    const { h } = await setup({
+        maps,
+        copyLazer: async (hash) => { copied.push(hash); return { path: `D:\\docs\\lazer\\${hash.slice(0, 8)}\\x.osu` }; },
+        makeMarathon: async (args) => { made.push(args); return { file: "D:\\docs\\карты\\s.osz", totalMs: 600000 }; },
+    });
+    const built = await h.build(req({ manualProfile: MANUAL, minutes: 10 }));
+    assert.equal(built.ok, true, built.message);
+    const lazerItems = built.session.items.filter((x) => x.sources.lazer);
+    assert.ok(lazerItems.length > 0 && lazerItems.length < built.session.items.length);
+    const r = await h.exportMarathon({ name: "Run" });
+    assert.equal(r.ok, true, r.message);
+    assert.deepEqual(copied, lazerItems.map((x) => x.sources.lazer.hash));
+    assert.equal(made[0].entries.length, built.session.items.length);
+    assert.deepEqual(r.skipped, []);
+    const c = await h.exportCollection({ name: "Run" });
+    assert.equal(c.ok, true, c.message);
+    assert.equal(c.skipped.length, lazerItems.length, "not in stable: not in a collection");
+    assert.equal(c.count, built.session.items.length - lazerItems.length);
+});
+
+test("lazerCopyOut: the map, its audio and background copied out of a fake lazer store, which is only read", async () => {
+    setLang("en");
+    const dir = await mkdtemp(path.join(tmpdir(), "seslz-"));
+    const store = path.join(dir, "files");
+    await mkdir(store, { recursive: true });
+    const audio = path.join(store, "aa11");
+    const bg = path.join(store, "bb22");
+    await writeFile(audio, Buffer.alloc(32, 1));
+    await writeFile(bg, Buffer.alloc(8, 2));
+    const osuText = [
+        "osu file format v14", "", "[General]", "AudioFilename: audio.mp3", "Mode: 3", "", "[Metadata]", "Title:Lazer Song", "Artist:Theta",
+        "Creator:TestPlayer", "Version:Lazer Hard", "BeatmapID:4321", "BeatmapSetID:765", "", "[Events]", "0,0,\"bg.jpg\",0,0", "",
+    ].join("\r\n");
+    const hash = "e".repeat(64);
+    const asked = [];
+    const lazer = {
+        sourceOf: async (h) => { asked.push(h); return h === hash ? { path: path.join(store, "osu1"), audioPath: audio, backgroundPath: bg } : null; },
+        text: async (h) => (h === hash ? osuText : null),
+    };
+    const root = path.join(dir, "docs", "lazer");
+    const copyLazer = lazerCopyOut({ lazer, root });
+    const out = await copyLazer(hash);
+    assert.ok(out.path.startsWith(root) && out.path.endsWith(".osu"));
+    assert.equal(await readFile(out.path, "utf8"), osuText);
+    assert.deepEqual(await readFile(path.join(out.dir, "audio.mp3")), Buffer.alloc(32, 1));
+    assert.deepEqual(await readFile(path.join(out.dir, "bg.jpg")), Buffer.alloc(8, 2));
+    assert.deepEqual(await readFile(audio), Buffer.alloc(32, 1), "the store's file is untouched");
+    await assert.rejects(copyLazer("f".repeat(64)), /no longer in osu! lazer/);
+    assert.deepEqual(asked, [hash, "f".repeat(64)]);
 });
 
 test("recent plays: mania-tracker's by beatmap id, Interlude's by chart; avoidRecent asks for them", async () => {

@@ -262,7 +262,6 @@ export function initSettingsPage({
         return line;
     };
     about?.append(el("h3", "", t("settings.about.title")), aboutName, links, authorLine("st-label"));
-    $("st-author")?.append(authorLine("st-author-line muted"));
 
     // ---- main's settings and info ----
     function render() {

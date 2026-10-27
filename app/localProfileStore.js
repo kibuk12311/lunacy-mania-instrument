@@ -1,7 +1,7 @@
 // The local profile on disk, all in userData\local-profile (nothing leaves the machine):
 //   plays.jsonl   — one play per line, appended as they come (the source of truth: the skill is worked out from it);
 //   maps.json     — the analysis summary of each map at each rate a play was on ("md5@1.10"), so a map is analysed once;
-//   settings.json — { record, osuFolder, imports: { stable, interlude } }.
+//   settings.json — { record, osuFolder, imports: { stable, interlude, lazer } }.
 // A play is the same play when its id matches or when md5, rate and every judgement do (the live recording and a
 // later scores.db import, a replay of one's own score): it is kept once. Export is one JSON file with all three.
 import * as nodeFs from "node:fs/promises";
@@ -11,7 +11,7 @@ export const BUNDLE_FORMAT = "lunacy-mania-local-profile";
 export const BUNDLE_VERSION = 1;
 const OUTCOMES = ["pass", "fail", "quit"];
 const CLIENTS = ["stable", "lazer", "interlude"];
-const SOURCES = ["live", "stable-db", "interlude-db", "import"];
+const SOURCES = ["live", "stable-db", "interlude-db", "lazer-db", "import"];
 const MAP_KINDS = ["ok", "not-rice", "too-short", "error"];
 export const DEFAULT_SETTINGS = Object.freeze({ record: true, osuFolder: null, imports: {} });
 
@@ -90,7 +90,7 @@ export function normalizeSettings(x) {
     const s = x && typeof x === "object" ? x : {};
     const imports = {};
     for (const [k, v] of Object.entries(s.imports && typeof s.imports === "object" ? s.imports : {})) {
-        if (["stable", "interlude"].includes(k) && v && typeof v === "object") {
+        if (["stable", "interlude", "lazer"].includes(k) && v && typeof v === "object") {
             imports[k] = {
                 at: finite(v.at), added: finite(v.added) ?? 0, total: finite(v.total) ?? 0, done: finite(v.done) ?? 0,
                 finished: v.finished === true, player: typeof v.player === "string" ? v.player.slice(0, 64) : null,

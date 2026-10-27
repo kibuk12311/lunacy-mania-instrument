@@ -4,7 +4,8 @@
 //                   picks' progress data), recent plays, a link to the profile on mania-tracker.com;
 //   Мой профиль   — the local profile (app/localProfileService.js): overall + four axes with ± and confidence, the
 //                   seven patterns, top plays per axis/pattern, recent plays, its history chart, the history import
-//                   (osu! stable scores.db, Interlude), backup export / import, reset, «Записывать мои игры».
+//                   (osu! stable scores.db, Interlude, osu! lazer's database), backup export / import, reset,
+//                   «Записывать мои игры».
 // Above both: which profile Picks, the plan, the auto-marathon and «для тебя» use (the picks tab's source, saved in
 // its settings: one source of truth), and the hand-set profile's summary with a link to its editor in Picks.
 import { TILE_NAMES } from "../../src/recommend/catalog.js";
@@ -30,6 +31,8 @@ const VIEW_KEY = "profile-view";
 export const DEFAULT_VIEW = { page: "local", localDays: 90, localAxis: "dan", topAxis: "speed", trackerDays: 30, trackerAxis: "dan" };
 const TOP_KEYS = [...AXES, ...PATTERNS.map((p) => `p:${p}`)];
 const RESET_CONFIRM_MS = 4000;
+// the history imports by their settings key → the client's name (the same in every language)
+const IMPORT_NAMES = { stable: "osu! stable", interlude: "Interlude", lazer: "osu! lazer" };
 
 const $ = (id) => document.getElementById(id);
 let view = { ...DEFAULT_VIEW };
@@ -220,7 +223,17 @@ function countsText(c) {
     if (c.live) parts.push(t("profile.local.fromLive", { n: c.live }));
     if (c.stable) parts.push(t("profile.local.fromStable", { n: c.stable }));
     if (c.interlude) parts.push(t("profile.local.fromInterlude", { n: c.interlude }));
+    if (c.lazerDb) parts.push(t("profile.local.fromLazer", { n: c.lazerDb }));
     return parts.join(" · ");
+}
+
+// The imports done so far (settings.imports), the latest first: one part each, a stopped one says it can go on.
+export function lastImportsText(imports, now = Date.now()) {
+    return Object.entries(IMPORT_NAMES).filter(([id]) => imports?.[id]?.at).sort(([a], [b]) => imports[b].at - imports[a].at)
+        .map(([id, source]) => {
+            const last = imports[id];
+            return t(last.finished ? "profile.import.lastDone" : "profile.import.lastStopped", { source, added: last.added, when: whenText(last.at, now) });
+        }).join(" · ");
 }
 
 function renderTop() {
@@ -257,14 +270,14 @@ function renderImport() {
     $("prof-pick-osu").disabled = busy;
     $("prof-import-interlude").disabled = busy || !local?.interludeLinked;
     $("prof-import-interlude").title = local?.interludeLinked ? "" : t("profile.local.noInterlude");
+    $("prof-import-lazer").disabled = busy || !local?.lazerFound;
+    $("prof-import-lazer").title = local?.lazerFound ? "" : t("profile.local.noLazer");
     $("prof-import-cancel").hidden = !busy;
     const ev = importing && importing.phase !== "end" ? importing : local?.importing;
-    if (ev?.phase === "scan") $("prof-import-status").textContent = t("profile.import.scan", { done: ev.done ?? 0, total: ev.total ?? 0 });
+    if (ev?.phase === "read") $("prof-import-status").textContent = t("profile.import.readLazer");
+    else if (ev?.phase === "scan") $("prof-import-status").textContent = t("profile.import.scan", { done: ev.done ?? 0, total: ev.total ?? 0 });
     else if (ev?.phase === "analyse") $("prof-import-status").textContent = t("profile.import.analyse", { done: ev.done ?? 0, total: ev.total ?? 0, added: ev.added ?? 0 });
-    else if (!busy) {
-        const last = local?.settings?.imports?.stable;
-        $("prof-import-status").textContent = last?.at ? t(last.finished ? "profile.import.lastDone" : "profile.import.lastStopped", { added: last.added, when: whenText(last.at) }) : "";
-    }
+    else if (!busy) $("prof-import-status").textContent = lastImportsText(local?.settings?.imports);
 }
 
 function renderLocal() {
@@ -311,18 +324,23 @@ async function showLocal() {
     await loadLocalHistory();
 }
 
-const IMPORT_REFUSALS = { "no-folder": "profile.import.noFolder", "no-scores": "profile.import.noScores", busy: "profile.import.busy", "no-interlude": "profile.local.noInterlude" };
+const IMPORT_REFUSALS = {
+    "no-folder": "profile.import.noFolder", "no-scores": "profile.import.noScores", busy: "profile.import.busy",
+    "no-interlude": "profile.local.noInterlude", "no-lazer": "profile.local.noLazer",
+};
 
-async function runImport(fn) {
-    importing = { phase: "scan", done: 0, total: 0 };
+// phase: what the line says until the first progress event (lazer first reads a copy of its database)
+async function runImport(fn, phase = "scan") {
+    importing = { phase, done: 0, total: 0 };
     renderImport();
     const r = await call(fn);
     importing = null;
     await loadLocal();
     let text = "";
     if (r?.ok) {
+        const missing = r.source === "lazer" ? "profile.import.missingLazer" : "profile.import.missing";
         text = t(r.finished ? "profile.import.done" : "profile.import.stopped", { added: r.added, total: r.total })
-            + (r.missing ? ` · ${t("profile.import.missing", { n: r.missing })}` : "");
+            + (r.missing ? ` · ${t(missing, { n: r.missing })}` : "");
     } else if (!r?.cancelled) {
         text = IMPORT_REFUSALS[r?.reason] ? t(IMPORT_REFUSALS[r.reason], { folder: r.folder ?? "" }) : failText(r);
     }
@@ -380,6 +398,7 @@ export function initProfileTab() {
     $("prof-import-stable").addEventListener("click", () => runImport(() => api.localProfileImport("stable")));
     $("prof-pick-osu").addEventListener("click", () => runImport(() => api.localProfilePickOsu()));
     $("prof-import-interlude").addEventListener("click", () => runImport(() => api.localProfileImport("interlude")));
+    $("prof-import-lazer").addEventListener("click", () => runImport(() => api.localProfileImport("lazer"), "read"));
     $("prof-import-cancel").addEventListener("click", () => call(() => api.localProfileImportCancel()));
     $("prof-export").addEventListener("click", () => backup(() => api.localProfileExport(), "profile.backup.exported"));
     $("prof-import-file").addEventListener("click", () => backup(() => api.localProfileImportFile(), "profile.backup.imported"));

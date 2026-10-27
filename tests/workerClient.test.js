@@ -97,3 +97,16 @@ test("details requests are the details kind with the chart and rate, on the anal
     assert.equal(late.transient, true);
     hung.dispose();
 });
+
+test("warm() starts the worker before the first request, once", async () => {
+    let spawned = 0;
+    const client = createWorkerClient({ spawn: () => { spawned += 1; return fakeWorker(); }, timeoutMs: 1000 });
+    client.warm();
+    client.warm();
+    assert.equal(spawned, 1);
+    assert.equal((await client.analyze("x", 1.2)).rate, 1.2);
+    assert.equal(spawned, 1, "the request uses it");
+    client.dispose();
+    client.warm();
+    assert.equal(spawned, 1, "a closed client starts nothing");
+});

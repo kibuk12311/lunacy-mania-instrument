@@ -1,6 +1,7 @@
 // The local profile's place in the app: made in main.js before the tabs (the picks' "hide played" and the profile
 // consumers read it), its own tosu socket for the live recording, and its channels for the Profile tab.
-// Read only outside userData: osu!'s scores.db and Songs, Interlude's folder (through app/interludeLibrary.js).
+// Read only outside userData: osu!'s scores.db and Songs, Interlude's folder (through app/interludeLibrary.js), osu!
+// lazer's database (a copy of it, through app/lazerRealm.js) and its files store.
 import path from "node:path";
 import { readFile, writeFile, stat } from "node:fs/promises";
 import { connectTosu } from "./tosuClient.js";
@@ -28,14 +29,16 @@ async function osuFoldersFrom(port, fetchImpl = globalThis.fetch) {
     }
 }
 
-// The service over the app's own folders. interlude: app/interludeClient.js; analysis: app/analysisService.js.
-export function createLocalProfile({ userData, analysis, interlude = null, port, env = process.env, log = () => {}, send = () => {}, tosuProfile = async () => null }) {
+// The service over the app's own folders. interlude: app/interludeClient.js; analysis: app/analysisService.js;
+// lazer: app/lazerRealm.js createLazerRealm (the app's one instance), or null.
+export function createLocalProfile({ userData, analysis, interlude = null, lazer = null, port, env = process.env, log = () => {}, send = () => {}, tosuProfile = async () => null }) {
     const dir = path.join(userData, "local-profile");
     const store = createLocalProfileStore({ dir });
     return createLocalProfileService({
         store,
-        // the background line: a play's map never holds up the selected map's card
-        analyze: (text, rate) => analysis.analyzeQueued(text, rate),
+        // the background line: a play's map never holds up the selected map's card; an import keeps bulk.lanes of
+        // its maps under way (the line runs that many at once)
+        analyze: analysis.bulk,
         // the bytes: the md5 osu! names the map by is over them (a BOM included)
         fetchMapText: async () => {
             const res = await fetch(`http://127.0.0.1:${port}/files/beatmap/file`, { signal: AbortSignal.timeout(5000) });
@@ -52,6 +55,7 @@ export function createLocalProfile({ userData, analysis, interlude = null, port,
             scores: () => interlude.library.scores(),
             osuFor: (hash) => interlude.library.osuFor(hash),
         } : null,
+        lazer,
         preferredPlayer: async () => (await tosuProfile())?.name ?? null,
         emit: send,
         log,
@@ -151,7 +155,8 @@ export function createLocalProfileHandlers({ localProfile, dialog = null, window
     return {
         status: safe(() => localProfile.status()),
         history: safe((req) => (HISTORY_DAYS.includes(req?.days) ? localProfile.history(req.days) : { ok: false, message: t("recommend.err.badDays") })),
-        importHistory: safe((req) => (req?.source === "interlude" ? localProfile.importInterlude() : localProfile.importStable())),
+        importHistory: safe((req) => (req?.source === "interlude" ? localProfile.importInterlude()
+            : req?.source === "lazer" ? localProfile.importLazer() : localProfile.importStable())),
         cancelImport: safe(() => localProfile.cancelImport()),
         setRecord: safe((req) => localProfile.setRecord(req?.on !== false)),
         reset: safe(() => localProfile.reset()),

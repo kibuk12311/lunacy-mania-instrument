@@ -287,6 +287,20 @@ function estimateSunnyNumeric(result) {
     return Number(clamp(numeric, -2, 20).toFixed(2));
 }
 
+// Lunacy mania: [...values].sort((a, b) => a - b) by a native numeric sort (a Float64Array, read here only by
+// index, slice and reduce like the original's array). It puts the numbers in the same order unless one is NaN (the
+// comparator is then inconsistent) or −0 (which the comparator leaves where it was among the zeros and the native
+// sort puts first); those take the original line.
+function sortedAscending(values) {
+    const sorted = new Float64Array(values.length);
+    for (let i = 0; i < values.length; i += 1) {
+        const v = values[i];
+        if (typeof v !== "number" || v !== v || (v === 0 && 1 / v < 0)) return [...values].sort((a, b) => a - b);
+        sorted[i] = v;
+    }
+    return sorted.sort();
+}
+
 function quantileFromSorted(sortedValues, q) {
     if (!sortedValues.length) {
         return 0;
@@ -516,7 +530,7 @@ function computeAzusaNumericFromCurve(curve, noteCount) {
     }
 
     const summarize = (values) => {
-        const sorted = [...values].sort((a, b) => a - b);
+        const sorted = sortedAscending(values); // Lunacy mania: was [...values].sort((a, b) => a - b)
         const q97 = quantileFromSorted(sorted, 0.97);
         const q94 = quantileFromSorted(sorted, 0.94);
         const q90 = quantileFromSorted(sorted, 0.90);
@@ -577,7 +591,7 @@ function computeAzusaNumericFromCurve(curve, noteCount) {
     const maxColumn = Math.max(...curve.columnCounts);
     const anchorImbalance = safeDiv((maxColumn / Math.max(noteCount, 1)) - 0.25, 0.75, 0);
     const chordRate = safeDiv(curve.chordNoteCount, Math.max(noteCount, 1), 0);
-    const jackSorted = [...curve.jackRawSeries].sort((a, b) => a - b);
+    const jackSorted = sortedAscending(curve.jackRawSeries); // Lunacy mania: was [...curve.jackRawSeries].sort((a, b) => a - b)
     const jackQ95 = quantileFromSorted(jackSorted, 0.95);
 
     // Chordjack interaction: chord density × jack density co-occurrence
@@ -891,7 +905,7 @@ export function runAzusaEstimatorFromText(osuText, options = {}, parsed = null) 
     const maxColumn = Math.max(...curve.columnCounts);
     const anchorImbalance = safeDiv((maxColumn / Math.max(taps.length, 1)) - 0.25, 0.75, 0);
     const chordRate = safeDiv(curve.chordNoteCount, Math.max(taps.length, 1), 0);
-    const jackSorted = [...curve.jackRawSeries].sort((a, b) => a - b);
+    const jackSorted = sortedAscending(curve.jackRawSeries); // Lunacy mania: was [...curve.jackRawSeries].sort((a, b) => a - b)
     const jackQ95 = quantileFromSorted(jackSorted, 0.95);
 
     let danielNumeric = null;

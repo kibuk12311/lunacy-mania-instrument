@@ -1,10 +1,12 @@
 import { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, powerMonitor, screen, shell, utilityProcess } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pickDocsDir } from "./docsFolder.js";
 import { installTosu, isPortFree, killOrphanTosu, startTosu, TOSU_PORT } from "./tosuManager.js";
 import { createWorkerClient } from "./workerClient.js";
+import { POOL_WORKER_OPTIONS, belowNormal, createWorkerPool } from "./workerPool.js";
 import { connectTosu, fetchCurrentOsu, fetchCurrentBeatmap, fetchCurrentBeatmapPath, fetchProfile } from "./tosuClient.js";
 import { createRecommender } from "../src/recommend/recommend.js";
 import { createTrackerApi } from "../src/recommend/tracker.js";
@@ -27,6 +29,9 @@ import { createUpdater, isPortableRun, updateMode } from "./updater.js";
 import { createOverlay } from "./overlay/overlayManager.js";
 import { makeDanAnalyzer } from "./overlay/danSource.js";
 import { createCache } from "../src/core/cache.js";
+import { analyzerFingerprint } from "../src/core/analyzerVersion.js";
+import { resultsIdOf } from "../src/core/analyzerSameResults.js";
+import { prepareResultsDir } from "./resultsFolder.js";
 import { createInterludeClient } from "./interludeClient.js";
 import { registerInterludeIpc } from "./interludeIpc.js";
 import { createLocalProfile, registerLocalProfileIpc } from "./localProfileIpc.js";
@@ -35,6 +40,7 @@ import { createInterludeLive, liveText } from "./interludeLive.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { chartTimeNotes } from "../src/overlay/interludeData.js";
 import { registerSessionIpc } from "./sessionIpc.js";
+import { createLazerRealm, lazerDataDir } from "./lazerRealm.js";
 import { registerSkinIpc } from "./skinIpc.js";
 import { registerSettingsIpc } from "./settingsIpc.js";
 import { createStyleCatalog } from "./modelStyles.js";
@@ -51,6 +57,7 @@ let tray = null;
 let tosu = null;
 let tosuSocket = null;
 let workerClient = null;
+let analysisPool = null; // the background line's own analysis workers (app/workerPool.js)
 let generatorClient = null;
 let createTabBounds = null; // window size while the "Создать карту" tab is open (not persisted)
 let analysisBounds = null;
@@ -289,10 +296,24 @@ async function main() {
     // (the worker process starts on the first analysis).
     const userData = app.getPath("userData");
     workerClient = createWorkerClient({ spawn: () => utilityProcess.fork(path.join(here, "analysisWorker.js")) });
+    // the background line (the Session library, the Picks, ladders, details...) runs on a few workers of its own, below
+    // normal priority, started when there is work and stopped when idle: the card's worker above never waits for it
+    analysisPool = createWorkerPool({
+        spawn: () => belowNormal(utilityProcess.fork(path.join(here, "analysisPoolWorker.js"), [], POOL_WORKER_OPTIONS)),
+    });
+    log(`analysis pool: up to ${analysisPool.size} workers (${os.availableParallelism()} cores, ${Math.round(os.totalmem() / 2 ** 30)} GB)`);
     // Not "cache": Chromium already owns userData\Cache and Windows paths ignore case.
-    // Versioned, so a new build with a retrained model never serves old dans.
-    const resultCache = createCache({ dir: path.join(userData, `results-${version}`) });
-    const analysis = createAnalysisService({ worker: workerClient, cache: resultCache, log });
+    // Named by the analyzer's fingerprint: a retrained model never serves old dans, an update that keeps it keeps them.
+    const analyzer = await analyzerFingerprint();
+    log(`analyzer ${analyzer.fingerprint} (${analyzer.code.length} files, ${analyzer.data.length} data files)`);
+    // a start that could not read its own files has a fingerprint of nothing: it removes no old results
+    if (analyzer.missing.length) log(`analyzer: could not read ${analyzer.missing.join(", ")}; old results kept`);
+    const results = await prepareResultsDir({
+        // a dev run (`npm start`) shares userData with the installed app: it leaves the release's folders as they are
+        userData, fingerprint: resultsIdOf(analyzer.fingerprint), log, tidy: app.isPackaged && !analyzer.missing.length,
+    }); // app/resultsFolder.js
+    const resultCache = createCache({ dir: results.dir });
+    const analysis = createAnalysisService({ worker: workerClient, pool: analysisPool, cache: resultCache, log });
     danAnalyze = makeDanAnalyzer({ analysis });
     // Interlude: a folder the user links, a chart picked from its library, maps sent to it (app/interludeClient.js)
     interlude = createInterludeClient({
@@ -306,9 +327,17 @@ async function main() {
         },
     });
     const trackerApi = createTrackerApi();
+    // osu! lazer's own database (app/lazerRealm.js): read only when a tab asks, in a utility process, from a copy of
+    // client.realm in a temp folder of ours
+    const lazer = createLazerRealm({
+        dataDir: () => lazerDataDir({}),
+        tmpDir: path.join(app.getPath("temp"), "lunacy-mania-lazer"),
+        spawn: () => utilityProcess.fork(path.join(here, "lazerRealmWorker.js"), [], { serviceName: "Lunacy mania lazer reader" }),
+        log,
+    });
     // the local profile: the player's own plays, recorded live and imported, and the skill learnt from them
     const localProfile = createLocalProfile({
-        userData, analysis, interlude, port: TOSU_PORT, log, send, tosuProfile: () => fetchProfile(TOSU_PORT),
+        userData, analysis, interlude, port: TOSU_PORT, log, send, tosuProfile: () => fetchProfile(TOSU_PORT), lazer,
     });
     localProfileRef = localProfile;
     // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked, and every
@@ -342,6 +371,8 @@ async function main() {
             profile: () => fetchProfile(TOSU_PORT), client: () => (interlude.selection() ? "interlude" : osuClient),
         }),
         interlude,
+        // osu! lazer's maps and scores from its database, read on demand (app/lazerRealm.js; the session tab)
+        lazer,
         // the analysis card for a map from elsewhere than osu! (an Interlude chart): showExternal({ id, text, rate, onEnd }),
         // or only its names when there is no file of it: showInfo({ id, rate, title, artist, diff, note, onEnd })
         card: Object.freeze({
@@ -354,6 +385,9 @@ async function main() {
         worker: workerClient,
         analysis,
         resultCache,
+        // what the cached answers were worked out by (src/core/analyzerVersion.js); null when it could not be worked out:
+        // the session library then marks nothing stale and keeps the analyzer its store had
+        analyzer: analyzer.missing.length ? null : resultsIdOf(analyzer.fingerprint),
         trackerApi, recommender, downloader, profile, localProfile,
         ffmpegPath,
         renderPng,
@@ -495,6 +529,7 @@ app.on("before-quit", async (event) => {
 
         await tosu?.stop();
         workerClient?.dispose();
+        analysisPool?.dispose();
         generatorClient?.dispose();
     } finally {
         app.exit(0);

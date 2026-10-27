@@ -355,3 +355,43 @@ test("registerRateIpc hangs the v2 channels; presets live in userData/rate-prese
     assert.deepEqual(await second.handled.get("rate-presets-get")({}), saved);
     first.listened.get("rate-cancel")({});
 });
+
+// waits (a bounded while) until check() holds
+async function until(check, what) {
+    for (let i = 0; i < 500; i += 1) {
+        if (check()) return;
+        await new Promise((r) => setTimeout(r, 2));
+    }
+    assert.fail(`timed out waiting for ${what}`);
+}
+
+test("the ladder asks analysis.lanes rates at once (the background line runs that many) and sends its rows in order", async () => {
+    const g = manual();
+    const analysis = Object.assign(fakeAnalysis({ gate: g.gate }), { lanes: 3 });
+    const { handlers, seen } = setup({ analysis });
+    const job = handlers.batchDans({ from: 1, to: 1.25, step: 0.05 });
+    await until(() => g.waiting.length >= 3, "three rates under way");
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(g.waiting.length, 3, "three under way, the fourth waits for a free lane");
+    g.waiting.splice(1, 1)[0](); // ×1.05 answers before ×1.0
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(seen.progress, [], "no row before ×1.0's");
+    await until(() => { g.release(); return seen.progress.length === 6; }, "all six rows");
+    const r = await job;
+    assert.deepEqual(r.rows.map((row) => row.rate), [1, 1.05, 1.1, 1.15, 1.2, 1.25]);
+    assert.deepEqual(seen.progress.map((p) => p.index), [1, 2, 3, 4, 5, 6]);
+    assert.equal(analysis.calls.worker, 6);
+});
+
+test("a ladder cancelled with rates asked ahead stops there and asks for nothing more", async () => {
+    const g = manual();
+    const analysis = Object.assign(fakeAnalysis({ gate: g.gate }), { lanes: 3 });
+    const { handlers } = setup({ analysis });
+    const job = handlers.batchDans({ from: 1, to: 1.5, step: 0.05 });
+    await until(() => g.waiting.length >= 3, "three rates under way");
+    handlers.cancel();
+    g.release();
+    const r = await job;
+    assert.equal(r.cancelled, true);
+    assert.equal(analysis.calls.queued, 3, "the three asked ahead, no more");
+});

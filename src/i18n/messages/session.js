@@ -76,10 +76,8 @@ export default {
     "session.lib.failed": { ru: "Библиотеку прочитать не удалось: {message}", en: "Could not read the library: {message}" },
     "session.lib.pause": { ru: "Пауза", en: "Pause" },
     "session.lib.resume": { ru: "Продолжить", en: "Resume" },
-    "session.lib.lazer": {
-        ru: "osu! lazer: свою библиотеку lazer хранит в базе realm, её не прочитать снаружи — карты lazer сюда не входят",
-        en: "osu! lazer keeps its library in a realm database nothing outside lazer can read — lazer maps are not included",
-    },
+    "session.lib.lazer": { ru: "osu! lazer: {n}", en: "osu! lazer: {n}" },
+    "session.lib.lazerFailed": { ru: "Карты osu! lazer не прочитаны: {message}", en: "osu! lazer's maps were not read: {message}" },
     "session.lib.songsHint": {
         ru: "Запусти osu! stable (папку подскажет tosu) или укажи Songs кнопкой «Папка Songs…»",
         en: "Start osu! stable (tosu tells where Songs is) or point to it with “Songs folder…”",
@@ -96,7 +94,10 @@ export default {
     "session.err.minutes": { ru: "Длина сессии — от {min} до {max} минут", en: "A session is {min} to {max} minutes long" },
     "session.err.patterns": { ru: "Выбери хотя бы один паттерн", en: "Pick at least one pattern" },
     "session.err.empty": { ru: "В библиотеке пока нет проанализированных карт 4K.", en: "No analysed 4K maps in the library yet." },
-    "session.err.noMaps": { ru: "Карт 4K не найдено: ни в Songs от osu! stable, ни в Interlude.", en: "No 4K maps found: neither in osu! stable's Songs nor in Interlude." },
+    "session.err.noMaps": {
+        ru: "Карт 4K не найдено: ни в Songs от osu! stable, ни в Interlude, ни в osu! lazer.",
+        en: "No 4K maps found: neither in osu! stable's Songs nor in Interlude or osu! lazer.",
+    },
     "session.err.stillAnalysing": { ru: "Библиотека ещё анализируется ({done} из {total}) — подожди немного.", en: "The library is still being analysed ({done} of {total}) — give it a moment." },
     "session.err.nothingNear": { ru: "Среди твоих карт нет подходящих около цели ({lo}–{hi}).", en: "None of your maps is near the target ({lo}–{hi})." },
     "session.err.tryPicks": { ru: "Включи рейты или найди карты в режиме «Подбор» и скачай их.", en: "Allow rates, or find maps in Picks and download them." },
@@ -109,5 +110,6 @@ export default {
     "session.err.noOther": { ru: "Другой подходящей карты на это место нет", en: "No other map fits this place" },
     "session.err.noSaved": { ru: "Такой сохранённой сессии нет", en: "No such saved session" },
     "session.err.noStable": { ru: "В сессии нет карт из osu! stable — коллекции не из чего", en: "The session has no osu! stable maps — nothing to make a collection of" },
+    "session.err.lazerGone": { ru: "Карты больше нет в osu! lazer", en: "The map is no longer in osu! lazer" },
     "session.err.noMarathon": { ru: "Марафон сейчас не собрать", en: "The marathon can't be built now" },
 };

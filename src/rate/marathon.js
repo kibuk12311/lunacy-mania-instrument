@@ -4,6 +4,7 @@
 // by marathon main BPM / that map's main BPM: each map scrolls in the marathon as it does on its own.
 import { rateText } from "./rateMap.js";
 import { t } from "../i18n/i18n.js";
+import { minOf, maxOf } from "../../vendor/leoblack/js/lunacyExtremes.js";
 
 const BREAK_MIN_MS = 650; // osu! ignores shorter breaks
 const SV_MIN = 0.01;
@@ -71,8 +72,8 @@ const svLine = (t, sv, base) => {
 // (never before 0). notes: [{ t, end }]; null without notes.
 function rangeOf(notes, leadMs, tailMs) {
     if (!notes.length) return null;
-    const first = Math.min(...notes.map((n) => n.t));
-    const last = Math.max(...notes.map((n) => n.end ?? n.t));
+    const first = minOf(notes.map((n) => n.t));
+    const last = maxOf(notes.map((n) => n.end ?? n.t));
     const srcStartMs = Math.max(0, first - leadMs);
     const srcEndMs = last + tailMs;
     return { srcStartMs, srcEndMs, cutMs: srcEndMs - srcStartMs };
@@ -109,7 +110,7 @@ export function buildMarathon(entries, {
         const reds = points.filter((x) => x.red);
         const active = [...reds].reverse().find((x) => x.t <= srcStartMs) ?? reds[0];
         // the map's own main BPM (over the whole chart, as osu! takes it), at this rate
-        const lastNote = Math.max(...notes.map((n) => n.end ?? n.t));
+        const lastNote = maxOf(notes.map((n) => n.end ?? n.t));
         const ownMain = mainBpm(reds, reds[0]?.t ?? 0, lastNote) * rate;
         const seg = { ownMainBpm: ownMain };
         if (active) {

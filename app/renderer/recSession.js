@@ -1,5 +1,5 @@
-// "Сессия": a practice session from the player's own maps (osu! stable's Songs and a linked Interlude library), no
-// downloads. The library is listed and analysed in the background by main (app/sessionLibrary.js); the session is
+// "Сессия": a practice session from the player's own maps (osu! stable's Songs, a linked Interlude library, osu! lazer),
+// no downloads. The library is listed and analysed in the background by main (app/sessionLibrary.js); the session is
 // warm-up → main block → push → cool-down for the length, focus patterns and goal picked here (src/recommend/session.js),
 // with ↻ on every map and for the whole session, saved sessions, and the session out of the app: an osu! collection,
 // an Interlude playlist (with rates), one marathon .osz, or the list as text.
@@ -61,11 +61,12 @@ export const partText = (part) => t(`session.part.${part}`);
 // "×1.10" or nothing at 1.0
 export const rateMark = (rate) => (Math.abs(Number(rate) - 1) < 1e-9 ? "" : `×${Number(rate).toFixed(2)}`);
 
-// Where a map is: osu! stable, Interlude or both.
+// Where a map is: osu! stable, Interlude, lazer (any of them).
 export function sourceText(sources) {
     const out = [];
     if (sources?.stable) out.push("osu!");
     if (sources?.interlude) out.push("Interlude");
+    if (sources?.lazer) out.push("lazer");
     return out.join(" + ");
 }
 
@@ -109,9 +110,28 @@ export function libraryText(st) {
     const parts = [];
     parts.push(st.songsDir ? t("session.lib.stable", { n: (c.stable ?? 0) + (c.both ?? 0) }) : t("session.lib.noSongs"));
     if (st.interlude?.linked) parts.push(t("session.lib.interlude", { n: st.interlude.count ?? 0 }));
+    if (st.lazer?.found && !st.lazer.error) parts.push(t("session.lib.lazer", { n: st.lazer.count ?? 0 }));
     parts.push(t("session.lib.analysed", { done: c.analysed ?? 0, total: c.total ?? 0 }));
     if (c.skipped) parts.push(t("session.lib.skipped", { n: c.skipped }));
     return parts.join(" · ");
+}
+
+// The session's items as the Interlude playlist export takes them: Interlude's chart, else the .osu's md5 (a lazer-only
+// map is found in Interlude by it, or listed as missing).
+export function playlistItems(items) {
+    return (items ?? []).map((item) => ({
+        hash: item.sources?.interlude?.hash, md5: item.sources?.stable?.md5 ?? item.sources?.lazer?.md5, path: item.sources?.stable?.path,
+        rate: item.rate, label: `${item.artist} - ${item.title} [${item.version}]`,
+    }));
+}
+
+// The notes under the library line: where Songs is when it is not found, why lazer was not read (nothing when lazer
+// was read or is not installed).
+export function libraryNotes(st) {
+    const notes = [];
+    if (!st?.songsDir) notes.push(t("session.lib.songsHint"));
+    if (st?.lazer?.error) notes.push(t("session.lib.lazerFailed", { message: st.lazer.error }));
+    return notes;
 }
 
 export function phaseText(st) {
@@ -212,9 +232,7 @@ function renderLibrary(st) {
     $("ses-lib-pause").textContent = st?.paused ? t("session.lib.resume") : t("session.lib.pause");
     $("ses-lib-pause").disabled = !(running || st?.paused);
     $("ses-lib-scan").disabled = running;
-    const notes = [t("session.lib.lazer")];
-    if (!st?.songsDir) notes.unshift(t("session.lib.songsHint"));
-    const rows = notes.map((n) => el("div", "", n));
+    const rows = libraryNotes(st).map((n) => el("div", "", n));
     if (!st?.interlude?.linked) {
         // a link: the IL block lives on the Settings page
         const hint = el("div", "link", t("session.lib.interludeHint"));
@@ -453,13 +471,7 @@ export function initSession(s) {
         if (key) status(t(key, { i: p.i, n: p.n }));
     });
     // the page as a playlist in Interlude, in its order and with its rates
-    $("ses-interlude").replaceChildren(exportButton(() => ({
-        name: sessionName(),
-        items: (session?.items ?? []).map((item) => ({
-            hash: item.sources?.interlude?.hash, md5: item.sources?.stable?.md5, path: item.sources?.stable?.path,
-            rate: item.rate, label: `${item.artist} - ${item.title} [${item.version}]`,
-        })),
-    })));
+    $("ses-interlude").replaceChildren(exportButton(() => ({ name: sessionName(), items: playlistItems(session?.items) })));
 }
 
 // The page is shown: the library is listed (again: only what changed) and analysed in the background.

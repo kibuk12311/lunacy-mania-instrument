@@ -1,5 +1,6 @@
 // Copied from sunnyAlgorithm.js
 import { OsuFileParser } from "../parser/osuFileParser.js";
+import { maxOf } from "../lunacyExtremes.js";
 
 const BREAK_ZERO_THRESHOLD_MS = 400;
 const GRAPH_RESAMPLE_INTERVAL_MS = 100;
@@ -442,8 +443,8 @@ function preprocessFile(osuText, speedRate, odFlag, cvtFlag, enableAnalyzeLN = f
     if (col >= 0 && col < K) lnSeqByColumn[col].push(n);
     }
 
-    const maxHead = noteSeq.length ? Math.max(...noteSeq.map((n) => n[1])) : 0;
-    const maxTail = noteSeq.length ? Math.max(...noteSeq.map((n) => n[2])) : 0;
+    const maxHead = noteSeq.length ? maxOf(noteSeq.map((n) => n[1])) /* Lunacy mania: was Math.max(...…) */ : 0;
+    const maxTail = noteSeq.length ? maxOf(noteSeq.map((n) => n[2])) /* Lunacy mania: was Math.max(...…) */ : 0;
     const T = Math.max(maxHead, maxTail) + 1;
 
     return {

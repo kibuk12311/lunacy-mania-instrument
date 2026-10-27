@@ -1,8 +1,9 @@
 // The local profile's main-process side: records the plays osu! (stable and lazer, through tosu) finishes, imports the
-// history once (osu! stable's scores.db matched to the Songs folder, Interlude's Data\scores.db), analyses each map at
-// its rate once (the shared analysis cache, and maps.json), and keeps the skill (src/localProfile/model.js) up to date
-// one play at a time. Every dependency is injected; nothing here throws at a caller.
-// osu! lazer keeps its scores in a realm database the app cannot read, so lazer plays come only from the live recording.
+// history once (osu! stable's scores.db matched to the Songs folder, Interlude's Data\scores.db, osu! lazer's scores
+// read from a copy of its realm database by app/lazerRealm.js), analyses each map at its rate once (the shared analysis
+// cache, and maps.json), and keeps the skill (src/localProfile/model.js) up to date one play at a time. Every
+// dependency is injected; nothing here throws at a caller.
+// A lazer play the live recording already took is its imported score too (same map, rate, judgements): kept once.
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { createSkillModel, dailySkill, AXES, PATTERNS, performanceDan, DAY_MS } from "../src/localProfile/model.js";
@@ -24,11 +25,11 @@ const round2 = (x) => Math.round(x * 100) / 100;
 // store: app/localProfileStore.js; analyze(text, rate) → analysis result (the shared, cached service);
 // fetchMapText() → the .osu tosu has selected (its bytes, or its text); readFile(path) → Buffer; songsIndex: app/osuSongsScan.js;
 // osuFolders() → { game, songs } tosu reports for osu! stable (or nulls); defaultOsuFolder: %LOCALAPPDATA%\osu!;
-// interlude: { linked(), scores(), osuFor(hash) }; preferredPlayer() → the osu! name logged in (tosu), or null;
-// emit(channel, payload) → the window.
+// interlude: { linked(), scores(), osuFor(hash) }; lazer: app/lazerRealm.js { status(), read(), text(hash) } or null;
+// preferredPlayer() → the osu! name logged in (tosu), or null; emit(channel, payload) → the window.
 export function createLocalProfileService({
     store, analyze, fetchMapText = async () => null, readFile, exists = async () => false, songsIndex = null,
-    osuFolders = async () => ({ game: null, songs: null }), defaultOsuFolder = null, interlude = null,
+    osuFolders = async () => ({ game: null, songs: null }), defaultOsuFolder = null, interlude = null, lazer = null,
     preferredPlayer = async () => null, emit = () => {}, log = () => {}, now = Date.now,
 }) {
     let model = null; // createSkillModel() over every stored play
@@ -74,18 +75,58 @@ export function createLocalProfileService({
         }
     }
 
-    // A map at a rate → its summary: maps.json, else the analysis (whose own cache has it if any tab analysed it).
-    async function mapFor(md5, rate, getText) {
+    // A map at a rate → its summary: maps.json, else the analysis (whose own cache has it if any tab analysed it);
+    // noText: getText had none (the .osu is gone). A map asked again while it is worked out (its next play, begun
+    // ahead) waits for that answer, so its getText is not called again and noText tells every play.
+    const mapping = new Map(); // key → Promise of { key, map, noText? }
+    function mapFor(md5, rate, getText) {
         const key = mapKeyOf(md5, rate);
+        if (!mapping.has(key)) mapping.set(key, workOutMap(key, rate, getText).finally(() => mapping.delete(key)));
+        return mapping.get(key);
+    }
+
+    async function workOutMap(key, rate, getText) {
         const known = await store.map(key);
         if (known) return { key, map: known };
         const text = await getText();
-        if (!text) return { key, map: null };
+        if (!text) return { key, map: null, noText: true };
         const result = await analyze(text, rate);
         const summary = mapSummary(result);
         // a transient failure (the worker busy, cancelled) is worked out again next time
         if (summary && !(result?.kind === "error" && result.transient)) await store.setMap(key, summary);
         return { key, map: summary?.kind === "error" ? null : summary };
+    }
+
+    // An import's maps worked out analyze.lanes at once (the background line runs that many): ahead(todo, keyOf,
+    // prepare) → mapAt(i), prepare(todo[i]) with the next ones begun as well, until lanes − 1 other maps are under way
+    // or lanes × 2 plays are begun and not taken (a map played many times in a row is not read for all its plays at
+    // once). keyOf(x): the map (and rate) x works out, so its other plays add none, or null when there is nothing to
+    // work out (the loop skips those). The loop still takes the plays in order.
+    function ahead(todo, keyOf, prepare) {
+        const lanes = Math.max(1, Math.floor(Number(analyze.lanes) || 1));
+        const begun = new Map(); // index (of a play with a key) → prepare's promise
+        const waiting = new Map(); // index begun and not taken yet → its key
+        let next = 0;
+        const begin = () => {
+            const j = next++;
+            const key = keyOf(todo[j]);
+            if (key !== null) {
+                const p = prepare(todo[j]);
+                p.catch(() => {}); // one begun ahead of a stop is never waited for
+                waiting.set(j, key);
+                begun.set(j, p);
+            }
+        };
+        return (i) => {
+            while (next <= i) begin();
+            const own = waiting.get(i);
+            waiting.delete(i);
+            const others = () => new Set([...waiting.values()].filter((k) => k !== own)).size;
+            while (others() < lanes - 1 && waiting.size < lanes * 2 && next < todo.length) begin();
+            const p = begun.get(i) ?? null;
+            begun.delete(i);
+            return p;
+        };
     }
 
     async function addPlay(play, map) {
@@ -184,6 +225,8 @@ export function createLocalProfileService({
         }
         let added = 0;
         let missing = 0;
+        const mapAt = ahead(todo, (p) => (charts.has(p.md5) ? mapKeyOf(p.md5, p.rate) : null),
+            (p) => mapFor(p.md5, p.rate, async () => (await readFile(charts.get(p.md5).path)).toString("utf8")));
         for (const [i, p] of todo.entries()) {
             if (job?.cancelled) return finishImport("stable", { added, total: plays.length, done: plays.length - todo.length + i, player, cancelled: true, missing });
             const chart = charts.get(p.md5);
@@ -192,7 +235,7 @@ export function createLocalProfileService({
                 missing += 1;
                 continue;
             }
-            const { map } = await mapFor(p.md5, p.rate, async () => (await readFile(chart.path)).toString("utf8"));
+            const { map } = await mapAt(i);
             const stored = await addPlay({ ...p, beatmapId: chart.beatmapId, beatmapsetId: chart.beatmapsetId, artist: chart.artist, title: chart.title, version: chart.version }, map);
             if (stored) added += 1;
             if (added && added % 50 === 0) await changed();
@@ -208,14 +251,25 @@ export function createLocalProfileService({
         const known = new Set((await store.plays()).map((p) => p.id));
         const todo = plays.filter((p) => !known.has(p.id));
         let added = 0;
+        // a chart is read once while it is being read (its plays begun ahead share that read)
+        const reading = new Map(); // hash → Promise of its .osu
+        const osuOf = (hash) => {
+            if (!reading.has(hash)) reading.set(hash, interlude.osuFor(hash).catch(() => null).finally(() => reading.delete(hash)));
+            return reading.get(hash);
+        };
+        const mapAt = ahead(todo, (r) => `${r.hash}@${r.rate}`, async (r) => {
+            const osu = await osuOf(r.hash);
+            if (!osu) return null;
+            const origin = osu.meta?.origins?.find((o) => o.md5 && Math.abs((o.rate ?? 1) - 1) < 1e-6) ?? osu.meta?.origins?.[0] ?? null;
+            const md5 = origin?.md5 ?? md5Of(osu.text);
+            return { osu, origin, md5, ...(await mapFor(md5, r.rate, async () => osu.text)) };
+        });
         for (const [i, r] of todo.entries()) {
             if (job?.cancelled) return finishImport("interlude", { added, total: plays.length, done: plays.length - todo.length + i, cancelled: true });
             progress("interlude", "analyse", i, todo.length, { added });
-            const osu = await interlude.osuFor(r.hash).catch(() => null);
-            if (!osu) continue;
-            const origin = osu.meta?.origins?.find((o) => o.md5 && Math.abs((o.rate ?? 1) - 1) < 1e-6) ?? osu.meta?.origins?.[0] ?? null;
-            const md5 = origin?.md5 ?? md5Of(osu.text);
-            const { map } = await mapFor(md5, r.rate, async () => osu.text);
+            const got = await mapAt(i);
+            if (!got) continue;
+            const { osu, origin, md5, map } = got;
             const stored = await addPlay({
                 id: r.id, source: "interlude-db", client: "interlude", md5, rate: r.rate, outcome: r.failed ? "fail" : "pass", at: r.at,
                 beatmapId: origin?.beatmapId ?? null, beatmapsetId: origin?.beatmapsetId ?? null,
@@ -226,22 +280,75 @@ export function createLocalProfileService({
         return finishImport("interlude", { added, total: plays.length, done: plays.length });
     }
 
+    // osu! lazer's scores (a copy of its realm database, read by app/lazerRealm.js) → plays: the main player's on 4K maps
+    // at a fixed rate (wind up / down and adaptive speed have none). Each map at its rate is analysed once from the .osu
+    // in lazer's files store; a map lazer no longer lists (or whose .osu is gone) is counted as missing.
+    async function importLazer() {
+        if (!lazer) return { ok: false, reason: "no-lazer" };
+        progress("lazer", "read", 0, 0);
+        const data = await lazer.read();
+        if (!data?.found) return { ok: false, reason: "no-lazer" };
+        const maps = new Map((data.maps ?? []).map((m) => [m.hash, m]));
+        const usable = (data.scores ?? []).filter((s) => s.keys === 4 && s.md5 && Number.isFinite(s.rate));
+        const player = mainPlayer(usable, await preferredPlayer().catch(() => null));
+        const mine = usable.filter((s) => s.player === player).sort((a, b) => a.at - b.at);
+        // md5 + rate + hits make the play's mapKey and judgement signature: the store knows a live play by them
+        const plays = mine.map((s) => {
+            const m = maps.get(s.hash) ?? null;
+            return {
+                hash: s.hash, known: Boolean(m),
+                play: {
+                    id: `lazer:${s.id}`, source: "lazer-db", client: "lazer", md5: s.md5, rate: s.rate, mods: s.mods, hits: s.hits,
+                    maxCombo: s.maxCombo, outcome: s.failed ? "fail" : "pass", at: s.at,
+                    beatmapId: m?.beatmapId ?? null, beatmapsetId: m?.setId ?? null, artist: m?.artist ?? "", title: m?.title ?? "", version: m?.version ?? "",
+                },
+            };
+        });
+        const todo = [];
+        for (const x of plays) if (!(await store.has(x.play))) todo.push(x);
+        log(`local profile: lazer ${data.scores?.length ?? 0} mania scores, ${usable.length} on 4K at a fixed rate, ${mine.length} by the main player, ${todo.length} new`);
+        let added = 0;
+        let missing = 0;
+        const mapAt = ahead(todo, ({ hash, known, play }) => (known ? `${hash}@${play.rate}` : null),
+            ({ hash, play }) => mapFor(play.md5, play.rate, () => lazer.text(hash).catch(() => null)));
+        for (const [i, { known, play }] of todo.entries()) {
+            if (job?.cancelled) return finishImport("lazer", { added, total: plays.length, done: plays.length - todo.length + i, player, cancelled: true, missing });
+            progress("lazer", "analyse", i, todo.length, { added });
+            if (!known) {
+                missing += 1;
+                continue;
+            }
+            const { map, noText } = await mapAt(i);
+            if (noText) {
+                missing += 1;
+                continue;
+            }
+            const stored = await addPlay(play, map);
+            if (stored) added += 1;
+            if (stored && added % 50 === 0) await changed();
+        }
+        return finishImport("lazer", { added, total: plays.length, done: plays.length, player, missing });
+    }
+
     async function finishImport(source, r) {
         const finished = !r.cancelled;
         await store.updateSettings((s) => ({
             ...s, imports: { ...s.imports, [source]: { at: now(), added: r.added, total: r.total, done: r.done, finished, player: r.player ?? null } },
         }));
-        log(`local profile: ${source} import ${finished ? "done" : "stopped"}: ${r.added} added of ${r.total}${r.missing ? `, ${r.missing} maps not in Songs` : ""}`);
+        const where = source === "lazer" ? "in lazer's library" : "in Songs";
+        log(`local profile: ${source} import ${finished ? "done" : "stopped"}: ${r.added} added of ${r.total}${r.missing ? `, ${r.missing} maps not ${where}` : ""}`);
         await changed();
         return { ok: true, source, ...r, finished };
     }
+
+    const IMPORTS = { stable: importStable, interlude: importInterlude, lazer: importLazer };
 
     // one import at a time; → its answer
     async function runImport(source, options) {
         if (job) return { ok: false, reason: "busy" };
         job = { source, cancelled: false, progress: null };
         try {
-            return source === "interlude" ? await importInterlude() : await importStable(options);
+            return await IMPORTS[source](options);
         } catch (error) {
             log(`local profile: ${source} import failed: ${error?.message}`);
             return { ok: false, reason: "failed", message: String(error?.message ?? error) };
@@ -271,11 +378,13 @@ export function createLocalProfileService({
         const k = await skill();
         const byId = new Map(plays.map((p) => [p.id, p]));
         const topOf = (est) => (est?.top ?? []).slice(0, top).map((x) => ({ ...describe(byId.get(x.playId)), eff: x.eff, weight: x.weight })).filter((x) => x.id);
-        const counts = { plays: plays.length, rated: k.analyzedPlays, live: 0, stable: 0, interlude: 0, lazer: 0 };
+        // lazer: every lazer play (recorded or imported); lazerDb: the ones its database import added
+        const counts = { plays: plays.length, rated: k.analyzedPlays, live: 0, stable: 0, interlude: 0, lazer: 0, lazerDb: 0 };
         for (const p of plays) {
             if (p.source === "live") counts.live += 1;
             if (p.source === "stable-db") counts.stable += 1;
             if (p.source === "interlude-db") counts.interlude += 1;
+            if (p.source === "lazer-db") counts.lazerDb += 1;
             if (p.client === "lazer") counts.lazer += 1;
         }
         return {
@@ -287,6 +396,7 @@ export function createLocalProfileService({
             recent: [...plays].sort((a, b) => b.at - a.at).slice(0, recent).map(describe),
             importing: job ? { source: job.source, ...(job.progress ?? {}) } : null,
             interludeLinked: Boolean(interlude && (await interlude.linked().catch(() => false))),
+            lazerFound: Boolean(lazer && (await lazer.status().catch(() => null))?.found),
         };
     }
 
@@ -331,6 +441,7 @@ export function createLocalProfileService({
         playedBeatmaps,
         importStable: (options) => runImport("stable", options),
         importInterlude: () => runImport("interlude"),
+        importLazer: () => runImport("lazer"),
         cancelImport: () => { if (job) job.cancelled = true; return { ok: true }; },
         importing: () => (job ? { source: job.source, ...(job.progress ?? {}) } : null),
         // whether live plays are recorded (the overlay's Dan widget shows a play's own dan only then)

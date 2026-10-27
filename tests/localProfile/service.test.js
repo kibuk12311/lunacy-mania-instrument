@@ -1,6 +1,7 @@
 // The local profile's main side (app/localProfileService.js) over a temp folder: live plays from tosu frames (each map
 // analysed once per rate), the record switch, the osu! stable import (a synthetic scores.db and Songs folder; resumable,
 // stoppable), the Interlude import, the status / history / played maps the window and the picks read, backup and reset.
+// The osu! lazer import has its own file: lazerImport.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile, stat } from "node:fs/promises";
@@ -75,6 +76,8 @@ test("live: a pass on the results screen is kept with its map analysed once per 
     const st = await s.status();
     assert.equal(st.counts.live, 3);
     assert.equal(st.counts.lazer, 3);
+    assert.equal(st.counts.lazerDb, 0, "recorded, not imported from lazer's database");
+    assert.equal(st.lazerFound, false, "no lazer given");
     // three plays on one map are one map: not enough for a dan yet
     assert.equal(st.skill.axes.stamina.maps, 1);
     assert.equal(st.skill.ready, false);
@@ -197,6 +200,36 @@ test("osu! stable import: stopped half way it goes on where it stopped; refusals
     assert.equal((await none.s.importStable({ folder: empty })).reason, "no-scores");
 });
 
+test("osu! stable import with analyze.lanes: that many maps under way, a map played again analysed once, the plays in order", async () => {
+    const root = await tempDir();
+    const osu = await osuFolder(root, [
+        { bpm: 180, plays: [0.97, 0.95, 0.93] }, { bpm: 185 }, { bpm: 190, missing: true }, { bpm: 195 }, { bpm: 200 }, { bpm: 205 },
+    ]);
+    const asked = [];
+    const held = [];
+    let auto = false;
+    const analyze = Object.assign(async (text) => {
+        asked.push(md5(text));
+        if (!auto) await new Promise((r) => held.push(r));
+        return { kind: "ok", numeric: 13, top3: [{ name: "Stream", share: 1 }], durationSec: 60 };
+    }, { lanes: 3 });
+    const { s, store } = await service({ dir: root, extra: { analyze } });
+    const job = s.importStable({ folder: osu });
+    for (let i = 0; i < 500 && held.length < 3; i += 1) await new Promise((r) => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 20));
+    // the first map (its three plays one map), the second, and past the missing third the fourth
+    assert.equal(held.length, 3, "three maps under way, past the plays of one map and the missing chart");
+    auto = true;
+    for (const release of held.splice(0)) release();
+    const r = await job;
+    assert.equal(r.added, 7);
+    assert.equal(r.missing, 1);
+    assert.equal(asked.length, 5, "each map once");
+    assert.equal(new Set(asked).size, 5);
+    const plays = await store.plays();
+    assert.deepEqual(plays.map((p) => p.at), [...plays.map((p) => p.at)].sort((x, y) => x - y), "added in the order played");
+});
+
 test("Interlude import: passes count without accuracy (weaker), fails are kept but are no evidence", async () => {
     const charts = [180, 190, 200, 210].map((bpm) => makeChart({ kind: "jumpstream", bpm }));
     const rows = charts.flatMap((_, i) => [{ hash: `H${i}`, at: NOW - (10 - i) * DAY, rate: 1, failed: false }, { hash: `H${i}`, at: NOW - (10 - i) * DAY + 5, rate: 1.1, failed: true }]);
@@ -263,4 +296,55 @@ test("pointsChange: first → last, biggest gain first", () => {
     assert.equal(c.danDelta, 0.4);
     assert.deepEqual(c.axes.map((a) => a.axis), ["p:stream", "speed"]);
     assert.equal(pointsChange([]), null);
+});
+
+// the review's cases for the import look-ahead (analyze.lanes > 1)
+const quickAnalyze = (lanes) => Object.assign(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+    return { kind: "ok", numeric: 13, label: "x", top3: [{ name: "Jumpstream", share: 1 }], tech: false, durationSec: 90 };
+}, { lanes });
+
+test("lazer import with lanes: every play of a map whose .osu is gone is missing, as with one lane", async () => {
+    const sha = (t) => createHash("sha256").update(Buffer.from(t, "utf8")).digest("hex");
+    const A = makeChart({ kind: "jumpstream", bpm: 180 });
+    const B = makeChart({ kind: "jumpstream", bpm: 190 });
+    const map = (t, i) => ({ hash: sha(t), md5: md5(t), keys: 4, artist: "T", title: `S${i}`, version: `v${i}`, creator: "TestPlayer", tags: "", beatmapId: 2000 + i, setId: 200 + i });
+    let n = 1;
+    const score = (t, at) => ({
+        id: `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`, hash: sha(t), md5: md5(t), keys: 4, player: "TestPlayer", at, mods: [], rate: 1,
+        hits: { max: 900, n300: 40 + n, n200: 1, n100: 0, n50: 0, miss: 0 }, maxCombo: 5, accuracy: 0.9, failed: false,
+    });
+    for (const lanes of [1, 4]) {
+        const lazer = {
+            status: async () => ({ found: true }),
+            read: async () => ({ found: true, maps: [map(A, 0), map(B, 1)], scores: [score(A, NOW - 9 * DAY), score(B, NOW - 8 * DAY), score(B, NOW - 7 * DAY)] }),
+            text: async (h) => (h === sha(A) ? A : null), // B's .osu is gone from lazer's files
+        };
+        const { s, store } = await service({ extra: { analyze: quickAnalyze(lanes), lazer, preferredPlayer: async () => "TestPlayer" } });
+        const r = await s.importLazer();
+        assert.deepEqual([r.added, r.missing], [1, 2], `lanes ${lanes}`);
+        assert.equal((await store.plays()).length, 1);
+    }
+});
+
+test("Interlude import with lanes: one chart played 300 times in a row reads it a few at a time, not 300 at once", async () => {
+    const texts = { H0: makeChart({ kind: "jumpstream", bpm: 180 }), H1: makeChart({ kind: "jumpstream", bpm: 190 }) };
+    const rows = [...Array.from({ length: 300 }, (_, i) => ({ hash: "H0", at: NOW - DAY + i, rate: 1, failed: false })), { hash: "H1", at: NOW, rate: 1, failed: false }];
+    let live = 0;
+    let peak = 0;
+    const interlude = {
+        linked: async () => true,
+        scores: async () => rows,
+        osuFor: async (h) => {
+            live += 1;
+            peak = Math.max(peak, live);
+            await new Promise((r) => setTimeout(r, 2));
+            live -= 1;
+            return { meta: { origins: [], artist: "a", title: "t", version: "v" }, text: texts[h] };
+        },
+    };
+    const { s } = await service({ extra: { analyze: quickAnalyze(4), interlude } });
+    const r = await s.importInterlude();
+    assert.equal(r.added, 301);
+    assert.ok(peak <= 8, `at most ${peak} charts read at once`);
 });

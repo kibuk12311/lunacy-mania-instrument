@@ -112,8 +112,6 @@ footer button.settings-open:hover { opacity: 1; color: var(--gold); }
     border: 0; box-shadow: none; background: transparent;
 }
 .st-panel.interlude-panel .il-results { max-height: 260px; }
-.st-author { padding: 10px 0 2px; text-align: center; }
-.st-author-line { font-size: 11px; }
 button.st-discord {
     background: transparent; border: 0; padding: 0; color: var(--blue); font: inherit; cursor: copy; text-decoration: underline dotted;
 }

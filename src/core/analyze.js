@@ -31,7 +31,7 @@ export async function analyzeChart(osuText, rate, { minNotes = MIN_NOTES } = {})
             return { kind: "too-short" };
         }
 
-        const [features, model] = await Promise.all([computeFeatures(osuText, rate), getModel()]);
+        const [features, model] = await Promise.all([computeFeatures(osuText, rate, info), getModel()]);
         const { numeric, halfWidth, confidence, confidenceLevel } = model.predict(features.vector);
         if (numeric === null) {
             return { kind: "error", message: t("core.analyze.noCalculator") };

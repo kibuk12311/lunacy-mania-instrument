@@ -6,7 +6,7 @@ Lunacy mania (Lunacy mania instrument) is MIT-licensed (see `LICENSE`). It build
 
 | Component | Where | License |
 |---|---|---|
-| [ManiaMapAnalyser](https://github.com/LeoBlackMT/osumania_map_analyser) by Leo_Black — the dan estimators (Mixed, Daniel, Azusa, Roxy, Companella), the pattern finder, Sunny star rating and the MinaCalc builds | `vendor/leoblack/` (pinned commit in `vendor/leoblack/VERSION`) | MIT, `vendor/leoblack/LICENSE` |
+| [ManiaMapAnalyser](https://github.com/LeoBlackMT/osumania_map_analyser) by Leo_Black — the dan estimators (Mixed, Daniel, Azusa, Roxy, Companella), the pattern finder, Sunny star rating and the MinaCalc builds | `vendor/leoblack/` (pinned commit in `vendor/leoblack/VERSION`, with a few speed-ups of ours marked "Lunacy mania" in the code; same results) | MIT, `vendor/leoblack/LICENSE` |
 | MinaCalc from [Etterna](https://github.com/etternagame/etterna), compiled to WebAssembly (MSD) | inside `vendor/leoblack/js/ett/` | MIT |
 | [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (runs the Companella model) | inside `vendor/leoblack/js/estimator/companella/ort/` | MIT |
 | Interlude's file formats — the chart blob and its id, the osu! conversion, collections.json — re-implemented in our own code from reading [Prelude](https://github.com/YAVSRG/YAVSRG/tree/main/prelude) by Percyqaz and its [Percyqaz.Data](https://github.com/percyqaz/Percyqaz.Data) JSON codecs (no code copied; Interlude's client itself, GPLv3, was only read) | `src/interlude/`, `app/interludeLibrary.js` | Prelude and Percyqaz.Data: MIT |

@@ -44,6 +44,10 @@ export default {
     "app.tosu.openOsu": { ru: "открой osu! и выбери карту", en: "open osu! and pick a map" },
     // a map copied out of osu! lazer's file store (app/lazerMaps.js)
     "app.lazer.noAudio": { ru: "в osu! lazer у карты не нашлось аудиофайла", en: "osu! lazer has no audio file for this map" },
+    // osu! lazer's database (client.realm), read from a copy in the background (app/lazerRealm.js)
+    "app.lazer.readFailed": { ru: "не удалось прочитать базу osu! lazer: {message}", en: "couldn't read the osu! lazer database: {message}" },
+    "app.lazer.readTimeout": { ru: "база osu! lazer читалась слишком долго", en: "reading the osu! lazer database took too long" },
+    "app.lazer.readerStopped": { ru: "чтение базы osu! lazer прервалось (код {code})", en: "reading the osu! lazer database stopped (code {code})" },
     "app.tosu.noMap": { ru: "в osu! не выбрана карта", en: "no map is selected in osu!" },
     "app.select.noFile": { ru: "не удалось получить файл карты", en: "couldn't get the map file" },
 

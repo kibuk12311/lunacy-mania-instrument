@@ -188,3 +188,190 @@ test("a worker or cache that throws still gives an answer", async () => {
     const okWorker = createAnalysisService({ worker: { analyze: async () => OK }, cache: { get: async () => undefined, set: async () => { throw new Error("disk full"); } }, getLang: () => "ru" });
     assert.deepEqual(await okWorker.analyzeQueued("A", 1), OK);
 });
+
+// A pool like app/workerPool.js whose answers are given by hand (the same shape as fakeWorker).
+function fakePool(size) {
+    return Object.assign(fakeWorker(), { size, stats: () => ({ size }) });
+}
+
+function setupPool(size, start) {
+    const worker = fakeWorker();
+    const pool = fakePool(size);
+    const cache = memoryCache(start);
+    const analysis = createAnalysisService({ worker, pool, cache, getLang: () => "ru" });
+    return { worker, pool, cache, analysis };
+}
+
+test("with a pool the background line runs `size` jobs at once on it; the card's worker gets none of them", async () => {
+    const { worker, pool, analysis } = setupPool(3);
+    assert.equal(analysis.lanes, 3);
+    const queued = ["A", "B", "C", "D", "E"].map((text) => analysis.analyzeQueued(text, 1));
+    await flush();
+    assert.deepEqual(pool.calls.map((c) => c.text), ["A", "B", "C"]);
+    assert.deepEqual(analysis.stats(), { hits: 0, misses: 3, queued: 2, inFlight: 3, bulk: { size: 3 } });
+
+    // the card goes straight to its own worker, however full the line is
+    const front = analysis.analyze("F", 1);
+    await flush();
+    assert.deepEqual(worker.calls.map((c) => c.text), ["F"]);
+    worker.calls[0].resolve({ ...OK, text: "F" });
+    assert.equal((await front).text, "F");
+
+    pool.calls[1].resolve({ ...OK, text: "B" });
+    await flush();
+    assert.deepEqual(pool.calls.map((c) => c.text), ["A", "B", "C", "D"], "D takes B's slot");
+    while (pool.calls.length < 5 || pool.calls.some((c) => !c.done)) {
+        for (const c of pool.calls.filter((x) => !x.done)) { c.done = true; c.resolve({ ...OK, text: c.text }); }
+        await flush();
+    }
+    assert.deepEqual((await Promise.all(queued)).map((r) => r.text), ["A", "B", "C", "D", "E"]);
+    assert.equal(pool.peak, 3);
+    assert.equal(worker.calls.length, 1, "only the card's");
+    assert.deepEqual(analysis.stats(), { hits: 0, misses: 6, queued: 0, inFlight: 0, bulk: { size: 3 } });
+});
+
+test("a job of the line is given the worker the line runs on: the pool, or the card's worker without one", async () => {
+    const { pool, analysis } = setupPool(2);
+    assert.equal(await analysis.enqueue(async (on) => on === pool), true);
+    const plain = setup();
+    assert.equal(await plain.analysis.enqueue(async (on) => on === plain.worker), true);
+    assert.equal(plain.analysis.lanes, 1);
+});
+
+test("with a pool a cancelled job still never reaches a worker, and the others take its slot", async () => {
+    const { pool, analysis } = setupPool(2);
+    let stale = false;
+    const a = analysis.analyzeQueued("A", 1);
+    const b = analysis.analyzeQueued("B", 1);
+    const c = analysis.analyzeQueued("C", 1, { isCancelled: () => stale });
+    const d = analysis.analyzeQueued("D", 1);
+    await flush();
+    stale = true;
+    pool.calls[0].resolve(OK);
+    await flush();
+    assert.equal((await c).cancelled, true);
+    assert.deepEqual(pool.calls.map((x) => x.text), ["A", "B", "D"]);
+    pool.calls[1].resolve(OK);
+    pool.calls[2].resolve(OK);
+    assert.deepEqual(await Promise.all([a, b, d]), [OK, OK, OK]);
+});
+
+test("the pool's answers are the shared cache's: a hit needs no worker, a result is cached, a chart already asked for is shared", async () => {
+    const { worker, pool, cache, analysis } = setupPool(2, { [cacheKey("A", 1)]: OK });
+    assert.deepEqual(await analysis.analyzeQueued("A", 1), OK);
+    assert.equal(pool.calls.length, 0);
+
+    const b = analysis.analyzeQueued("B", 1);
+    await flush();
+    pool.calls[0].resolve({ ...OK, text: "B" });
+    await b;
+    assert.deepEqual(cache.sets, [cacheKey("B", 1)]);
+    assert.equal((await analysis.analyze("B", 1)).text, "B", "the card finds the line's answer");
+    assert.equal(worker.calls.length, 0);
+
+    // the card asked first: the line waits for that answer instead of a second analysis, and the other way round
+    const card = analysis.analyze("C", 1);
+    await flush();
+    const lineC = analysis.analyzeQueued("C", 1);
+    const lineE = analysis.analyzeQueued("E", 1);
+    await flush();
+    const cardE = analysis.analyze("E", 1);
+    await flush();
+    assert.deepEqual(worker.calls.map((c) => c.text), ["C"]);
+    assert.deepEqual(pool.calls.map((c) => c.text), ["B", "E"]);
+    worker.calls[0].resolve({ ...OK, text: "C" });
+    pool.calls[1].resolve({ ...OK, text: "E" });
+    assert.deepEqual([(await card).text, (await lineC).text, (await lineE).text, (await cardE).text], ["C", "C", "E", "E"]);
+});
+
+test("bulk (the Session library) is the line, bulk.lanes of it at once; no pool or an empty one: one", async () => {
+    const { pool, analysis } = setupPool(4);
+    assert.equal(analysis.bulk.lanes, 4);
+    const job = analysis.bulk("A", 1);
+    await flush();
+    assert.deepEqual(pool.calls.map((c) => c.text), ["A"]);
+    pool.calls[0].resolve(OK);
+    assert.deepEqual(await job, OK);
+    for (const p of [null, fakePool(0)]) {
+        const worker = fakeWorker();
+        const plain = createAnalysisService({ worker, pool: p, cache: memoryCache(), getLang: () => "ru" });
+        assert.equal(plain.bulk.lanes, 1);
+        assert.equal(plain.lanes, 1);
+        const jobs = [plain.bulk("A", 1), plain.bulk("B", 1)];
+        await flush();
+        assert.deepEqual(worker.calls.map((c) => c.text), ["A"], "one at a time on the card's worker, as before");
+        worker.calls[0].resolve(OK);
+        await flush();
+        worker.calls[1].resolve(OK);
+        assert.deepEqual(await Promise.all(jobs), [OK, OK]);
+    }
+});
+
+test("the card waiting for its chart on the line's worker tries its own when that one comes to nothing", async () => {
+    const { worker, pool, analysis } = setupPool(2);
+    const line = analysis.analyzeQueued("A", 1);
+    await flush();
+    const card = analysis.analyze("A", 1);
+    await flush();
+    assert.equal(worker.calls.length, 0, "the card shares the analysis under way");
+    pool.calls[0].resolve({ kind: "error", message: "timeout", transient: true });
+    await flush();
+    assert.deepEqual(worker.calls.map((c) => c.text), ["A"], "then its own worker");
+    worker.calls[0].resolve(OK);
+    assert.deepEqual(await card, OK);
+    assert.equal((await line).transient, true, "the line's own answer is the line's");
+    // the card's own worker timing out is not tried again
+    const again = analysis.analyze("B", 1);
+    await flush();
+    worker.calls[1].resolve({ kind: "error", message: "timeout", transient: true });
+    assert.equal((await again).transient, true);
+    assert.equal(worker.calls.length, 2);
+});
+
+test("the real pool under the service: never more than its size at once, begun in turn, every job answered", async () => {
+    const { createWorkerPool } = await import("../app/workerPool.js");
+    let open = 0;
+    let peak = 0;
+    const begun = [];
+    const pool = createWorkerPool({
+        spawn: () => null, size: 3,
+        client: () => ({
+            analyze: async (text) => {
+                begun.push(text);
+                open += 1;
+                peak = Math.max(peak, open);
+                await new Promise((r) => setTimeout(r, 2 + (Number(text.slice(1)) % 4) * 3));
+                open -= 1;
+                return { ...OK, text };
+            },
+            dispose() {},
+        }),
+    });
+    const analysis = createAnalysisService({ worker: fakeWorker(), pool, cache: memoryCache(), getLang: () => "ru" });
+    const texts = Array.from({ length: 12 }, (_, i) => `M${i}`);
+    assert.deepEqual((await Promise.all(texts.map((x) => analysis.analyzeQueued(x, 1)))).map((r) => r.text), texts);
+    assert.deepEqual(begun, texts, "first come, first begun, whatever order they end in");
+    assert.equal(peak, 3);
+    pool.dispose();
+});
+
+test("the card's analysis warms the pool, so the details after it find a worker started", async () => {
+    const { worker, pool, analysis } = setupPool(2);
+    let warmed = 0;
+    pool.warm = () => { warmed += 1; };
+    const card = analysis.analyze("A", 1);
+    assert.equal(warmed, 1);
+    await flush();
+    worker.calls[0].resolve(OK);
+    await card;
+    const line = analysis.analyzeQueued("B", 1);
+    await flush();
+    assert.equal(warmed, 1, "only the foreground warms it");
+    pool.calls[0].resolve(OK);
+    await line;
+    const plain = setup();
+    const c = plain.analysis.analyze("C", 1); // no pool: nothing to warm, nothing thrown
+    await flush();
+    plain.worker.calls[0].resolve(OK);
+    assert.deepEqual(await c, OK);
+});

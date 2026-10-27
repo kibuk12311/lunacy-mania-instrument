@@ -187,12 +187,18 @@ export function createRateHandlers({
                 const bpm = mapInfo(text).bpm;
                 const rows = [];
                 let cancelled = false;
+                // the rates are independent: analysis.lanes of them asked at once (the background line runs that
+                // many), the rows still sent in order
+                const ahead = Math.max(1, Math.floor(Number(analysis.lanes) || 1));
+                const asked = [];
+                const ask = (i) => (asked[i] ??= analysis.analyzeQueued(chart, steps.rates[i], { isCancelled }));
                 for (const [i, rate] of steps.rates.entries()) {
                     if (isCancelled()) {
                         cancelled = true;
                         break;
                     }
-                    const result = await analysis.analyzeQueued(chart, rate, { isCancelled });
+                    for (let j = i; j < Math.min(i + ahead, steps.rates.length); j += 1) ask(j);
+                    const result = await ask(i);
                     if (result?.cancelled) {
                         cancelled = true;
                         break;

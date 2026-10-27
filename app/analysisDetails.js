@@ -44,7 +44,8 @@ export function createDetailsService({
             return hit;
         }
         if (!isCurrent(key)) return undefined;
-        const answer = await analysis.enqueue(() => worker.details(text, rate), { isCancelled: () => !isCurrent(key) });
+        // on the worker the line runs on (its pool when there is one), else this one
+        const answer = await analysis.enqueue((on = worker) => on.details(text, rate), { isCancelled: () => !isCurrent(key) });
         if (answer?.cancelled) return undefined; // another map took its place in the line
         if (answer?.kind !== "details" || !looksLikeDetails(answer.details)) {
             log(`details ${key} fail ${answer?.message ?? ""}`.trimEnd());

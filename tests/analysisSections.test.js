@@ -119,3 +119,22 @@ test("registered with the details: a result sends its parts on analysis-sections
     hooks.emit("window-load");
     assert.deepEqual(sent.slice(2).map(([c]) => c), ["analysis-details", "analysis-sections"]);
 });
+
+test("the parts run on the worker the background line gives (its pool), not on the card's", async () => {
+    const sent = [];
+    const timers = [];
+    const pool = { calls: [], sections: async (text, rate) => { pool.calls.push([text, rate]); return { kind: "sections", sections: SECTIONS }; } };
+    const service = createSectionsService({
+        analysis: { enqueue: async (fn) => fn(pool) },
+        worker: { sections: async () => assert.fail("the card's worker is not the line's") },
+        cache: { get: async () => undefined, set: async () => {} },
+        send: (p) => sent.push(p),
+        setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+        clearTimer: () => {},
+    });
+    service.onResult({ key: "k@1.000", text: "chart", rate: 1.2, result: OK });
+    for (const { fn } of timers.splice(0)) fn();
+    await flush();
+    assert.deepEqual(pool.calls, [["chart", 1.2]]);
+    assert.equal(sent.at(-1)?.sections?.parts?.length, 2);
+});

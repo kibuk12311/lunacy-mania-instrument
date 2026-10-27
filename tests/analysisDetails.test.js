@@ -163,3 +163,19 @@ test("rate(): an old key is stale, a rate outside 0.5–2 or a bad request is re
     service.onResult({ key: "b", text: "chart b", rate: 1, result: OK });
     assert.deepEqual(await pending, { ok: false, stale: true });
 });
+
+test("details run on the worker the background line gives (its pool), not on the card's", async () => {
+    const timers = fakeTimers();
+    const sent = [];
+    const pool = { calls: [], details: async (text, rate) => { pool.calls.push([text, rate]); return { kind: "details", details: DETAILS }; } };
+    const service = createDetailsService({
+        analysis: { enqueue: async (fn) => fn(pool) },
+        worker: { details: async () => assert.fail("the card's worker is not the line's") },
+        cache: { get: async () => undefined, set: async () => {} },
+        send: (payload) => sent.push(payload), setTimer: timers.setTimer, clearTimer: timers.clearTimer,
+    });
+    service.onResult({ key: "k1@1.000", text: "chart", rate: 1.1, result: OK });
+    await timers.tick(300);
+    assert.deepEqual(pool.calls, [["chart", 1.1]]);
+    assert.deepEqual(sent, [{ key: "k1@1.000", details: DETAILS }]);
+});

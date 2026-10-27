@@ -1,9 +1,11 @@
 // The session page's library (app/sessionLibrary.js) over a fake Songs folder and a fake Interlude folder in temp
 // directories: only 4K mania charts are kept (no 7K, osu!standard, rate copies or marathons), each is analysed once and
-// remembered, a second scan reads nothing that did not change, an Interlude chart that is a Songs map is one map.
+// remembered, a second scan reads nothing that did not change, an Interlude chart or a lazer map (a fake lazer) that is
+// a Songs map is one map.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, writeFile, stat, utimes, rm, mkdtemp } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLibrary, headKind, chartMeta, analysisSummary, normalizeStore } from "../app/sessionLibrary.js";
@@ -136,6 +138,48 @@ test("another app version keeps the old analysis usable while it analyses again"
     await rm(songs, { recursive: true, force: true });
 });
 
+test("an update that keeps the analyzer keeps the analyses of a version up to 0.9.9; another analyzer marks them stale", async () => {
+    const FP = "0123456789abcdef";
+    const releases = { "0.9.6": "fedcba9876543210", "0.9.8": FP, "0.9.9": FP };
+    const store = (analyzer) => ({ v: 1, analyzer, songsDir: null, folders: {}, maps: { "osu:0123456789abcdef0123456789abcdef": { path: "x", a: { kind: "ok", numeric: 5 } } } });
+    const stale = (analyzer) => Object.values(normalizeStore(store(analyzer), FP, releases).maps)[0].stale === true;
+    assert.equal(stale("0.9.9"), false, "0.9.9 had this analyzer");
+    assert.equal(stale(FP), false, "the fingerprint itself");
+    assert.equal(stale("0.9.6"), true, "0.9.6 had another");
+    assert.equal(stale("0.9.5"), true, "a version the table does not know");
+    assert.equal(stale("fedcba9876543210"), true, "another fingerprint");
+    assert.equal(normalizeStore(store("0.9.9"), FP, releases).analyzer, FP, "saved again under the fingerprint");
+    const unknown = normalizeStore(store("fedcba9876543210"), null, releases);
+    assert.equal(Object.values(unknown.maps)[0].stale, undefined, "an unknown fingerprint marks nothing stale");
+    assert.equal(unknown.analyzer, "fedcba9876543210", "and keeps the store's analyzer");
+    // a failed analysis is tried again by another build of the same analyzer, an ok one is not
+    const failed = (analyzer) => ({ ...store(analyzer), maps: { "osu:0123456789abcdef0123456789abcdef": { path: "x", a: { kind: "error" } } } });
+    const staleFailed = (analyzer) => Object.values(normalizeStore(failed(analyzer), FP, releases).maps)[0].stale === true;
+    assert.equal(staleFailed("0.9.9"), true, "an error of 0.9.9 is tried again");
+    assert.equal(staleFailed(FP), false, "but not by the same build again and again");
+
+    // the whole library: written by 0.9.9, opened by a build of the same analyzer — nothing analysed again
+    const songs = await makeSongsFolder();
+    const file = await tempStore();
+    await createSessionLibrary({ songsDir: async () => songs, analyze: fakeAnalyze().analyze, file, analyzer: "0.9.9", releases }).scan();
+    const same = fakeAnalyze();
+    const lib = createSessionLibrary({ songsDir: async () => songs, analyze: same.analyze, file, analyzer: FP, releases });
+    await lib.scan();
+    assert.equal((await lib.status()).counts.stale, 0);
+    assert.deepEqual(same.asked, []);
+    assert.equal(JSON.parse(await readFile(file, "utf8")).analyzer, FP);
+    // a changed analyzer: stale, still usable, then analysed again
+    const changed = fakeAnalyze();
+    const next = createSessionLibrary({ songsDir: async () => songs, analyze: changed.analyze, file, analyzer: "fedcba9876543210", releases });
+    next.pause();
+    await next.scan();
+    assert.equal((await next.status()).counts.stale, 5);
+    assert.equal((await next.maps()).length, 4, "stale results still build sessions");
+    await next.resume();
+    assert.equal(changed.asked.length, 5);
+    await rm(songs, { recursive: true, force: true });
+});
+
 test("the Songs folder: tosu's, else the one seen last, else a picked one, else none", async () => {
     const songs = await makeSongsFolder();
     const file = await tempStore();
@@ -189,4 +233,149 @@ test("an Interlude chart that is a Songs map is one map with both sources; the o
     assert.deepEqual(Object.keys(own.sources), ["interlude"]);
     assert.ok(asked.includes("4K Hard"), "an Interlude chart is analysed from the chart itself");
     await rm(songs, { recursive: true, force: true });
+});
+
+// ---- osu! lazer as a source (a fake app/lazerRealm.js: read() and text(hash)) ----
+
+const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+const md5Hex = (text) => createHash("md5").update(text, "utf8").digest("hex");
+const metaOf = (text, key) => new RegExp(`^${key}:(.*)$`, "m").exec(text)?.[1]?.trim() ?? "";
+// a LazerMap of an .osu text, as app/lazerRealm.js lists it
+const lazerMap = (text, patch = {}) => ({
+    hash: sha256(text), md5: md5Hex(text), keys: 4, artist: metaOf(text, "Artist"), title: metaOf(text, "Title"),
+    version: metaOf(text, "Version"), creator: "Test", tags: "", beatmapId: null, setId: null, audio: null, background: null, ...patch,
+});
+function fakeLazer(maps, { texts = new Map(maps.map((m) => [m.hash, m.text])), fail = null } = {}) {
+    const asked = [];
+    return {
+        asked,
+        read: async () => {
+            if (fail) throw new Error(fail);
+            return { found: true, maps: maps.map(({ text: _t, ...m }) => m), scores: [] };
+        },
+        text: async (hash) => { asked.push(hash); return texts.get(hash) ?? null; },
+    };
+}
+// a fake linked Interlude with one chart that is in no Songs folder; its origin is the .osu given
+function fakeInterlude(osuText) {
+    const hash = "C".repeat(64);
+    return {
+        hash,
+        status: async () => ({ linked: true }),
+        library: {
+            list: async () => [{ hash, artist: "Eta", title: "Only Here", version: "4K Hard", creator: "Test", beatmapId: null, origins: [{ md5: md5Hex(osuText) }] }],
+            osuFor: async (h) => (h === hash ? { text: osuText } : null),
+        },
+    };
+}
+const lazerOwn = () => {
+    const text = withMeta(makeChart({ kind: "stream", bpm: 170, seconds: 90 }), { Title: "Lazer Song", Artist: "Theta", Version: "Lazer Hard" });
+    return { ...lazerMap(text), text };
+};
+
+test("lazer: a map that is a stable or an Interlude one is that map; the rest are lazer's own, copies the app made are not", async () => {
+    const songs = await makeSongsFolder();
+    const hardText = await readFile(path.join(songs, "101 Alpha - First Song", "Alpha - First Song (M) [Hard].osu"), "utf8");
+    const ilText = withMeta(makeChart({ kind: "jumpstream", bpm: 175, seconds: 120 }), { Title: "Only Here", Artist: "Eta", Version: "4K Hard" });
+    const rateText = withMeta(makeChart({ kind: "stream", bpm: 187, seconds: 80 }), { Title: "Lazer Song", Artist: "Theta", Version: "Lazer Hard 1.1x", Tags: "lunacy-mania-rate" });
+    const sevenText = withMeta(makeChart({ kind: "stream", bpm: 170, seconds: 90, keys: 7 }), { Title: "Seven", Artist: "Theta", Version: "7K" });
+    const own = lazerOwn();
+    const lz = [
+        { ...lazerMap(hardText), text: hardText },
+        { ...lazerMap(ilText), text: ilText },
+        { ...own, beatmapId: 4321, setId: 765 },
+        { ...lazerMap(rateText, { tags: "foo lunacy-mania-rate" }), text: rateText },
+        { ...lazerMap(sevenText, { keys: 7 }), text: sevenText },
+    ];
+    const lazer = fakeLazer(lz);
+    const interlude = fakeInterlude(ilText);
+    const { analyze, asked } = fakeAnalyze();
+    const file = await tempStore();
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, lazer, analyze, file });
+    await lib.scan();
+    const st = await lib.status();
+    assert.deepEqual(st.lazer, { found: true, count: 3 }, "4K only, not the rate copy");
+    assert.equal(st.counts.total, 7, "5 stable + 1 Interlude + 1 lazer-only");
+    assert.equal(st.counts.lazer, 3);
+    assert.equal(st.counts.stable, 5);
+    assert.equal(st.counts.interlude, 1);
+    const maps = await lib.maps();
+    const hard = maps.find((m) => m.version === "Hard" && m.artist === "Alpha");
+    assert.deepEqual(Object.keys(hard.sources).sort(), ["lazer", "stable"]);
+    assert.deepEqual(hard.sources.lazer, { hash: lz[0].hash, md5: hard.sources.stable.md5 });
+    const il = maps.find((m) => m.title === "Only Here");
+    assert.equal(il.id, `il:${interlude.hash}`);
+    assert.deepEqual(Object.keys(il.sources).sort(), ["interlude", "lazer"]);
+    assert.equal(il.sources.lazer.hash, lz[1].hash);
+    const mine = maps.find((m) => m.title === "Lazer Song");
+    assert.equal(mine.id, `lz:${own.hash}`);
+    assert.deepEqual(mine.sources, { lazer: { hash: own.hash, md5: own.md5 } });
+    assert.equal(mine.beatmapId, 4321);
+    assert.ok(asked.includes("Lazer Hard"), "a lazer-only map is analysed from lazer's .osu");
+    assert.ok(!asked.includes("Lazer Hard 1.1x") && !asked.includes("7K"));
+    assert.deepEqual(lazer.asked, [own.hash], "only the map that is nowhere else is read out of lazer");
+    assert.match(await lib.text(mine.id), /Version:Lazer Hard/);
+    // the store keeps the lazer map under its own id
+    const saved = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(normalizeStore(saved, saved.analyzer).maps[mine.id].lz, own.hash);
+    // gone from lazer: the lz fields are set again on the next merge
+    const gone = createSessionLibrary({ songsDir: async () => songs, interlude, lazer: fakeLazer([lz[2]]), analyze, file });
+    await gone.scan();
+    const after = await gone.maps();
+    assert.equal(after.find((m) => m.version === "Hard" && m.artist === "Alpha").sources.lazer, undefined);
+    assert.equal(after.find((m) => m.title === "Only Here").sources.lazer, undefined);
+    assert.equal((await gone.status()).counts.lazer, 1);
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("lazer: not installed adds nothing; a database that cannot be read keeps the rest and what was known of lazer", async () => {
+    const songs = await makeSongsFolder();
+    const file = await tempStore();
+    const notThere = { read: async () => ({ found: false, maps: [], scores: [] }), text: async () => null };
+    const none = createSessionLibrary({ songsDir: async () => songs, lazer: notThere, analyze: fakeAnalyze().analyze, file });
+    await none.scan();
+    assert.deepEqual((await none.status()).lazer, { found: false, count: 0 });
+    assert.equal((await none.status()).counts.total, 5);
+
+    const own = lazerOwn();
+    await createSessionLibrary({ songsDir: async () => songs, lazer: fakeLazer([own]), analyze: fakeAnalyze().analyze, file }).scan();
+    const logs = [];
+    const next = fakeAnalyze();
+    const broken = createSessionLibrary({
+        songsDir: async () => songs, lazer: fakeLazer([own], { fail: "database locked" }), analyze: next.analyze, file, log: (x) => logs.push(x),
+    });
+    await broken.scan();
+    const st = await broken.status();
+    assert.equal(st.phase, "done", "the scan goes on");
+    assert.deepEqual(st.lazer, { found: true, count: 0, error: "database locked" });
+    assert.equal(st.counts.total, 6, "the lazer map read before is kept");
+    assert.ok((await broken.maps()).some((m) => m.id === `lz:${own.hash}`));
+    assert.ok(logs.some((x) => /lazer not read: database locked/.test(x)));
+    assert.deepEqual(next.asked, []);
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("lazer: a map not analysed yet while lazer cannot be read is tried again on a later scan, not marked failed", async () => {
+    const file = await tempStore();
+    const own = lazerOwn();
+    const first = createSessionLibrary({ lazer: fakeLazer([own]), analyze: fakeAnalyze().analyze, file });
+    first.pause();
+    await first.scan(); // listed, not analysed
+    const lib = createSessionLibrary({ lazer: fakeLazer([own], { fail: "locked", texts: new Map() }), analyze: fakeAnalyze().analyze, file });
+    await lib.scan();
+    const st = await lib.status();
+    assert.equal(st.counts.failed, 0);
+    assert.equal(st.counts.pending, 1);
+    const fine = createSessionLibrary({ lazer: fakeLazer([own]), analyze: fakeAnalyze().analyze, file });
+    await fine.scan();
+    assert.equal((await fine.status()).counts.analysed, 1);
+});
+
+test("the store takes lazer ids (lz:<sha256>) and nothing like them", () => {
+    const m = { artist: "A", a: { kind: "ok" } };
+    const maps = {
+        [`lz:${"ab".repeat(32)}`]: m, [`lz:${"AB".repeat(32)}`]: m, [`lz:${"ab".repeat(31)}`]: m, [`osu:${"a".repeat(32)}`]: m, [`il:${"A".repeat(64)}`]: m,
+    };
+    const ids = Object.keys(normalizeStore({ v: 1, analyzer: "x", maps }, "x").maps);
+    assert.deepEqual(ids.sort(), [`il:${"A".repeat(64)}`, `lz:${"ab".repeat(32)}`, `osu:${"a".repeat(32)}`]);
 });

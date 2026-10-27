@@ -3,7 +3,8 @@
 // whole session drawn again, saved sessions (userData\sessions.json), and the session taken out of the app: an osu!
 // stable collection (collection.db in Documents\<app>\коллекции, the collections already there kept, the old file kept
 // as collection.db.bak; a rate other than 1.0 made as a rate copy next to the map first, like the rate tab), one
-// marathon .osz (app/marathonCreate.js) and, from the window, a playlist in Interlude (interlude-export, with rates).
+// marathon .osz (app/marathonCreate.js; a map that is only in Interlude or osu! lazer is copied out of there first) and,
+// from the window, a playlist in Interlude (interlude-export, with rates).
 // Every handler answers instead of throwing; dependencies are injected, so it runs under node:test.
 import * as nodeFs from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -22,6 +23,7 @@ import { collectionsDir } from "./recFavIpc.js";
 import { fetchSongsFolder } from "./tosuClient.js";
 import { createRateMap } from "./rateCreate.js";
 import { createMarathon } from "./marathonCreate.js";
+import { copyLazerMap, lazerDirOf } from "./lazerMaps.js";
 import { rateForDan } from "../src/rate/rateForDan.js";
 import { t } from "../src/i18n/i18n.js";
 
@@ -72,10 +74,11 @@ export function recentIds(maps, { beatmaps = new Map(), hashes = new Map() }, no
 // library: createSessionLibrary(); profile: the shared profile (current()); played() → { known, beatmaps, hashes };
 // analyze(osuText, rate) → result (the background line); makeRateCopy({ beatmapPath, rate }) → { osuPath } (the rate
 // tab's copy, next to the map); copyOut(hash) → { path } of an Interlude chart in Documents\<app>\interlude;
+// copyLazer(hash) → { path } of a lazer map in Documents\<app>\lazer (lazerCopyOut);
 // makeMarathon({ entries, title, plan }) → { file, totalMs }; saved: a JSON store of the saved sessions.
 export function createSessionHandlers({
     library, profile, played = async () => ({ known: false }), localSkill = async () => null, analyze, findRate = rateForDan, makeRateCopy = null,
-    copyOut = null, makeMarathon = null, saved, docsDir, fs = nodeFs, log = () => {}, progress = () => {},
+    copyOut = null, copyLazer = null, makeMarathon = null, saved, docsDir, fs = nodeFs, log = () => {}, progress = () => {},
     now = Date.now, seed = () => Math.floor(Math.random() * 2 ** 31),
 }) {
     let current = null; // { request, skill, manualDan, session, shown: Map index → [mapIds], name }
@@ -342,6 +345,13 @@ export function createSessionHandlers({
                         log(`session marathon: ${item.sources.interlude.hash} not copied out: ${error?.message}`);
                     }
                 }
+                if (!file && item.sources?.lazer?.hash && copyLazer) {
+                    try {
+                        file = (await copyLazer(item.sources.lazer.hash)).path;
+                    } catch (error) {
+                        log(`session marathon: lazer ${item.sources.lazer.hash} not copied out: ${error?.message}`);
+                    }
+                }
                 if (!file) {
                     skipped.push(sessionLabel(item));
                     continue;
@@ -388,6 +398,16 @@ export function createSessionHandlers({
     };
 }
 
+// lazer (app/lazerRealm.js) → copyLazer(hash) for the marathon: the map copied out of lazer's store (only read) into
+// root, as copyLazerMap does for the map selected in lazer. → { path, dir }
+export function lazerCopyOut({ lazer, root, copy = copyLazerMap }) {
+    return async (hash) => {
+        const [source, osuText] = await Promise.all([lazer.sourceOf(hash), lazer.text(hash)]);
+        if (!source || !osuText) throw new Error(t("session.err.lazerGone"));
+        return copy({ source, osuText, root });
+    };
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appVersion = () => {
     try {
@@ -397,8 +417,12 @@ const appVersion = () => {
     }
 };
 
-// The session page's channels on the app's shared services (main.js deps).
-export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile, recommender, ffmpegPath, renderPng, paths, dialog, window, send, log, localProfile = null }) {
+// The session page's channels on the app's shared services (main.js deps); lazer: app/lazerRealm.js or null;
+// analyzer: the analyzer fingerprint (null: keep the store's).
+export function registerSessionIpc({
+    ipcMain, tosu, analysis, interlude, profile, recommender, ffmpegPath, renderPng, paths, dialog, window, send, log, localProfile = null,
+    lazer = null, analyzer,
+}) {
     const local = process.env.LOCALAPPDATA;
     // made on first use: registering touches no folder
     let made = null;
@@ -406,10 +430,13 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
         songsDir: () => fetchSongsFolder(tosu.port),
         defaultSongs: local ? path.join(local, "osu!", "Songs") : null,
         interlude,
-        // the background line: the selected map's card never waits for the library
-        analyze: (osuText, rate) => analysis.analyzeQueued(osuText, rate),
+        lazer,
+        // the background line, bulk.lanes maps at once (on its own workers when there are cores to spare,
+        // app/workerPool.js): the selected map's card never waits for the library
+        analyze: analysis.bulk,
         file: path.join(paths.userData, "session-library.json"),
-        analyzer: appVersion(),
+        // the analyzer fingerprint (main.js), null when unknown; the app version only when registered without one
+        analyzer: analyzer === undefined ? appVersion() : analyzer,
         log,
         onChange: (status) => send("session-library", status),
     }));
@@ -435,6 +462,8 @@ export function registerSessionIpc({ ipcMain, tosu, analysis, interlude, profile
         analyze: (osuText, rate) => analysis.analyzeQueued(osuText, rate),
         makeRateCopy: async ({ beatmapPath, rate }) => createRateMap({ ffmpeg: await ffmpegPath(), beatmapPath, rate, pitch: false }),
         copyOut: (hash) => interlude.copyOut(hash),
+        // the folder is looked up on use: registering touches nothing
+        copyLazer: lazer ? (hash) => lazerCopyOut({ lazer, root: lazerDirOf(paths.docsDir) })(hash) : null,
         makeMarathon: async ({ entries, title, plan }) => createMarathon({
             ffmpeg: await ffmpegPath(), entries, gapMs: MARATHON_GAP_MS, pitch: false, title, outDir: paths.mapsDir, renderPng, plan,
             danFor: async (osuText, rate) => {

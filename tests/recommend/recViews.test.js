@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fakeDom, textOf, fire } from "../helpers/fakeDom.js";
 import { setLang } from "../../src/i18n/i18n.js";
-import { togglePattern, planRequest, planHeaderText, roleText } from "../../app/renderer/recPlan.js";
+import { togglePattern, planRequest, planHeaderText, roleText, eachInLanes } from "../../app/renderer/recPlan.js";
 import { exportDoneText, exportProgressText } from "../../app/renderer/recFavourites.js";
 import { agoText, playLine, summaryText, danChangeText, axesText } from "../../app/renderer/recProgress.js";
 import { parseView, DEFAULT_VIEW, sameAccount, modeName, metaParts } from "../../app/renderer/recommendTab.js";
@@ -101,6 +101,33 @@ test("progress lines: played, failed or not yet; the dan and MSD change", () => 
     } finally {
         setLang("ru");
     }
+});
+
+test("eachInLanes: every item once, up to `lanes` at once, in turn; a stop takes no new one", async () => {
+    let open = 0;
+    let peak = 0;
+    const started = [];
+    const fn = async (item, k) => {
+        started.push([item, k]);
+        open += 1;
+        peak = Math.max(peak, open);
+        await new Promise((r) => setTimeout(r, item === "b" ? 15 : 3));
+        open -= 1;
+        return { ok: item !== "c" };
+    };
+    assert.equal(await eachInLanes(["a", "b", "c", "d", "e", "f"], 4, fn), 5, "the ok ones");
+    assert.equal(peak, 4);
+    assert.deepEqual(started.map(([, k]) => k), [0, 1, 2, 3, 4, 5], "taken in turn");
+    started.length = 0;
+    peak = 0;
+    assert.equal(await eachInLanes(["a", "b", "c"], 1, fn), 2);
+    assert.equal(peak, 1, "one lane: one after another, as before");
+    let stop = false;
+    started.length = 0;
+    const count = await eachInLanes(["a", "b", "c", "d", "e", "f"], 2, async (item, k) => { if (k === 1) stop = true; return fn(item, k); }, () => stop);
+    assert.deepEqual(started.map(([, k]) => k), [0, 1], "nothing new after the stop");
+    assert.equal(count, 2);
+    assert.equal(await eachInLanes([], 4, fn), 0);
 });
 
 test("the view settings, the account match and the mode names", () => {

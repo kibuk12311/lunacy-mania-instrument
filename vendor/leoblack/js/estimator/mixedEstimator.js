@@ -84,7 +84,8 @@ export function isDanielTooLowDifficulty(value) {
     return /^<\s*alpha\b/i.test(text);
 }
 
-function tryRunDanielFallback(osuText, options, parsed) {
+function tryRunDanielFallback(osuText, options, parsed, reuse) {
+    if (reuse && "daniel" in reuse) return reuse.daniel; // Lunacy mania, see runMixedEstimatorFromText
     try {
         return runDanielEstimatorFromText(osuText, options, parsed);
     } catch {
@@ -92,7 +93,8 @@ function tryRunDanielFallback(osuText, options, parsed) {
     }
 }
 
-function tryRunAzusaFallback(osuText, options, parsed) {
+function tryRunAzusaFallback(osuText, options, parsed, reuse) {
+    if (reuse && "azusa" in reuse) return reuse.azusa; // Lunacy mania, see runMixedEstimatorFromText
     try {
         return runAzusaEstimatorFromText(osuText, options, parsed);
     } catch {
@@ -100,7 +102,8 @@ function tryRunAzusaFallback(osuText, options, parsed) {
     }
 }
 
-function tryRunRoxyFallback(osuText, options, parsed) {
+function tryRunRoxyFallback(osuText, options, parsed, reuse) {
+    if (reuse && "roxy" in reuse) return reuse.roxy; // Lunacy mania, see runMixedEstimatorFromText
     try {
         return runRoxyEstimatorFromText(osuText, options, parsed);
     } catch {
@@ -234,7 +237,11 @@ export function shouldPreferAzusaRcResult(roxyResult, azusaResult) {
     return balancedHandAzusaLift || anchorHeavyRoxyDamp || crossingLift;
 }
 
-export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) {
+export function runMixedEstimatorFromText(osuText, mixedOptions = {}, parsed = null) {
+    // Lunacy mania: options.reuse = { roxy, azusa, daniel } holds results the caller already has for this same
+    // chart and options (null for a run that threw); each one is exactly what the matching call below would
+    // return, so it stands in for that call. Taken out of the options so it never reaches another estimator.
+    const { reuse = null, ...options } = mixedOptions;
     const sunnyBaseline = options.precomputedSunnyResult || runSunnyEstimatorFromText(osuText, options, parsed);
     // Track which sub-algorithm actually won the routing chain below so callers
     // (analysis pipeline → telemetry) can report the real algorithm, not "Mixed".
@@ -296,7 +303,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
         const roxyResult = tryRunRoxyFallback(osuText, {
             ...options,
             precomputedSunnyResult: sunnyBaseline,
-        }, parsed);
+        }, parsed, reuse);
         if (canUseRcResult(roxyResult)) {
             selectedRework = roxyResult;
             actualAlgorithm = "Roxy";
@@ -308,7 +315,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
                     ...options,
                     forceSunnyReferenceHo: false,
                     precomputedSunnyResult: sunnyBaseline,
-                }, parsed);
+                }, parsed, reuse);
                 if (shouldPreferAzusaRcResult(roxyResult, azusaResult)) {
                     selectedRework = azusaResult;
                     actualAlgorithm = "Azusa";
@@ -322,7 +329,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
                 ...options,
                 forceSunnyReferenceHo: false,
                 precomputedSunnyResult: sunnyBaseline,
-            }, parsed);
+            }, parsed, reuse);
             if (canUseRcResult(azusaResult)) {
                 selectedRework = azusaResult;
                 actualAlgorithm = "Azusa";
@@ -336,7 +343,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
                     companellaPlan = buildLowBandCompanellaPlan(azusaResult, lnRatio, lnDifficulty, "azusa");
                 }
             } else {
-                const danielResult = tryRunDanielFallback(osuText, options, parsed);
+                const danielResult = tryRunDanielFallback(osuText, options, parsed, reuse);
                 const canUseDaniel = danielResult
                     && Number(danielResult.columnCount) === 4
                     && !isDanielTooLowDifficulty(danielResult.estDiff);
@@ -364,7 +371,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
                     ...options,
                     forceSunnyReferenceHo: false,
                     precomputedSunnyResult: sunnyBaseline,
-                }, parsed);
+                }, parsed, reuse);
                 if (canUseRcResult(azusaResult)) {
                     rcDifficulty = azusaResult.estDiff;
                     rcNumericDifficulty = azusaResult.numericDifficulty;
@@ -379,7 +386,7 @@ export function runMixedEstimatorFromText(osuText, options = {}, parsed = null) 
                     actualAlgorithm = "Companella";
                 }
             } else {
-                const danielResult = tryRunDanielFallback(osuText, options, parsed);
+                const danielResult = tryRunDanielFallback(osuText, options, parsed, reuse);
                 const canUseDaniel = danielResult
                     && Number(danielResult.columnCount) === 4
                     && !isDanielTooLowDifficulty(danielResult.estDiff);

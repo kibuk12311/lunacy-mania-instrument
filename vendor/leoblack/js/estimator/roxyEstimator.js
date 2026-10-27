@@ -574,6 +574,11 @@ function computeActivityStats(rows, tapCount) {
     };
 }
 
+// Lunacy mania: row.nps holds the rates in npsWindowsMs order, read through these indexes; it was an object keyed
+// by 250 … 4000, and keys that sparse made every row's object a slow dictionary. Same values.
+const NPS_1000 = ROXY_CONFIG.npsWindowsMs.indexOf(1000);
+const NPS_4000 = ROXY_CONFIG.npsWindowsMs.indexOf(4000);
+
 function computeNpsRows(rows, tapTimes) {
     const windows = ROXY_CONFIG.npsWindowsMs;
     const starts = new Array(windows.length).fill(0);
@@ -584,14 +589,14 @@ function computeNpsRows(rows, tapTimes) {
             end += 1;
         }
 
-        row.nps = {};
+        row.nps = new Array(windows.length);
         for (let w = 0; w < windows.length; w += 1) {
             const windowMs = windows[w];
             const minTime = row.t - windowMs;
             while (starts[w] < tapTimes.length && tapTimes[starts[w]] <= minTime) {
                 starts[w] += 1;
             }
-            row.nps[windowMs] = (end - starts[w]) / (windowMs / 1000);
+            row.nps[w] = (end - starts[w]) / (windowMs / 1000);
         }
     }
 }
@@ -816,8 +821,8 @@ function computeRoxyCurve(rows, taps, activity) {
             + (0.24 * transitionEntropy750)
             + (0.20 * (row.mask !== prevMask ? 1 : 0));
         const maxHandStamina = Math.max(handStamina[0], handStamina[1]);
-        const staminaIn = (0.40 * Math.log1p(row.nps[1000] || 0) / Math.log(24))
-            + (0.35 * Math.log1p(row.nps[4000] || 0) / Math.log(24))
+        const staminaIn = (0.40 * Math.log1p(row.nps[NPS_1000] || 0) / Math.log(24))
+            + (0.35 * Math.log1p(row.nps[NPS_4000] || 0) / Math.log(24))
             + (0.25 * maxHandStamina);
         const courseIn = staminaIn
             * gate(activity.activeDurationSec, 90, 300)
@@ -1189,12 +1194,26 @@ function stabilizeHighReferencePredictions(predictions, structuralNumeric) {
     return stabilized;
 }
 
-function buildReferencePredictions(osuText, options, structuralNumeric) {
+// Lunacy mania: one parse of osuText for the three references below instead of one each (they only read it, and
+// Sunny converts a copy when cvtFlag asks for it). `parsed`: the caller's own unconverted parse of this same text.
+function parseReferenceText(osuText, parsed) {
+    if (parsed) return parsed;
+    try {
+        const parser = new OsuFileParser(osuText);
+        parser.process();
+        return parser;
+    } catch {
+        return null;
+    }
+}
+
+function buildReferencePredictions(osuText, options, structuralNumeric, parsed = null) {
     const wantsGraph = options?.withGraph === true;
     const referenceOptions = {
         ...options,
         withGraph: false,
     };
+    const referenceParsed = parseReferenceText(osuText, parsed);
 
     const precomputedSunnyResult = options?.precomputedSunnyResult || null;
     const precomputedDanielResult = options?.precomputedDanielResult || null;
@@ -1203,14 +1222,14 @@ function buildReferencePredictions(osuText, options, structuralNumeric) {
         : safeReference(() => runSunnyEstimatorFromText(osuText, {
             ...referenceOptions,
             withGraph: wantsGraph,
-        }));
-    const danielResult = precomputedDanielResult || safeReference(() => runDanielEstimatorFromText(osuText, referenceOptions));
+        }, referenceParsed));
+    const danielResult = precomputedDanielResult || safeReference(() => runDanielEstimatorFromText(osuText, referenceOptions, referenceParsed));
     const azusaResult = safeReference(() => runAzusaEstimatorFromText(osuText, {
         ...referenceOptions,
         withGraph: wantsGraph,
         precomputedSunnyResult: sunnyResult,
         precomputedDanielResult: danielResult,
-    }));
+    }, referenceParsed));
     const predictions = stabilizeHighReferencePredictions({
         Azusa: resultNumeric(azusaResult),
         Sunny: resultNumeric(sunnyResult),
@@ -1359,8 +1378,8 @@ function buildRoxyMetaFeatures(referencePredictions, numericDetails, curve, stru
     return ROXY_META_FEATURE_NAMES.map((name) => toFeatureNumber(map[name]));
 }
 
-function computeRoxyMetaNumeric(osuText, options, numericDetails, curve, structuralNumeric) {
-    const referenceDetails = buildReferencePredictions(osuText, options, structuralNumeric);
+function computeRoxyMetaNumeric(osuText, options, numericDetails, curve, structuralNumeric, parsed = null) {
+    const referenceDetails = buildReferencePredictions(osuText, options, structuralNumeric, parsed);
     const referencePredictions = referenceDetails.predictions;
     const features = buildRoxyMetaFeatures(referencePredictions, numericDetails, curve, structuralNumeric);
     const metaNumeric = evaluateRoxyMetaModel(features);
@@ -1546,7 +1565,9 @@ export function runRoxyEstimatorFromText(osuText, options = {}, parsed = null) {
             odFlag: ROXY_OD_NEUTRAL,
             precomputedSunnyResult: null,
         };
-        const metaDetails = computeRoxyMetaNumeric(analysisText, metaOptions, numericDetails, curve, structuralNumeric);
+        // Lunacy mania: the references read analysisText; our own parse is of that text unless shared or converted.
+        const referenceParsed = canShareParsed || cvt !== null ? null : parser;
+        const metaDetails = computeRoxyMetaNumeric(analysisText, metaOptions, numericDetails, curve, structuralNumeric, referenceParsed);
         const metaNumeric = Number(metaDetails.metaNumeric);
         let baseUnguardedNumeric = Number.isFinite(metaNumeric) ? metaNumeric : structuralNumeric;
         const structuralBackstopStrength = Number.isFinite(structuralNumeric)

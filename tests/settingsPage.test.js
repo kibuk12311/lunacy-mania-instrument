@@ -197,9 +197,11 @@ test("caches: nothing is cleared without «Да»; the session library while a s
     assert.ok(textOf(row("session")).includes("идёт сканирование"));
 });
 
-test("the author: «Автор: Sneezey · Discord: sneezey123» in About and at the bottom; a click copies the name with a toast (en too)", async () => {
+test("the author: «Автор: Sneezey · Discord: sneezey123» once, in About; a click copies the name with a toast (en too)", async () => {
     const m = mount({ lang: "en" });
-    const bottom = m.$("st-author");
+    const bottom = m.$("st-about");
+    assert.equal(textOf(bottom).split("Made by Sneezey").length - 1, 1, "the author once");
+    assert.ok(!readFileSync(path.join(root, "app/renderer/index.html"), "utf8").includes("st-author"), "no second line under About");
     assert.ok(textOf(bottom).includes("Made by Sneezey · Discord:") && textOf(bottom).includes("sneezey123"));
     const nick = buttonNamed(bottom, DISCORD);
     assert.equal(nick.title, "Copy the Discord name");
@@ -211,7 +213,6 @@ test("the author: «Автор: Sneezey · Discord: sneezey123» in About and at
     assert.equal(toast.textContent, "copied");
     m.timers.at(-1).fn();
     assert.equal(toast.hidden, true);
-    assert.ok(buttonNamed(m.$("st-about"), DISCORD), "the About block has it too");
     setLang("ru");
     assert.equal(updateText("available"), "Есть новая версия — открыта страница загрузки.");
     assert.equal(updateText("nonsense"), "Не удалось проверить обновления.");

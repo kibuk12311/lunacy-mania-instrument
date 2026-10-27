@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.9.9",
+  "version": "0.10.0",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -19,7 +19,8 @@
   "dependencies": {
     "electron-updater": "6.6.2",
     "ffmpeg-static": "5.2.0",
-    "onnxruntime-common": "1.24.3"
+    "onnxruntime-common": "1.24.3",
+    "realm": "20.2.0"
   },
   "devDependencies": {
     "electron": "38.2.0",
@@ -32,6 +33,10 @@
     "appId": "io.github.kibuk12311.lunacymania",
     "productName": "Lunacy mania",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/realm/prebuilds/node/**"
+    ],
+    "npmRebuild": false,
     "afterPack": "tools/after-pack.mjs",
     "files": [
       "app/**",
@@ -41,7 +46,17 @@
       "!models/archive/**",
       "package.json",
       "!**/*.osu",
-      "!node_modules/ffmpeg-static/**"
+      "!node_modules/ffmpeg-static/**",
+      "!node_modules/realm/prebuilds/android/**",
+      "!node_modules/realm/prebuilds/apple/**",
+      "!node_modules/realm/binding/**",
+      "!node_modules/realm/bindgen/**",
+      "!node_modules/realm/scripts/**",
+      "!node_modules/realm/dist/scripts/**",
+      "!node_modules/realm/dist/public-types/**",
+      "!node_modules/realm/dist/platform/react-native/**",
+      "!node_modules/realm/**/*.{map,d.ts}",
+      "!node_modules/realm/{binding.gyp,RealmJS.podspec,PrivacyInfo.xcprivacy,index.react-native.js,react-native.config.js}"
     ],
     "extraFiles": [
       "LICENSE",

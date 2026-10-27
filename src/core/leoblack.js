@@ -13,4 +13,6 @@ export { analyzePatternFromText } from "../../vendor/leoblack/js/patterns/servic
 // The pattern parser and finder themselves, for pattern instances with their times (the analysis tab's strip):
 // the report from analyzePatternFromText groups them into clusters and loses where they were.
 export { parseOsuManiaFromText } from "../../vendor/leoblack/js/parser/patternOsuParser.js";
+// The estimators' own .osu parser: computeFeatures parses a chart once and hands the result to each estimator.
+export { OsuFileParser } from "../../vendor/leoblack/js/parser/osuFileParser.js";
 export { find as findPatterns } from "../../vendor/leoblack/js/patterns/findPatterns.js";
