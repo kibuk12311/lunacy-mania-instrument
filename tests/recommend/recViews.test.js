@@ -32,7 +32,10 @@ test("plan helpers: pattern chips in turn, the request, the header", () => {
     assert.deepEqual(togglePattern(["jumpstream"], "stream"), ["jumpstream", "stream"]);
     assert.deepEqual(togglePattern(["jumpstream", "stream"], "jumpstream"), ["stream"]);
     assert.deepEqual(togglePattern(["jumpstream"], "jumpstream"), ["jumpstream"], "the last one stays");
-    assert.deepEqual(togglePattern(["stream", "tech", "jack"], "chordjack"), ["tech", "jack", "chordjack"], "a fourth pushes out the first");
+    assert.deepEqual(togglePattern(["stream", "tech", "jack"], "chordjack"), ["stream", "tech", "jack", "chordjack"], "no limit by default");
+    const seven = ["stream", "jumpstream", "handstream", "stamina", "chordjack", "jack"].reduce((list, id) => togglePattern(list, id), ["tech"]);
+    assert.deepEqual(seven, ["tech", "stream", "jumpstream", "handstream", "stamina", "chordjack", "jack"], "every pattern at once");
+    assert.deepEqual(togglePattern(["stream", "tech"], "jack", 2), ["tech", "jack"], "past a given max the first goes");
     assert.deepEqual(togglePattern(["stream"], "nope"), ["stream"]);
 
     const settings = { source: "manual", lengthId: "short", rankedOnly: 1 };
@@ -104,7 +107,7 @@ test("the view settings, the account match and the mode names", () => {
     assert.deepEqual(parseView(null), DEFAULT_VIEW);
     assert.deepEqual(parseView("{oops"), DEFAULT_VIEW);
     const v = parseView(JSON.stringify({ mode: "plan", planSize: 6, planPatterns: ["tech", "nope", "tech", "stream", "jack", "chordjack"], progressDays: 90, progressAxis: "Stream", favName: "x" }));
-    assert.deepEqual(v, { mode: "plan", planSize: 6, planPatterns: ["tech", "stream", "jack"], progressDays: 90, progressAxis: "Stream", favName: "x" });
+    assert.deepEqual(v, { mode: "plan", planSize: 6, planPatterns: ["tech", "stream", "jack", "chordjack"], progressDays: 90, progressAxis: "Stream", favName: "x" });
     assert.deepEqual(parseView(JSON.stringify({ mode: "evil", planSize: 9, planPatterns: [], progressDays: 14, progressAxis: "LN" })), DEFAULT_VIEW);
     assert.equal(DEFAULT_VIEW.favName, "Lunacy mania picks");
     const p = { id: 1234567, username: "TestPlayer" };

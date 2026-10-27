@@ -1,8 +1,8 @@
 // The marathon tab's "Auto-marathon" panel: a course template, the final dan (the shared profile or a manual
-// one), 1–3 patterns taking turns, and the pick that fills the list (main does the search, downloads and rates).
+// one: the overall dan or each pattern's own), any patterns taking turns, and the pick that fills the list (main does the search, downloads and rates).
 // The chosen template also sets the pause, OD/HP and the title, and puts its plan on the curve.
 import { t } from "../../src/i18n/i18n.js";
-import { TEMPLATES, CUSTOM, templateById, stepTargets, templateTitle } from "../../src/rate/marathonTemplates.js";
+import { TEMPLATES, CUSTOM, MAX_MARATHON_PATTERNS, templateById, stepTargets, profileTargets, templateTitle } from "../../src/rate/marathonTemplates.js";
 import { TILE_NAMES, patternById, recPatternsFor, patternIdsInMode } from "../../src/recommend/catalog.js";
 import { isDetailed, onPatternMode, createPatternModeSwitch } from "./patternMode.js";
 import { playerDanFor } from "../../src/recommend/skill.js";
@@ -11,12 +11,12 @@ import { fillDanSelects, readDanSelects } from "./danSelect.js";
 import { getProfile, onProfile, ensureProfile } from "./profile.js";
 import { interludeLinked, onInterludeState } from "./interlude.js";
 import { mapsText } from "./marathonCurveView.js";
+import { togglePattern } from "./recPlan.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "marathon.auto.v1";
-const MAX_PATTERNS = 3;
 const DEFAULTS = {
-    templateId: "dan", count: CUSTOM.count, step: CUSTOM.step, source: "profile", manualDan: 13,
+    templateId: "dan", count: CUSTOM.count, step: CUSTOM.step, source: "profile", level: "pattern", manualDan: 13,
     patternIds: null, skipPlayed: false, rankedOnly: false, mode: "replace",
 };
 
@@ -32,12 +32,14 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 function normalize(s) {
     const tpl = templateById(s?.templateId) ?? templateById(DEFAULTS.templateId);
-    const ids = Array.isArray(s?.patternIds) ? [...new Set(s.patternIds.filter((id) => patternById(id)))].slice(0, MAX_PATTERNS) : [];
+    const ids = Array.isArray(s?.patternIds) ? [...new Set(s.patternIds.filter((id) => patternById(id)))].slice(0, MAX_MARATHON_PATTERNS) : [];
     return {
         templateId: tpl.id,
         count: Math.round(clamp(finite(s?.count) ?? CUSTOM.count, CUSTOM.minCount, CUSTOM.maxCount)),
         step: Math.round(clamp(finite(s?.step) ?? CUSTOM.step, CUSTOM.minStep, CUSTOM.maxStep) * 100) / 100,
         source: s?.source === "manual" ? "manual" : "profile",
+        // settings saved before the choice had each pattern's own dan (one pattern) — "pattern" reads them the same
+        level: s?.level === "overall" ? "overall" : "pattern",
         manualDan: finite(s?.manualDan) ?? DEFAULTS.manualDan,
         patternIds: ids.length ? ids : [...tpl.defaultPatterns],
         skipPlayed: Boolean(s?.skipPlayed),
@@ -65,12 +67,13 @@ function save() {
 
 const template = () => templateById(settings.templateId);
 
-// The dan the course ends on: the manual pick, or the profile's dan for the first pattern's tile; null when unknown.
-function finalDan() {
-    if (settings.source === "manual") return settings.manualDan;
+// The course: { finalDan, targets } from the manual dan, or from the profile (its overall dan or each pattern's own,
+// as main makes it); null when unknown.
+function course() {
+    if (settings.source === "manual") return { finalDan: settings.manualDan, targets: stepTargets(template(), settings.manualDan, settings) };
     const p = getProfile();
     if (p.state !== "ready") return null;
-    return playerDanFor(p.skill, settings.patternIds[0])?.dan ?? null;
+    return profileTargets(template(), p.skill, chosenIds(), settings.level, settings);
 }
 
 function el(tag, className, text) {
@@ -88,12 +91,19 @@ function renderProfile() {
     const box = $("mar-profile");
     let text;
     if (p.state === "ready") {
-        const own = playerDanFor(p.skill, settings.patternIds[0]);
-        const tile = TILE_NAMES[patternById(settings.patternIds[0])?.tile] ?? "";
         const name = profileName(p);
-        text = own
-            ? t("marathon.auto.profile", { name, tile: TILE_NAMES[own.tile] ?? tile, dan: numericToLabel(own.dan).text })
-            : t("marathon.auto.profileNoTile", { name, tile });
+        if (settings.level === "overall") {
+            const overall = p.skill?.overall;
+            text = Number.isFinite(overall) ? t("marathon.auto.profileOverall", { name, dan: numericToLabel(overall).text }) : t("marathon.auto.profileNoOverall", { name });
+        } else {
+            // one dan per tile the chosen patterns are on: "Stamina: Delta mid, Jack: Gamma high"
+            const tiles = [...new Set(chosenIds().map((id) => patternById(id)?.tile).filter(Boolean))];
+            const dans = tiles.map((tile) => [tile, playerDanFor(p.skill, chosenIds().find((id) => patternById(id)?.tile === tile))]);
+            const missing = dans.find(([, own]) => !own);
+            text = missing
+                ? t("marathon.auto.profileNoTile", { name, tile: TILE_NAMES[missing[0]] ?? "" })
+                : t("marathon.auto.profile", { name, dans: dans.map(([tile, own]) => `${TILE_NAMES[tile] ?? tile}: ${numericToLabel(own.dan).text}`).join(", ") });
+        }
     } else if (p.state === "loading") {
         text = t("marathon.auto.profileLoading");
     } else if (p.state === "failed") {
@@ -118,13 +128,14 @@ const chosenIds = () => patternIdsInMode(settings.patternIds, isDetailed());
 function renderPatterns() {
     const chosen = chosenIds();
     $("mar-patterns").replaceChildren(...recPatternsFor(isDetailed()).map((pattern) => {
-        const chip = el("span", chosen.includes(pattern.id) ? "sel" : "", pattern.name);
+        const at = chosen.indexOf(pattern.id);
+        // the number shows the order the maps take them in, as on the dans' chips (recPlan.js)
+        const chip = el("span", at >= 0 ? "sel" : "", at >= 0 && chosen.length > 1 ? `${at + 1}. ${pattern.name}` : pattern.name);
         chip.addEventListener("click", () => {
             const before = chosenIds();
-            const ids = before.filter((id) => id !== pattern.id);
-            if (ids.length === before.length) ids.push(pattern.id); // picked; past three the oldest goes
-            if (!ids.length) return; // at least one
-            settings.patternIds = ids.slice(-MAX_PATTERNS);
+            const ids = togglePattern(before, pattern.id, MAX_MARATHON_PATTERNS);
+            if (ids === before) return; // the last one stays
+            settings.patternIds = ids;
             save();
             renderPatterns();
             renderProfile();
@@ -147,6 +158,9 @@ function renderSource() {
     $("mar-src-profile").checked = settings.source === "profile";
     $("mar-src-manual").checked = settings.source === "manual";
     $("mar-manual").hidden = settings.source !== "manual";
+    $("mar-by").hidden = settings.source !== "profile";
+    $("mar-by-overall").checked = settings.level === "overall";
+    $("mar-by-pattern").checked = settings.level === "pattern";
 }
 
 function renderButtons() {
@@ -160,9 +174,10 @@ function renderButtons() {
 // The template's plan on the curve, and its title: always when the template was just picked (force),
 // else only while the title is still the template's own or the default one.
 function refreshPlan(force = false) {
-    const dan = finalDan();
-    list.setPlan(active && dan !== null ? stepTargets(template(), dan, settings) : null);
-    if (!active || dan === null) return;
+    const plan = course();
+    list.setPlan(active && plan ? plan.targets : null);
+    if (!active || !plan) return;
+    const dan = plan.finalDan;
     const title = $("mar-title");
     const untouched = title.value === titleSet || !title.value.trim() || title.value === t("html.mar.defaultTitle");
     if (force || untouched) {
@@ -230,7 +245,7 @@ async function pick() {
     try {
         r = await api.marathonAuto({
             templateId: settings.templateId, count: settings.count, step: settings.step,
-            source: settings.source, manualDan: settings.source === "manual" ? settings.manualDan : null, ...handSet,
+            source: settings.source, level: settings.level, manualDan: settings.source === "manual" ? settings.manualDan : null, ...handSet,
             patternIds: chosenIds(), skipPlayed: settings.skipPlayed && !$("mar-skip-played").disabled, rankedOnly: settings.rankedOnly,
         });
     } catch (error) {
@@ -301,6 +316,14 @@ export function initMarathonAuto(api) {
             renderSource();
             refreshPlan();
             if (source === "profile") ensureProfile();
+        });
+    }
+    for (const [id, level] of [["mar-by-overall", "overall"], ["mar-by-pattern", "pattern"]]) {
+        $(id).addEventListener("change", () => {
+            settings.level = level;
+            save();
+            renderProfile();
+            refreshPlan();
         });
     }
     for (const id of ["mar-level", "mar-dan-step"]) {

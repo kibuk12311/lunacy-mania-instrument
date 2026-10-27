@@ -136,7 +136,7 @@ export default {
 
     // markup of the new modes
     "recommend.html.planSize": { ru: "Карт", en: "Maps" },
-    "recommend.html.planPatterns": { ru: "Паттерны — от 1 до 3, по очереди", en: "Patterns — 1 to 3, taking turns" },
+    "recommend.html.planPatterns": { ru: "Паттерны — сколько угодно, по очереди", en: "Patterns — any number, taking turns" },
     "recommend.html.planGo": { ru: "Составить план", en: "Build plan" },
     "recommend.html.planDownload": { ru: "Скачать всё", en: "Download all" },
     "recommend.html.planFav": { ru: "Всё в избранное", en: "All to favourites" },
@@ -223,7 +223,7 @@ export default {
     // main-process errors
     "recommend.err.badCollectionDb": { ru: "файл collection.db повреждён", en: "the collection.db file is broken" },
     "recommend.err.planSize": { ru: "в плане может быть 5 или 6 карт", en: "a plan has 5 or 6 maps" },
-    "recommend.err.planPatterns": { ru: "выбери от 1 до 3 паттернов", en: "pick 1 to 3 patterns" },
+    "recommend.err.planPatterns": { ru: "выбери хотя бы один паттерн", en: "pick at least one pattern" },
     "recommend.err.noPlan": { ru: "сначала составь план", en: "build a plan first" },
     "recommend.err.badSlot": { ru: "нет такого места в плане", en: "there's no such spot in the plan" },
     "recommend.err.noSeed": { ru: "для этой карты нечего сравнивать — найди её заново", en: "nothing to compare this map by — find it again" },

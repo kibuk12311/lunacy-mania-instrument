@@ -94,6 +94,8 @@ export function initSettingsPage({
     $("settings-back")?.addEventListener("click", close);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen()) close(); });
     api.onOpenSettings?.(() => open());
+    // another tab's link to a section (the Session page's «Interlude подключается в ⚙ Настройки»)
+    window.addEventListener("open-settings", (e) => open(e.detail?.section ?? null));
     // a tab asked for (the Interlude library put a chart on the card, "Open Profile"): the page gives way
     window.addEventListener("open-tab", () => { if (isOpen()) close(); });
 

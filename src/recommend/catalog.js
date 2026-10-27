@@ -32,6 +32,9 @@ export const REC_KINDS = [
     pattern("speedjack", { msd: "JackSpeed", tile: "jack", msdFit: false, parent: "jack" }),
 ];
 
+// How many patterns a pick can take at once: no limit beyond every pattern and kind there is.
+export const MAX_PATTERN_PICKS = REC_PATTERNS.length + REC_KINDS.length;
+
 // The patterns offered in the General / Detailed mode: General the seven, Detailed each kind right after its parent.
 export const recPatternsFor = (detailed) => (detailed ? REC_PATTERNS.flatMap((p) => [p, ...REC_KINDS.filter((k) => k.parent === p.id)]) : REC_PATTERNS);
 // A chosen id as the mode uses it: in General a kind stands for its parent (the kind stays remembered).

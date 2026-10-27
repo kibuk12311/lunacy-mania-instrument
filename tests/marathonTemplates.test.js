@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TEMPLATES, templateById, stepTargets, templateTitle } from "../src/rate/marathonTemplates.js";
+import { TEMPLATES, templateById, stepTargets, profileTargets, templateTitle } from "../src/rate/marathonTemplates.js";
 import { patternById, lengthById } from "../src/recommend/catalog.js";
 import { setLang, t } from "../src/i18n/i18n.js";
 
@@ -52,9 +52,9 @@ test("custom: the number of maps and the step, ending on the final dan", () => {
     assert.deepEqual(stepTargets(custom, 13, { count: 3, step: 0.2 }), [12.6, 12.8, 13]);
     assert.deepEqual(stepTargets(custom, 13, { count: 6, step: 0.4 }), [11, 11.4, 11.8, 12.2, 12.6, 13]);
     assert.deepEqual(stepTargets(custom, 13, { count: 5, step: 0.1 }), [12.6, 12.7, 12.8, 12.9, 13]);
-    // out of range or missing → clamped to 3–6 maps and 0.1–0.4 per step; defaults 4 and 0.2
+    // out of range or missing → clamped to 3–10 maps and 0.1–0.4 per step; defaults 4 and 0.2
     assert.deepEqual(stepTargets(custom, 13), [12.4, 12.6, 12.8, 13]);
-    assert.equal(stepTargets(custom, 13, { count: 10, step: 0.2 }).length, 6);
+    assert.equal(stepTargets(custom, 13, { count: 12, step: 0.2 }).length, 10);
     assert.equal(stepTargets(custom, 13, { count: 1, step: 0.2 }).length, 3);
     assert.deepEqual(stepTargets(custom, 13, { count: 3, step: 2 }), [12.2, 12.6, 13]);
     // the other templates ignore count and step
@@ -80,4 +80,23 @@ test("the title names the final dan's level, in either language", () => {
     } finally {
         setLang("ru");
     }
+});
+
+test("by profile: the overall dan, or each pattern below its own dan, the patterns taking turns", () => {
+    const dan = templateById("dan");
+    const skill = { overall: 13, tiles: { speed: 14, stamina: 12.5, jack: 11, tech: null } };
+    assert.deepEqual(profileTargets(dan, skill, ["stream", "jack"], "overall"), { finalDan: 13, targets: [12.55, 12.7, 12.85, 13] });
+    // Stream on Speed 14, Jack on Jack 11, Stream, Jack: each a step below its own dan
+    assert.deepEqual(profileTargets(dan, skill, ["stream", "jack"], "pattern"), { finalDan: 11, targets: [13.55, 10.7, 13.85, 11] });
+    // one pattern: what "by profile" always did, the course below that pattern's dan
+    assert.deepEqual(profileTargets(dan, skill, ["jumpstream"], "pattern").targets, stepTargets(dan, 12.5));
+    // a tile without a dan falls back to the overall one
+    assert.equal(profileTargets(dan, skill, ["tech"], "pattern").finalDan, 13);
+    // custom: count and step count here too
+    assert.equal(profileTargets(templateById("custom"), skill, ["stream"], "pattern", { count: 7, step: 0.1 }).targets.length, 7);
+    // nothing to go on
+    assert.equal(profileTargets(dan, { tiles: { speed: 14 } }, ["stream"], "overall"), null);
+    assert.equal(profileTargets(dan, { tiles: { speed: 14 } }, ["jack"], "pattern"), null);
+    assert.equal(profileTargets(dan, null, ["stream"], "pattern"), null);
+    assert.equal(profileTargets(dan, skill, [], "pattern"), null);
 });

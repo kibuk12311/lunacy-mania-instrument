@@ -17,7 +17,7 @@ test("saved settings: anything unknown falls back to the default", () => {
     assert.deepEqual(parseSessionSettings(null), DEFAULT_SESSION);
     assert.deepEqual(parseSessionSettings("{bad"), DEFAULT_SESSION);
     assert.deepEqual(parseSessionSettings(JSON.stringify({ minutes: 45, patternIds: ["stream", "nope", "stream", "jack", "tech", "tech", "handstream"], goalId: "challenge", allowRates: true, avoidRecent: false })),
-        { minutes: 45, patternIds: ["stream", "jack", "tech"], goalId: "challenge", allowRates: true, avoidRecent: false });
+        { minutes: 45, patternIds: ["stream", "jack", "tech", "handstream"], goalId: "challenge", allowRates: true, avoidRecent: false });
     assert.equal(parseSessionSettings(JSON.stringify({ minutes: 500 })).minutes, 30);
     assert.equal(parseSessionSettings(JSON.stringify({ goalId: "custom" })).goalId, "growth");
 });

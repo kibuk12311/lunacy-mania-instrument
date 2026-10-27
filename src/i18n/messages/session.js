@@ -10,7 +10,7 @@ export default {
     "session.html.pickTitle": { ru: "Если osu! закрыта или Songs лежит не там", en: "If osu! is closed or Songs is somewhere else" },
     "session.html.length": { ru: "Длина сессии", en: "Session length" },
     "session.html.min": { ru: "мин", en: "min" },
-    "session.html.focus": { ru: "Фокус — от 1 до 3 паттернов", en: "Focus — 1 to 3 patterns" },
+    "session.html.focus": { ru: "Фокус — сколько угодно паттернов", en: "Focus — any number of patterns" },
     "session.html.goal": { ru: "Цель", en: "Goal" },
     "session.html.rates": { ru: "можно рейты (карта на рейте, который даёт нужный дан)", en: "allow rates (a map at the rate that gives the dan needed)" },
     "session.html.recent": { ru: "без сыгранных за последние {days} дней", en: "skip maps played in the last {days} days" },
@@ -84,7 +84,7 @@ export default {
         ru: "Запусти osu! stable (папку подскажет tosu) или укажи Songs кнопкой «Папка Songs…»",
         en: "Start osu! stable (tosu tells where Songs is) or point to it with “Songs folder…”",
     },
-    "session.lib.interludeHint": { ru: "Interlude подключается кнопкой IL внизу вкладки «Анализ»", en: "Link Interlude with the IL button at the bottom of the Analysis tab" },
+    "session.lib.interludeHint": { ru: "Interlude подключается в ⚙ Настройки → Interlude", en: "Link Interlude in ⚙ Settings → Interlude" },
 
     // notes on a built session
     "session.note.short": { ru: "Подходящих карт мало — сессия вышла короче, чем просил.", en: "Few maps fit — the session is shorter than asked." },
@@ -94,7 +94,7 @@ export default {
 
     // refusals
     "session.err.minutes": { ru: "Длина сессии — от {min} до {max} минут", en: "A session is {min} to {max} minutes long" },
-    "session.err.patterns": { ru: "Выбери от 1 до 3 паттернов", en: "Pick 1 to 3 patterns" },
+    "session.err.patterns": { ru: "Выбери хотя бы один паттерн", en: "Pick at least one pattern" },
     "session.err.empty": { ru: "В библиотеке пока нет проанализированных карт 4K.", en: "No analysed 4K maps in the library yet." },
     "session.err.noMaps": { ru: "Карт 4K не найдено: ни в Songs от osu! stable, ни в Interlude.", en: "No 4K maps found: neither in osu! stable's Songs nor in Interlude." },
     "session.err.stillAnalysing": { ru: "Библиотека ещё анализируется ({done} из {total}) — подожди немного.", en: "The library is still being analysed ({done} of {total}) — give it a moment." },

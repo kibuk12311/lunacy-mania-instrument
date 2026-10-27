@@ -38,9 +38,10 @@ const row = (name, numeric, cutMs = 60000, rate = 1) => ({ path: `${name}.osu`, 
 test("the auto-marathon panel comes back with the choices saved last time", () => {
     assert.equal($("mar-tpl").value, "stamina");
     assert.equal($("mar-tpl-hint").textContent, "4 длинные карты (4+ мин): JS/HS/стамина");
-    assert.deepEqual(selected($("mar-patterns")), ["Хендстрим", "Стамина"]);
+    assert.deepEqual(selected($("mar-patterns")), ["1. Хендстрим", "2. Стамина"]);
     assert.equal($("mar-src-manual").checked, true);
     assert.equal($("mar-manual").hidden, false);
+    assert.equal($("mar-by").hidden, true, "overall or per-pattern is for the profile only");
     assert.equal($("mar-level").value, "15");
     assert.equal($("mar-dan-step").value, "mid");
     assert.equal($("mar-ranked").checked, true);
@@ -101,11 +102,11 @@ test("a template picked by hand sets the pause, OD/HP, patterns, title and its p
     $("mar-tpl").value = "warmup";
     await fire($("mar-tpl"), "change");
     assert.equal($("mar-gap").value, "20");
-    assert.deepEqual(selected($("mar-patterns")), ["Стрим", "Джампстрим"]);
+    assert.deepEqual(selected($("mar-patterns")), ["1. Стрим", "2. Джампстрим"]);
     $("mar-tpl").value = "dan";
     await fire($("mar-tpl"), "change");
     assert.deepEqual([$("mar-gap").value, $("mar-od").value, $("mar-hp").value], ["10", "8", "8"]);
-    assert.deepEqual(selected($("mar-patterns")), ["Джампстрим", "Чордджек"]);
+    assert.deepEqual(selected($("mar-patterns")), ["1. Джампстрим", "2. Чордджек"]);
     assert.equal($("mar-title").value, "Epsilon Dan Course");
     assert.ok(svg().includes("stroke-dasharray") && svg().includes("план шаблона"));
     assert.equal(JSON.parse(storage.get("marathon.auto.v1")).templateId, "dan");
@@ -131,6 +132,27 @@ test("a template picked by hand sets the pause, OD/HP, patterns, title and its p
     await fire($("mar-tpl"), "change");
 });
 
+test("pattern chips: any number, numbered in the order the maps take them; the last one stays", async () => {
+    const chip = (name) => $("mar-patterns").children.find((c) => c.textContent.replace(/^\d\. /, "") === name);
+    const savedIds = () => JSON.parse(storage.get("marathon.auto.v1")).patternIds;
+    for (const name of ["Стрим", "Тех", "Джек", "Хендстрим", "Стамина"]) await fire(chip(name));
+    assert.deepEqual(selected($("mar-patterns")), ["3. Стрим", "1. Джампстрим", "6. Хендстрим", "7. Стамина", "2. Чордджек", "5. Джек", "4. Тех"]);
+    assert.deepEqual(savedIds(), ["jumpstream", "chordjack", "stream", "tech", "jack", "handstream", "stamina"]);
+    // all seven go to the pick
+    autoReply = async () => ({ ok: true, entries: [], warnings: [] });
+    await fire($("mar-pick"));
+    assert.deepEqual(autoCalls.at(-1).patternIds, ["jumpstream", "chordjack", "stream", "tech", "jack", "handstream", "stamina"]);
+    // off → removed, the rest close up; the last one stays and loses its number
+    for (const name of ["Джампстрим", "Стрим", "Тех", "Джек", "Хендстрим", "Стамина"]) await fire(chip(name));
+    assert.deepEqual(selected($("mar-patterns")), ["Чордджек"]);
+    await fire(chip("Чордджек"));
+    assert.deepEqual(savedIds(), ["chordjack"]);
+    autoCalls.length = 0;
+    // back to the template the next test expects
+    $("mar-tpl").value = "dan";
+    await fire($("mar-tpl"), "change");
+});
+
 test("Pick maps: what is asked, progress lines, the rows, the summary and the warnings", async () => {
     setEntries([], "replace");
     const entry = (name, numeric) => ({ ...row(name, numeric), targetDan: numeric, from: "download" });
@@ -148,7 +170,7 @@ test("Pick maps: what is asked, progress lines, the rows, the summary and the wa
     };
     await fire($("mar-pick"));
     assert.deepEqual(autoCalls.at(-1), {
-        templateId: "dan", count: 4, step: 0.2, source: "manual", manualDan: 13, patternIds: ["jumpstream", "chordjack"], skipPlayed: false, rankedOnly: true,
+        templateId: "dan", count: 4, step: 0.2, source: "manual", level: "pattern", manualDan: 13, patternIds: ["jumpstream", "chordjack"], skipPlayed: false, rankedOnly: true,
     });
     assert.deepEqual(names(), ["P1", "P2"]);
     assert.equal($("mar-auto-status").textContent, "Готово: 2 карты подобрано — проверь и жми «Создать марафон».");
@@ -194,7 +216,8 @@ test("from the profile: loaded when the tab is first shown, its tile's dan, play
     window.dispatchEvent({ type: "tab-shown", detail: "marathon" });
     await ticks();
     assert.equal(ensures, 1);
-    assert.equal($("mar-profile").textContent, "Профиль: Мира, Stamina: Delta mid/high");
+    // each chosen pattern's tile: Jumpstream on Stamina, Chordjack on Jack
+    assert.equal($("mar-profile").textContent, "Профиль: Мира, Stamina: Delta mid/high, Jack: 10 mid");
     assert.equal($("mar-skip-played").disabled, false);
     window.dispatchEvent({ type: "tab-shown", detail: "marathon" });
     window.dispatchEvent({ type: "tab-shown", detail: "rate" });
@@ -210,6 +233,18 @@ test("from the profile: loaded when the tab is first shown, its tile's dan, play
     assert.equal(autoCalls.at(-1).source, "profile");
     assert.equal(autoCalls.at(-1).manualDan, null);
     assert.equal(autoCalls.at(-1).skipPlayed, true);
+    assert.equal(autoCalls.at(-1).level, "pattern");
+    assert.equal($("mar-by").hidden, false);
+    assert.equal($("mar-by-pattern").checked, true);
+    // the overall dan instead: told, sent, remembered
+    $("mar-by-overall").checked = true;
+    await fire($("mar-by-overall"), "change");
+    assert.equal($("mar-profile").textContent, "Профиль: Мира, общий уровень: Beta mid");
+    await fire($("mar-pick"));
+    assert.equal(autoCalls.at(-1).level, "overall");
+    assert.equal(JSON.parse(storage.get("marathon.auto.v1")).level, "overall");
+    $("mar-by-pattern").checked = true;
+    await fire($("mar-by-pattern"), "change");
     // the plan follows the profile's dan for the first pattern: stamina 14.2
     setEntries([row("A", 13.8), row("B", 14)], "replace");
     assert.ok(svg().includes("stroke-dasharray"));

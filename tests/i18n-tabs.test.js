@@ -137,10 +137,10 @@ test("Marathon tab: empty list, refusals, row tooltips and the result in English
         initMarathonTab();
         assert.equal(textOf($("mar-list")), "Nothing here yet — add maps below.");
         // the auto-marathon panel: templates, the profile line (none loaded), the patterns
-        assert.deepEqual($("mar-tpl").children.map((o) => o.textContent), ["Dan course (4 maps)", "Stamina marathon", "Warm-up → challenge", "Custom"]);
+        assert.deepEqual($("mar-tpl").children.map((o) => o.textContent), ["Dan course, Dan Reform style (4 maps)", "Stamina marathon", "Warm-up → challenge", "Custom"]);
         assert.equal($("mar-tpl-hint").textContent, "Four maps of one dan, each a bit harder");
         assert.equal($("mar-profile").textContent, "No profile loaded — load one on the Picks tab (or set your level by hand there) or pick a dan below.");
-        assert.equal(textOf($("mar-patterns")), "Stream | Jumpstream | Handstream | Stamina | Chordjack | Jack | Tech");
+        assert.equal(textOf($("mar-patterns")), "Stream | 1. Jumpstream | Handstream | Stamina | 2. Chordjack | Jack | Tech");
 
         next = { ok: false, message: "no map selected" };
         await fire($("mar-add-current"));

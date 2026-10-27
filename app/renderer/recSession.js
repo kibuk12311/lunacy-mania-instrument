@@ -214,8 +214,14 @@ function renderLibrary(st) {
     $("ses-lib-scan").disabled = running;
     const notes = [t("session.lib.lazer")];
     if (!st?.songsDir) notes.unshift(t("session.lib.songsHint"));
-    if (!st?.interlude?.linked) notes.push(t("session.lib.interludeHint"));
-    $("ses-lib-notes").replaceChildren(...notes.map((n) => el("div", "", n)));
+    const rows = notes.map((n) => el("div", "", n));
+    if (!st?.interlude?.linked) {
+        // a link: the IL block lives on the Settings page
+        const hint = el("div", "link", t("session.lib.interludeHint"));
+        hint.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-settings", { detail: { section: "interlude" } })));
+        rows.push(hint);
+    }
+    $("ses-lib-notes").replaceChildren(...rows);
     // plays to leave out: a loaded mania-tracker profile or a linked Interlude
     const known = Boolean(st?.playedKnown);
     $("ses-recent").disabled = !known;

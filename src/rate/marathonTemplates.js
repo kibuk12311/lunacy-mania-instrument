@@ -2,6 +2,8 @@
 // OD/HP and the patterns to start from. Used by the auto-marathon and by the curve of a list made by hand.
 import { numericToLabel } from "../core/labels.js";
 import { t } from "../i18n/i18n.js";
+import { MAX_PATTERN_PICKS } from "../recommend/catalog.js";
+import { playerDanFor } from "../recommend/skill.js";
 
 const MIN_TARGET = 1;
 const MAX_TARGET = 20.4; // Kappa high
@@ -32,8 +34,11 @@ export const TEMPLATES = [
     },
 ];
 
+// How many patterns an auto-marathon takes turns between (the chips in the panel, the check in main): any.
+export const MAX_MARATHON_PATTERNS = MAX_PATTERN_PICKS;
+
 // The custom template's limits and defaults.
-export const CUSTOM = { minCount: 3, maxCount: 6, count: 4, minStep: 0.1, maxStep: 0.4, step: 0.2 };
+export const CUSTOM = { minCount: 3, maxCount: 10, count: 4, minStep: 0.1, maxStep: 0.4, step: 0.2 };
 
 export const templateById = (id) => TEMPLATES.find((x) => x.id === id) ?? null;
 
@@ -49,6 +54,23 @@ export function stepTargets(tpl, finalDan, { count, step } = {}) {
     if (!tpl || typeof finalDan !== "number" || !Number.isFinite(finalDan)) return [];
     const offsets = tpl.offsets ?? customOffsets({ count, step });
     return offsets.map((o) => round05(clamp(finalDan + o, MIN_TARGET, MAX_TARGET)));
+}
+
+// "By profile": the course from the player's skill. level "overall": every map below the overall dan, as
+// stepTargets does; "pattern": each map below its own pattern's dan (its tile's, else the overall one), the patterns
+// taking the maps in turn as the auto-marathon does. → { finalDan (the last map's), targets }, or null when the
+// profile has no dan for it.
+export function profileTargets(tpl, skill, patternIds, level, { count, step } = {}) {
+    if (!tpl || !skill || !Array.isArray(patternIds) || !patternIds.length) return null;
+    if (level === "overall") {
+        const overall = skill.overall;
+        if (typeof overall !== "number" || !Number.isFinite(overall)) return null;
+        return { finalDan: overall, targets: stepTargets(tpl, overall, { count, step }) };
+    }
+    const offsets = tpl.offsets ?? customOffsets({ count, step });
+    const dans = offsets.map((_, k) => playerDanFor(skill, patternIds[k % patternIds.length])?.dan ?? null);
+    if (dans.some((dan) => dan === null)) return null;
+    return { finalDan: dans.at(-1), targets: offsets.map((o, k) => round05(clamp(dans[k] + o, MIN_TARGET, MAX_TARGET))) };
 }
 
 // "Gamma Dan Course": the template's title around the final dan's level (Greek name, or the dan's number).

@@ -220,9 +220,14 @@ test("main: auto-marathon by profile takes the hand-set one without a loaded tra
     const req = { templateId: "dan", source: "profile", manualDan: null, patternIds: ["stream", "jumpstream"], skipPlayed: false, rankedOnly: false };
     const r = await handlers.start({ ...req, manualProfile: MINE });
     assert.equal(r.ok, true);
-    assert.equal(r.finalDan, 14.2, "the first pattern's axis: Speed");
+    // each pattern at its own axis: Stream on Speed 14.2, Jumpstream on Stamina 13.2, taking turns
+    assert.equal(r.finalDan, 13.2);
     assert.equal(asked, 0);
-    assert.equal(runs[0].targets.at(-1), 14.2);
+    assert.deepEqual(runs[0].targets, [13.75, 12.9, 14.05, 13.2]);
+    // the overall dan: the mean of the four axes, 13.65
+    const overall = await handlers.start({ ...req, manualProfile: MINE, level: "overall" });
+    assert.equal(overall.finalDan, 13.65);
+    assert.deepEqual(runs[1].targets, [13.2, 13.35, 13.5, 13.65]);
     assert.deepEqual(await handlers.start({ ...req, manualProfile: { speed: 14 } }), { ok: false, message: "ручной профиль не заполнен — выбери дан для Speed, Jack, Stamina и Tech во вкладке «Подбор»" });
     // without it, still main's tracker profile
     assert.equal((await handlers.start(req)).ok, false);

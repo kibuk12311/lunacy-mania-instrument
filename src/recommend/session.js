@@ -1,7 +1,7 @@
 // A practice session from the maps the player already has (the "Сессия" page of the picks tab): warm-up → main block
 // → push → cool-down, about as long as asked, from the analysed library (app/sessionLibrary.js) and the player's
 // skill (mania-tracker or set by hand). Pure: every map, the skill and the randomness come in, nothing is read here.
-import { patternById, goalById, REC_PATTERNS } from "./catalog.js";
+import { patternById, goalById, REC_PATTERNS, MAX_PATTERN_PICKS } from "./catalog.js";
 import { targetFor } from "./skill.js";
 import { NAME_FAMILY } from "../gen/search.js";
 import { numericToLabel } from "../core/labels.js";
@@ -10,7 +10,7 @@ import { t } from "../i18n/i18n.js";
 export const SESSION_MINUTES = [20, 30, 45, 60];
 export const MIN_MINUTES = 10;
 export const MAX_MINUTES = 180;
-export const MAX_SESSION_PATTERNS = 3;
+export const MAX_SESSION_PATTERNS = MAX_PATTERN_PICKS;
 export const PARTS = ["warmup", "main", "push", "cooldown"];
 // A map that was played this recently counts as "recently played".
 export const RECENT_DAYS = 7;

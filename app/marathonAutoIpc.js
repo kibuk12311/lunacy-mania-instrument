@@ -1,15 +1,13 @@
 // The auto-marathon's main-process side: checks what the renderer asks for, takes the final dan (the shared
 // profile or a manual one), turns the template into one target per map, runs one auto-marathon at a time and
 // lets "Stop" reach it. Never throws; every refusal is { ok:false, message } in the current language.
-import { templateById, stepTargets, CUSTOM } from "../src/rate/marathonTemplates.js";
+import { templateById, stepTargets, profileTargets, CUSTOM, MAX_MARATHON_PATTERNS } from "../src/rate/marathonTemplates.js";
 import { patternById } from "../src/recommend/catalog.js";
-import { playerDanFor } from "../src/recommend/skill.js";
 import { normalizeManualProfile, manualSkill } from "../src/recommend/manualProfile.js";
 import { MIN_DAN, MAX_DAN, danOf } from "./validate.js";
 import { t } from "../src/i18n/i18n.js";
 
 const EPS = 1e-9;
-const MAX_PATTERNS = 3;
 
 // The request as the auto-marathon runs it, or the reason it can't run.
 function cleanRequest(req, profile, local = null) {
@@ -17,7 +15,7 @@ function cleanRequest(req, profile, local = null) {
     const tpl = templateById(req.templateId);
     if (!tpl) return t("marathon.err.badTemplate");
     const ids = Array.isArray(req.patternIds) ? [...new Set(req.patternIds)] : [];
-    if (!ids.length || ids.length > MAX_PATTERNS || !ids.every((id) => typeof id === "string" && patternById(id))) {
+    if (!ids.length || ids.length > MAX_MARATHON_PATTERNS || !ids.every((id) => typeof id === "string" && patternById(id))) {
         return t("marathon.err.badPatterns");
     }
     let shape = {};
@@ -29,10 +27,12 @@ function cleanRequest(req, profile, local = null) {
     }
 
     let finalDan = null;
+    let targets;
     if (req.source === "manual") {
         const dan = danOf(req.manualDan);
         if (dan === null || dan < MIN_DAN - EPS || dan > MAX_DAN + EPS) return t("marathon.err.badDan");
         finalDan = dan;
+        targets = stepTargets(tpl, finalDan, shape);
     } else if (req.source === "profile") {
         // the profile set by hand in the picks tab (no mania-tracker) comes with the request; else main's loaded one
         let skill;
@@ -48,14 +48,15 @@ function cleanRequest(req, profile, local = null) {
             if (!current?.ok) return t("marathon.err.noProfile");
             skill = current.skill;
         }
-        const own = playerDanFor(skill, ids[0]);
-        if (!own) return t("marathon.err.noTileDan");
-        finalDan = own.dan;
+        // the overall dan, or each pattern its own (the default, and all there was before the choice)
+        const level = req.level === "overall" ? "overall" : "pattern";
+        const course = profileTargets(tpl, skill, ids, level, shape);
+        if (!course) return t(level === "overall" ? "marathon.err.noOverall" : "marathon.err.noTileDan");
+        ({ finalDan, targets } = course);
     } else {
         return t("marathon.err.badDan");
     }
 
-    const targets = stepTargets(tpl, finalDan, shape);
     return {
         tpl, finalDan, targets,
         run: { targets, patternIds: ids, lengthId: tpl.lengthId, rankedOnly: Boolean(req.rankedOnly), skipPlayed: Boolean(req.skipPlayed) },

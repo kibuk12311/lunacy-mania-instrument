@@ -483,11 +483,11 @@ function v2Setup(overrides = {}) {
     return { handlers, calls, seen };
 }
 
-test("plan checks the request before building: size, 1–3 known patterns, length and a manual dan", async () => {
+test("plan checks the request before building: size, any number of known patterns, length and a manual dan", async () => {
     const { handlers, seen } = v2Setup();
     const bad = [
         { ...PLAN_REQ, size: 4 }, { ...PLAN_REQ, size: "5" },
-        { ...PLAN_REQ, patternIds: [] }, { ...PLAN_REQ, patternIds: ["stream", "tech", "jack", "jumpstream"] },
+        { ...PLAN_REQ, patternIds: [] },
         { ...PLAN_REQ, patternIds: ["ln"] }, { ...PLAN_REQ, patternIds: "stream" },
         { ...PLAN_REQ, lengthId: "huge" },
         { ...PLAN_REQ, manual: true, manualDan: 30 },
@@ -499,6 +499,9 @@ test("plan checks the request before building: size, 1–3 known patterns, lengt
         assert.equal(typeof r.message, "string");
     }
     assert.equal(seen.build.length, 0);
+    // no limit on how many patterns
+    assert.equal((await handlers.plan({ ...PLAN_REQ, patternIds: ["stream", "tech", "jack", "jumpstream", "handstream", "stamina", "chordjack"] })).ok, true);
+    assert.equal(seen.build.pop().patternIds.length, 7);
     const r = await handlers.plan({ ...PLAN_REQ, patternIds: ["stream", "stream", "tech"], rankedOnly: 1, manualDan: 13, junk: 1 });
     assert.deepEqual(seen.build, [{ size: 5, patternIds: ["stream", "tech"], lengthId: "any", rankedOnly: true, manual: false, manualDan: null }]);
     assert.equal(r.ok, true);

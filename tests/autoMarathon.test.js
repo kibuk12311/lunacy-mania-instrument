@@ -129,6 +129,12 @@ test("the patterns take turns, step by step", async () => {
     assert.equal(r.warnings[0].reason, "в трекере нет карт под это окно");
 });
 
+test("four patterns take turns in the order they were picked", async () => {
+    const w = world({ sets: () => [], bases: new Map() });
+    await createAutoMarathon(w.deps).run(request([12, 12.2, 12.4, 12.6, 12.8], ["tech", "stream", "jack", "stamina"]), w.isCancelled);
+    assert.deepEqual(w.calls.search.map((p) => p.patterns), ["tech", "stream", "jack", "stamina", "tech"]);
+});
+
 test("played maps are skipped when asked", async () => {
     const make = (skipPlayed) => {
         const w = world({

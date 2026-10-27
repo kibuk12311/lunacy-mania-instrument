@@ -44,17 +44,19 @@ test("from the profile: the final dan is the first pattern's tile", async () => 
     assert.equal(jack.finalDan, 12.4);
 });
 
-test("custom: count 3–6 and step 0.1–0.4", async () => {
+test("custom: count 3–10 and step 0.1–0.4", async () => {
     const { handlers, runs } = setup();
     const r = await handlers.start(good({ templateId: "custom", count: 3, step: 0.3 }));
     assert.deepEqual(r.plan, [12.4, 12.7, 13]);
     assert.equal(runs[0].request.lengthId, "any");
-    for (const [count, step] of [[2, 0.2], [7, 0.2], [3.5, 0.2], ["4", 0.2], [4, 0.05], [4, 0.5], [4, NaN], [4, null]]) {
+    for (const [count, step] of [[2, 0.2], [11, 0.2], [3.5, 0.2], ["4", 0.2], [4, 0.05], [4, 0.5], [4, NaN], [4, null]]) {
         const bad = await handlers.start(good({ templateId: "custom", count, step }));
         assert.equal(bad.ok, false, `${count} ${step}`);
-        assert.match(bad.message, /карт — от 3 до 6|шаг — от 0.1 до 0.4/);
+        assert.match(bad.message, /карт — от 3 до 10|шаг — от 0.1 до 0.4/);
     }
     assert.equal(runs.length, 1);
+    // ten maps: room for every pattern
+    assert.equal((await handlers.start(good({ templateId: "custom", count: 10, step: 0.1 }))).plan.length, 10);
 });
 
 test("bad templates, patterns, dans and sources are refused before anything runs", async () => {
@@ -62,10 +64,9 @@ test("bad templates, patterns, dans and sources are refused before anything runs
     const cases = [
         [{ templateId: "nope" }, "неизвестный шаблон"],
         [{ templateId: undefined }, "неизвестный шаблон"],
-        [{ patternIds: [] }, "выбери от 1 до 3 паттернов"],
-        [{ patternIds: ["stream", "jack", "tech", "stamina"] }, "выбери от 1 до 3 паттернов"],
-        [{ patternIds: ["nope"] }, "выбери от 1 до 3 паттернов"],
-        [{ patternIds: "stream" }, "выбери от 1 до 3 паттернов"],
+        [{ patternIds: [] }, "выбери хотя бы один паттерн"],
+        [{ patternIds: ["nope"] }, "выбери хотя бы один паттерн"],
+        [{ patternIds: "stream" }, "выбери хотя бы один паттерн"],
         [{ manualDan: 0.5 }, "выбери финальный дан"],
         [{ manualDan: 20.5 }, "выбери финальный дан"],
         [{ manualDan: "13" }, "выбери финальный дан"],
@@ -81,6 +82,10 @@ test("bad templates, patterns, dans and sources are refused before anything runs
     // a repeated pattern counts once
     assert.equal((await handlers.start(good({ patternIds: ["stream", "stream"] }))).ok, true);
     assert.deepEqual(runs[0].request.patternIds, ["stream"]);
+    // no limit on how many: every pattern and kind at once
+    const all = ["stream", "jumpstream", "handstream", "stamina", "chordjack", "jack", "tech", "quadstream", "handjack", "speedjack"];
+    assert.equal((await handlers.start(good({ patternIds: all }))).ok, true);
+    assert.deepEqual(runs[1].request.patternIds, all);
 });
 
 test("from the profile without a loaded player: told where to load one", async () => {

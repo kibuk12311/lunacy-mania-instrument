@@ -1,5 +1,5 @@
 // A training plan: 5 or 6 maps from warm-up to challenge around the player's dan (or a dan picked by hand),
-// over 1–3 patterns in turn. One wide tracker search per pattern fills every slot; an empty slot gets one search of its own.
+// over the chosen patterns in turn. One wide tracker search per pattern fills every slot; an empty slot gets one search of its own.
 import { GOALS, TILE_NAMES, patternById } from "./catalog.js";
 import { targetForWindow } from "./skill.js";
 import { searchParams, rankSets, SEARCH_PAGE_SIZE } from "./rank.js";

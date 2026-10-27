@@ -12,7 +12,7 @@ export default {
     },
     "app.interlude.folderGone": { ru: "Папки Interlude больше нет или в ней нет Songs\\charts.db: {folder}", en: "The Interlude folder is gone or has no Songs\\charts.db: {folder}" },
     "app.interlude.dbFailed": { ru: "Не удалось прочитать библиотеку Interlude: {message}", en: "Couldn't read Interlude's library: {message}" },
-    "app.interlude.noFolder": { ru: "Сначала выбери папку Interlude (кнопка IL внизу карточки).", en: "Pick the Interlude folder first (the IL button under the card)." },
+    "app.interlude.noFolder": { ru: "Сначала выбери папку Interlude (⚙ Настройки → Interlude).", en: "Pick the Interlude folder first (⚙ Settings → Interlude)." },
     "app.interlude.noChart": { ru: "Этой карты нет в библиотеке Interlude.", en: "This chart isn't in Interlude's library." },
     "app.interlude.badFile": { ru: "Это не карта, которую можно отправить в Interlude.", en: "This isn't a map that can be sent to Interlude." },
     "app.interlude.sent": {
@@ -133,7 +133,7 @@ export default {
         en: "This chart isn't in the linked Interlude library (or it was just imported and isn't saved yet) — there's nothing to work out a dan from.",
     },
     "app.interlude.live.noFolderNote": {
-        ru: "Подключи папку Interlude (кнопка IL внизу), чтобы карточка считала дан выбранной в нём карты.",
-        en: "Link the Interlude folder (the IL button below) so the card can work out the dan of the chart selected in it.",
+        ru: "Подключи папку Interlude (⚙ Настройки → Interlude), чтобы карточка считала дан выбранной в нём карты.",
+        en: "Link the Interlude folder (⚙ Settings → Interlude) so the card can work out the dan of the chart selected in it.",
     },
 };

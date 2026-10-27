@@ -1,6 +1,6 @@
-// "План": 5 or 6 maps from warm-up to challenge, over 1–3 patterns in turn; ↻ swaps a slot's card for the next
+// "План": 5 or 6 maps from warm-up to challenge, over the chosen patterns in turn; ↻ swaps a slot's card for the next
 // candidate, and the buttons below download them all, add them all to the favourites or fit a rate for each.
-import { patternById, recPatternsFor, patternIdsInMode } from "../../src/recommend/catalog.js";
+import { patternById, recPatternsFor, patternIdsInMode, MAX_PATTERN_PICKS } from "../../src/recommend/catalog.js";
 import { isDetailed, onPatternMode, createPatternModeSwitch } from "./patternMode.js";
 import { mmss } from "../../src/recommend/format.js";
 import { labelBeside } from "../../src/core/labels.js";
@@ -10,7 +10,7 @@ import { toggleSimilar } from "./recSimilar.js";
 import { exportButton } from "./interlude.js";
 
 export const PLAN_SIZES = [5, 6];
-export const MAX_PLAN_PATTERNS = 3;
+export const MAX_PLAN_PATTERNS = MAX_PATTERN_PICKS;
 const ROLE_KEYS = { warmup: "recommend.plan.role.warmup", growth: "recommend.plan.role.growth", challenge: "recommend.plan.role.challenge" };
 
 const mapsWord = (n) => pluralOf(n, {
@@ -18,7 +18,7 @@ const mapsWord = (n) => pluralOf(n, {
     en: [t("recommend.plan.map.one"), t("recommend.plan.map.many")],
 });
 
-// A pattern chip pressed: on → added at the end (a fourth pushes out the first), off → removed, but never the last one.
+// A pattern chip pressed: on → added at the end (past `max` the first goes), off → removed, but never the last one.
 export function togglePattern(list, id, max = MAX_PLAN_PATTERNS) {
     if (!patternById(id)) return list;
     if (list.includes(id)) return list.length > 1 ? list.filter((x) => x !== id) : list;

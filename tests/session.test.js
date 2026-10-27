@@ -36,14 +36,16 @@ const SKILL = manualSkill({ name: "TestPlayer", speed: 14.2, jack: 13.4, stamina
 const request = (patch = {}) => cleanSessionRequest({ minutes: 30, patternIds: ["jumpstream"], goalId: "growth", allowRates: false, avoidRecent: false, ...patch });
 const byId = new Map(MAPS.map((m) => [m.id, m]));
 
-test("cleanSessionRequest: length, 1–3 patterns, a goal", () => {
+test("cleanSessionRequest: length, at least one pattern (no upper limit), a goal", () => {
     setLang("en");
     assert.deepEqual(cleanSessionRequest({ minutes: 45, patternIds: ["stream", "stream", "jack"], goalId: "comfort", allowRates: 1 }),
         { minutes: 45, patternIds: ["stream", "jack"], goalId: "comfort", allowRates: true, avoidRecent: false });
     assert.match(cleanSessionRequest({ minutes: 5, patternIds: ["stream"], goalId: "growth" }), /10 to 180 minutes/);
     assert.match(cleanSessionRequest({ minutes: 30.5, patternIds: ["stream"], goalId: "growth" }), /minutes/);
-    assert.match(cleanSessionRequest({ minutes: 30, patternIds: [], goalId: "growth" }), /1 to 3 patterns/);
-    assert.match(cleanSessionRequest({ minutes: 30, patternIds: ["a", "b"], goalId: "growth" }), /1 to 3 patterns/);
+    assert.match(cleanSessionRequest({ minutes: 30, patternIds: [], goalId: "growth" }), /at least one pattern/);
+    assert.match(cleanSessionRequest({ minutes: 30, patternIds: ["a", "b"], goalId: "growth" }), /at least one pattern/);
+    const all = ["stream", "jumpstream", "handstream", "stamina", "chordjack", "jack", "tech", "quadstream", "handjack", "speedjack"];
+    assert.deepEqual(cleanSessionRequest({ minutes: 30, patternIds: all, goalId: "growth" }).patternIds, all);
     assert.equal(typeof cleanSessionRequest({ minutes: 30, patternIds: ["stream"], goalId: "custom" }), "string");
     setLang("ru");
 });

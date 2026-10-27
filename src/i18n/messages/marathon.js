@@ -25,7 +25,7 @@ export default {
     "marathon.link.show": { ru: "Показать файл", en: "Show file" },
 
     // course templates (src/rate/marathonTemplates.js); {level} is the final dan's level: Gamma, 7 …
-    "marathon.tpl.dan.name": { ru: "Дан-курс (4 карты)", en: "Dan course (4 maps)" },
+    "marathon.tpl.dan.name": { ru: "Дан-курс в стиле Dan Reform (4 карты)", en: "Dan course, Dan Reform style (4 maps)" },
     "marathon.tpl.dan.hint": { ru: "Четыре карты одного дана, каждая чуть сложнее", en: "Four maps of one dan, each a bit harder" },
     "marathon.tpl.dan.title": { ru: "{level} Dan Course", en: "{level} Dan Course" },
     "marathon.tpl.stamina.name": { ru: "Стамина-марафон", en: "Stamina marathon" },
@@ -48,7 +48,9 @@ export default {
     "marathon.auto.maps.one": { ru: "{n} карта", en: "{n} map" },
     "marathon.auto.maps.few": { ru: "{n} карты", en: "{n} maps" },
     "marathon.auto.maps.many": { ru: "{n} карт", en: "{n} maps" },
-    "marathon.auto.profile": { ru: "Профиль: {name}, {tile}: {dan}", en: "Profile: {name}, {tile}: {dan}" },
+    "marathon.auto.profile": { ru: "Профиль: {name}, {dans}", en: "Profile: {name}, {dans}" },
+    "marathon.auto.profileOverall": { ru: "Профиль: {name}, общий уровень: {dan}", en: "Profile: {name}, overall: {dan}" },
+    "marathon.auto.profileNoOverall": { ru: "Профиль: {name} — нет общего дана", en: "Profile: {name} — no overall dan" },
     "marathon.auto.profileNoTile": { ru: "Профиль: {name} — нет дана для {tile}", en: "Profile: {name} — no dan for {tile}" },
     "marathon.auto.profileLoading": { ru: "Загружаем профиль…", en: "Loading the profile…" },
     "marathon.auto.starting": { ru: "Начинаем подбор…", en: "Starting the pick…" },
@@ -76,8 +78,10 @@ export default {
     "marathon.html.step": { ru: "Шаг", en: "Step" },
     "marathon.html.final": { ru: "Финальный дан", en: "Final dan" },
     "marathon.html.fromProfile": { ru: "по профилю из «Подбора»", en: "from my Picks profile" },
+    "marathon.html.byOverall": { ru: "общий уровень дана", en: "overall dan" },
+    "marathon.html.byPattern": { ru: "каждый паттерн — свой дан", en: "each pattern at its own dan" },
     "marathon.html.manual": { ru: "вручную", en: "manual" },
-    "marathon.html.patterns": { ru: "Паттерны (1–3)", en: "Patterns (1–3)" },
+    "marathon.html.patterns": { ru: "Паттерны — сколько угодно, по очереди", en: "Patterns — any number, taking turns" },
     "marathon.html.skipPlayed": { ru: "не брать сыгранные", en: "skip maps I've played" },
     "marathon.html.skipPlayedTitle": {
         ru: "Нужен профиль mania-tracker, загруженный в «Подборе», или — для ручного профиля — привязанная папка Interlude",
@@ -98,13 +102,14 @@ export default {
     "marathon.err.noDan": { ru: "анализатор не дал дан", en: "the analyser gave no dan" },
     "marathon.err.autoBusy": { ru: "автоподбор уже идёт — дождись его или нажми «Стоп»", en: "an auto-pick is already running — wait for it or press “Stop”" },
     "marathon.err.badTemplate": { ru: "неизвестный шаблон", en: "unknown template" },
-    "marathon.err.badPatterns": { ru: "выбери от 1 до 3 паттернов", en: "pick 1 to 3 patterns" },
+    "marathon.err.badPatterns": { ru: "выбери хотя бы один паттерн", en: "pick at least one pattern" },
     "marathon.err.badDan": { ru: "выбери финальный дан", en: "pick the final dan" },
-    "marathon.err.badCount": { ru: "карт — от 3 до 6", en: "the number of maps must be from 3 to 6" },
+    "marathon.err.badCount": { ru: "карт — от 3 до 10", en: "the number of maps must be from 3 to 10" },
     "marathon.err.badStep": { ru: "шаг — от 0.1 до 0.4 дана", en: "the step must be from 0.1 to 0.4 dan" },
     "marathon.err.noProfile": {
         ru: "Профиль не загружен — загрузи его во вкладке «Подбор» (или задай там свой уровень вручную) либо выбери дан ниже.",
         en: "No profile loaded — load one on the Picks tab (or set your level by hand there) or pick a dan below.",
     },
+    "marathon.err.noOverall": { ru: "в профиле нет общего дана — выбери «каждый паттерн — свой дан» или дан вручную", en: "the profile has no overall dan — pick \"each pattern at its own dan\" or a dan by hand" },
     "marathon.err.noTileDan": { ru: "в профиле нет дана для этого паттерна — выбери дан вручную", en: "the profile has no dan for this pattern — pick a dan by hand" },
 };

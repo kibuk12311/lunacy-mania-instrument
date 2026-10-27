@@ -1,7 +1,7 @@
 // Main-process side of the "Рекомендации" tab: checks what the renderer sends, builds every URL itself, never throws.
 // All dependencies are injected (no electron import) so the handlers run under node:test with fakes.
 
-import { patternById, goalById, lengthById } from "../src/recommend/catalog.js";
+import { patternById, goalById, lengthById, MAX_PATTERN_PICKS } from "../src/recommend/catalog.js";
 import { SEARCH_PAGE_SIZE } from "../src/recommend/rank.js";
 import { cleanSeed, similarParams, pickSimilar, SIMILAR_PAGES } from "../src/recommend/similar.js";
 import { createPlanner, PLAN_SIZES } from "../src/recommend/plan.js";
@@ -18,7 +18,7 @@ const OURS_CACHE_SIZE = 300;
 const CARD_INDEX_SIZE = 3000;
 const SIMILAR_CACHE_SIZE = 50;
 const SIMILAR_CACHE_MS = 60_000;
-const MAX_PLAN_PATTERNS = 3;
+const MAX_PLAN_PATTERNS = MAX_PATTERN_PICKS;
 const fail = (error) => ({ ok: false, message: error?.message || t("app.rec.unknownError") });
 
 // rateFit.js is loaded on first use, so these handlers stay testable with a fake.
