@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- **XGBoost v3 without the sound breakdown falls back to the classic model** instead of stopping with "missing stems": mapper-xgb3.json as shipped reads the stems' and structure's columns but has no `needs`, so the worker took it for a job without stems. A model file without `needs` now needs what its feature names read (src/gen/slotFeatures.js featureNeeds; app/generatorJobs.js), and the card says the classic model ran instead (found by the stream Q plan).
+
 ## 0.10.0
 
 - **Saved analyses survive updates** («А анализ карт для сессии всегда будет анализировать? Нельзя это сохранять?»): the shared result cache lived in a folder per app version (results-0.9.8 held 8796 results, 0.9.9 began again from nothing) and the Session library marked every analysis stale after any update, so each update analysed everything again. Both now follow an **analyzer fingerprint** (src/core/analyzerVersion.js, worked out at start in about 60 ms): a hash of the analysis code reachable from the card's dan, the details and the dan by part (73 files), what it loads at run time (the dan model, MinaCalc's wasm, Companella's model and its ONNX runtime), the 6 texts a result is worded with and a format number — not the UI or any other text. The cache is userData\results-<fingerprint>; on the first start the newest results-<version> of the same analyzer is renamed into place, the results of older ones of the same analyzer are moved in where missing, and the app's other result folders are removed (app/resultsFolder.js, told in log.txt). Which release had which analyzer is a table made from the release commits (tools/analyzer-fingerprints.mjs → src/core/analyzerReleases.js): 0.9.7, 0.9.8 and 0.9.9 share one, so the update from them keeps every result and the Session library keeps its analyses; only a changed analyzer marks them for redoing (still usable meanwhile).

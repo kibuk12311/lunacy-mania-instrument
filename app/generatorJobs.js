@@ -3,7 +3,8 @@
 //
 // The mapper model (wave 3, docs/2026-10-25-mapgen-v3-ml-addendum.md §1.1, §11): the first file of
 // modelOrder(request.modelSize) that loads and whose `needs` are met (needs: ["stems", "structure"] wants the song's
-// stems); with none the rule-based generator runs. Every file and critic.json is read at most once per worker.
+// stems; a file without `needs` needs what its feature names read); with none the rule-based generator runs. Every
+// file and critic.json is read at most once per worker.
 // - modelSize "auto" (the default, «Классическая» in the picker): the proven v1 model, mapper.json. Release 0.9.0:
 //   the held-out evaluation said no-ship for every newer model, so they are experimental choices only.
 // - "xgb3": mapper-xgb3.json; "s" / "m" / "l": that nn-v2 size, then each smaller one (L without a GPU is allowed:
@@ -142,12 +143,24 @@ export function createGeneratorJobs({ load = (spec) => import(spec), readModel, 
         return files.get(name);
     };
 
+    // A model file without `needs` (mapper-xgb3.json as shipped) needs what its feature columns read
+    // (src/gen/slotFeatures.js featureNeeds): picked without the stems it would stop on "missing stems".
+    const implied = new WeakMap(); // model → Promise of its needs, or null
+    const neededBy = (m) => {
+        if (m.needs !== undefined && m.needs !== null) return m;
+        if (!Array.isArray(m.features)) return m;
+        if (!implied.has(m)) {
+            implied.set(m, load("../src/gen/slotFeatures.js").then(({ featureNeeds }) => featureNeeds(m.features), () => null));
+        }
+        return implied.get(m).then((needs) => ({ needs }));
+    };
+
     // → { model, sizeNote? } for a model-strength choice and what the job has
     async function pick(modelSize, have) {
         const want = Object.hasOwn(ORDER, modelSize) && modelSize !== "auto" ? modelSize : null;
         for (const name of modelOrder(modelSize)) {
             const m = await read(name);
-            if (!m || !needsMet(m, have)) continue;
+            if (!m || !needsMet(await neededBy(m), have)) continue;
             const got = CHOICE_OF_FILE[name] ?? null;
             return { model: m, ...(want && got !== want ? { sizeNote: { want, got } } : {}) };
         }

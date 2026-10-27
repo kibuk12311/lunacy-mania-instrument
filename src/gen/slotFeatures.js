@@ -42,6 +42,16 @@ function beatGroups(slots) {
     return { starts, of };
 }
 
+// What feature names read beyond the onset envelope: ["stems"] and / or ["structure"] (unknown names read nothing),
+// for a model file that does not list its `needs` (app/generatorJobs.js).
+export function featureNeeds(names) {
+    const cols = (Array.isArray(names) ? names : []).map((name) => AUDIO_FEATURES_V3.indexOf(name)).filter((k) => k >= 0);
+    return [
+        ...(cols.some((k) => k >= STEM_START && k < STRUCTURE_START) ? ["stems"] : []),
+        ...(cols.some((k) => k >= STRUCTURE_START) ? ["structure"] : []),
+    ];
+}
+
 // `stems`: Stems (stemsFromTransfer or computeStems); `structure`: songStructure's output. Each is needed only when
 // `names` asks for its columns, and its absence then throws "missing stems" / "missing structure".
 export function slotFeatures(envelope, slots, bpm, names = AUDIO_FEATURES, { stems = null, structure = null } = {}) {

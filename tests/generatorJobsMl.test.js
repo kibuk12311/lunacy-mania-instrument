@@ -11,6 +11,8 @@ import {
     MODEL_FILES, NN2_FILES, CRITIC_FILE, MODEL_SIZES,
 } from "../app/generatorJobs.js";
 import { stemsToTransfer } from "../src/audio/stems.js";
+import * as slotFeaturesModule from "../src/gen/slotFeatures.js";
+import { AUDIO_FEATURES_V2, AUDIO_FEATURES_V3 } from "../src/gen/slotFeatures.js";
 
 const xgb = { families: ["Stream"], metrics: { maps: 6326 } };
 const xgb3 = { kind: "xgb-v3", grid: "snap-v2", families: ["Stream"], metrics: { maps: 12000 }, needs: ["stems"] };
@@ -80,6 +82,29 @@ test("a needs:[\"stems\"] model without stems falls back to mapper.json", async 
     assert.equal(r.engine, "learned");
     assert.equal(r.modelInfo.stems, false);
     assert.equal("stems" in r.sawInput, false);
+});
+
+// mapper-xgb3.json as shipped has stem columns in `features` but no `needs`: without the stems it used to be picked
+// and stop on "missing stems"
+test("a model file without needs whose features read the stems or structure is not picked without the stems", async () => {
+    const stemName = AUDIO_FEATURES_V3[AUDIO_FEATURES_V2.length];
+    const shipped = { kind: "xgb-v3", grid: "snap-v2", metrics: { maps: 12000 }, features: ["onset", stemName] };
+    const structural = { ...shipped, features: ["onset", AUDIO_FEATURES_V3.at(-1)] };
+    const plain = { ...shipped, features: ["onset", "low"] };
+    const withSlots = (files) => createGeneratorJobs({
+        load: fakeLoad({ ...MODULES, "../src/gen/slotFeatures.js": slotFeaturesModule }), readModel: models(files), analyze: () => {},
+    });
+    for (const m of [shipped, structural]) {
+        const without = await gen(withSlots({ "mapper-xgb3.json": m, "mapper.json": xgb }), { request: { modelSize: "xgb3" } });
+        assert.equal(without.sawModel, xgb, "falls back to the classic model");
+        assert.deepEqual(without.modelInfo.sizeNote, { want: "xgb3", got: "auto" });
+        const withStems = await gen(withSlots({ "mapper-xgb3.json": m, "mapper.json": xgb }), { stems: STEMS, request: { modelSize: "xgb3" } });
+        assert.equal(withStems.sawModel, m, "with the stems it runs");
+    }
+    const r = await gen(withSlots({ "mapper-xgb3.json": plain, "mapper.json": xgb }), { request: { modelSize: "xgb3" } });
+    assert.equal(r.sawModel, plain, "features without stem columns need nothing");
+    assert.deepEqual(slotFeaturesModule.featureNeeds(["onset", "nope", stemName]), ["stems"]);
+    assert.deepEqual(slotFeaturesModule.featureNeeds(null), []);
 });
 
 test("with stems the nn-v2 model is used, labelled neural, and the stems go beside the envelope", async () => {
