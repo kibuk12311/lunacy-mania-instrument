@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.2
+
+- **Neural net L ships** («Добавь L»): models/mapper-nn2-l.json (37 MB, nn-v2 size L, trained 2026-10-26) is in the installer and the portable build, so «Нейросеть L (эксперимент, нужна видеокарта)» in the Create tab's model picker is no longer greyed out on a computer with a graphics card (without one it still says so). Its encoder runs on the GPU (WebGPU), the decoder on the CPU: on an RTX-class card the first map's encode takes ~5 s (pipelines), each later one ~27 ms, rows equal to the CPU's (tests/smoke/electron-gpu-link.mjs). Shipped at the user's request before the held-out comparison against Classic, S and M finished; that comparison (tools/compare-mappers.mjs, 179 songs × 2 seeds) runs on and its numbers go into the model's hint. «Автоподбор» keeps choosing M.
+
 ## 0.10.1
 
 - **XGBoost v3 without the sound breakdown falls back to the classic model** instead of stopping with "missing stems": mapper-xgb3.json as shipped reads the stems' and structure's columns but has no `needs`, so the worker took it for a job without stems. A model file without `needs` now needs what its feature names read (src/gen/slotFeatures.js featureNeeds; app/generatorJobs.js), and the card says the classic model ran instead (found by the stream Q plan).
