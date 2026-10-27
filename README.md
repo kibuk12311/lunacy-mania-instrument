@@ -1,5 +1,7 @@
 # Lunacy mania instrument
 
+**osu!mania 4K dan calculator and toolkit** for osu! stable, lazer and Interlude.
+
 **English** · [Русский](README.ru.md)
 
 **Lunacy mania** is a small always-on-top window for **osu!mania 4K rice** players. It shows the dan of the map you have selected in osu!, changes rates, builds marathons and dan courses, picks maps for your skill and can map a song for you.
