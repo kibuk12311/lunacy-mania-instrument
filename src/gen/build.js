@@ -39,8 +39,9 @@ function subWeight(sub, lambda) {
 // `energy` (0..1 per slot) is how loud the surrounding song part is: everything scales with it, so drops stay
 // the densest and light parts stay lighter at every density, including the grid-filling half of λ.
 // `flavour` (per slot { id, phrase } or null, assign.js assignFlavours) turns those slots' rows into the flavour's
-// motif; without it the rows are exactly as before.
-export function buildChart({ slots, intensity, assign, lambda, seed, bpm, energy = null, flavour = null }) {
+// motif; without it the rows are exactly as before. `trills` (0.10.4, patterns.js stream): streams may continue a trill.
+export function buildChart({ slots, intensity, assign, lambda, seed, bpm, energy = null, flavour = null, trills = false }) {
+    const rowOpts = { trills };
     // Separate streams: the fill draws do not depend on λ, so a larger λ only ever adds rows.
     const fillRng = mulberry32(seed);
     const patternRng = mulberry32(seed ^ 0x9e3779b9);
@@ -66,13 +67,13 @@ export function buildChart({ slots, intensity, assign, lambda, seed, bpm, energy
         if (guard) {
             guardSlots.push({ t: Math.round(t), beatMs, bpm });
             const at = guardSlots.length - 1;
-            cols = fl ? colsOf(flavourRow(fl, pattern, recent, guard, at, patternRng)) : nextRow(pattern, history, patternRng, lambda * (0.4 + 0.6 * e), runIndex);
+            cols = fl ? colsOf(flavourRow(fl, pattern, recent, guard, at, patternRng)) : nextRow(pattern, history, patternRng, lambda * (0.4 + 0.6 * e), runIndex, rowOpts);
             if (!cols.length) return;
             guard.push(maskOf(cols), at);
             recent.unshift(maskOf(cols));
             if (recent.length > RECENT_ROWS) recent.pop();
         } else {
-            cols = nextRow(pattern, history, patternRng, lambda * (0.4 + 0.6 * e), runIndex);
+            cols = nextRow(pattern, history, patternRng, lambda * (0.4 + 0.6 * e), runIndex, rowOpts);
         }
         runIndex += 1;
         history.push(cols);

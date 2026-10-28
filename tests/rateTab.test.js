@@ -332,3 +332,81 @@ test("the preview and the rows' tooltips follow the General / Detailed switch fr
     finish({ ok: true, key: KEY, rows: [] });
     await counting;
 });
+
+test("a rate map's original: the note says so, its Mirror / No LN come on and go with it; one made back makes no copies", async () => {
+    const original = { ...INFO, key: "C:/Songs/orig.osu|1", origin: { rate: 1.2, virtual: false, mirror: true, noLn: true, version: "V 1.2x (180bpm) Mirror NoLN" } };
+    const { $, setInfo, seen } = await tab();
+    setInfo(original);
+    openRateAt(1.3);
+    await onRateTabShown();
+    assert.equal($("rate-origin-note").hidden, false);
+    assert.equal($("rate-origin-note").textContent, "Рейт-карта ×1.2: тут её оригинал — дан и копии считаются от него, а не от рейт-карты.");
+    assert.equal($("rate-value").value, "1.3");
+    assert.deepEqual([$("rate-mirror").checked, $("rate-noln").checked], [true, true]);
+    assert.equal($("rate-create").disabled, false);
+    await sleep(300);
+    assert.deepEqual(seen.preview.at(-1), { rate: 1.3, mirror: true, noLn: true });
+
+    // made back from the rate map: no copies from the tab, nor from the several-rates table
+    setInfo({ ...INFO, key: "C:/Songs/rate.osu|1#original", origin: { rate: 1.2, virtual: true, mirror: false, noLn: false, version: "V 1.2x" } });
+    await onRateTabShown();
+    assert.equal($("rate-origin-note").textContent, "Рейт-карта ×1.2: оригинала нет в папке карты, он восстановлен из рейт-карты — даны на рейтах считаются, а копии делаются только из настоящего оригинала (выбери его в osu!).");
+    assert.deepEqual([$("rate-mirror").checked, $("rate-noln").checked], [false, false]);
+    assert.equal($("rate-create").disabled, true);
+    assert.equal($("rate-batch-create").disabled, true);
+
+    // a plain map again: no note, copies again, the options stay as the player leaves them
+    $("rate-mirror").checked = true;
+    setInfo(INFO);
+    await onRateTabShown();
+    assert.equal($("rate-origin-note").hidden, true);
+    assert.equal($("rate-create").disabled, false);
+    assert.equal($("rate-mirror").checked, true);
+    await sleep(300);
+});
+
+test("an original made back from a rate map: its dans fill the table, but its checked rows make no copies", async () => {
+    const key = "C:/Songs/rate.osu|1#original";
+    const rows = [{ rate: 1, bpm: 150, kind: "ok", label: "Gamma low", numeric: 12, primary: "Stream" }, { rate: 1.1, bpm: 165, kind: "ok", label: "Gamma mid", numeric: 13, primary: "Stream" }];
+    const { $ } = await tab({ rateBatchDans: async () => ({ ok: true, key, rows }) });
+    const setInfo = (v) => { window.danApi.rateInfo = async () => v; };
+    setInfo({ ...INFO, key, origin: { rate: 1.2, virtual: true, mirror: false, noLn: false, version: "V 1.2x" } });
+    await onRateTabShown();
+    $("rate-batch-from").value = "1";
+    $("rate-batch-to").value = "1.1";
+    $("rate-batch-step").value = "0.1";
+    await fire($("rate-batch-from"), "input");
+    await fire($("rate-batch-dans"));
+    assert.equal($("rate-batch-create").textContent, "Создать отмеченные (2)");
+    assert.equal($("rate-batch-create").disabled, true);
+    assert.equal($("rate-batch-dans").disabled, false, "its dans can be counted again");
+    await sleep(300);
+});
+
+test("a mirrored rate map and its original share the original's key: Mirror / No LN still follow which one is selected", async () => {
+    const key = "C:/Songs/orig.osu|1";
+    const plain = { ...INFO, key };
+    const mirrored = { ...INFO, key, origin: { rate: 1.2, virtual: false, mirror: true, noLn: false, version: "V 1.2x (180bpm) Mirror" } };
+    const { $, setInfo, seen } = await tab();
+    // the original first, then its mirrored rate map: Mirror comes on, the dans worked out unmirrored go
+    setInfo(plain);
+    await onRateTabShown();
+    assert.equal($("rate-mirror").checked, false);
+    setInfo(mirrored);
+    openRateAt(1.3);
+    await onRateTabShown();
+    assert.deepEqual([$("rate-mirror").checked, $("rate-noln").checked], [true, false]);
+    await sleep(300);
+    assert.deepEqual(seen.preview.at(-1), { rate: 1.3, mirror: true, noLn: false }, "the ladder's mirrored ×1.3 row");
+    // the same rate map again: the player's own choice stays
+    $("rate-noln").checked = true;
+    await onRateTabShown();
+    assert.deepEqual([$("rate-mirror").checked, $("rate-noln").checked], [true, true]);
+    // back to the plain original: Mirror goes off with the rate map, so no Mirror copy of it by surprise
+    setInfo(plain);
+    await onRateTabShown();
+    assert.deepEqual([$("rate-mirror").checked, $("rate-noln").checked], [false, false]);
+    assert.equal($("rate-origin-note").hidden, true);
+    await sleep(300);
+    assert.deepEqual(seen.preview.at(-1), { rate: 1.3, mirror: false, noLn: false });
+});

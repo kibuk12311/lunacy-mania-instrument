@@ -1,4 +1,7 @@
 // "Рейт" tab: the map selected in osu!, its dan at the chosen rate, and a rate-changed copy like osu-trainer makes.
+// A rate map on the analysis card is shown as its original (main's rate-info says so in `origin`): a note tells it,
+// the original of a mirrored or LN-less rate map opens with those options on (so its dans are the ladder's), and an
+// original rebuilt from the rate map makes no copies.
 // This module holds the tab's state and its main controls; the rate for a dan (rateTarget.js), several rates at once
 // (rateBatch.js) and presets (ratePresets.js) get what they need through one context object.
 import { t } from "../../src/i18n/i18n.js";
@@ -19,6 +22,9 @@ let mapKey = null; // the selected map as main names it (path and change time); 
 let previewTimer = null;
 let previewToken = 0;
 let pendingRate = null; // set by openRateAt; the next refresh shows it instead of the field's rate
+let canCreate = true; // false for an original rebuilt from a rate map: no copies of it
+let optionsFromOrigin = false; // Mirror / No LN were put on for a rate map's original, so they go off with it
+let originOptions = ""; // the rate map's Mirror / No LN they were put on for ("mirror|noLn"), "" for none
 let shown = null; // the preview's answer on screen { r, rate, noLn }: redrawn when the pattern mode changes
 let stopMode = null;
 const running = new Set(); // rate jobs in main started from here: "target", "dans", "create"
@@ -112,7 +118,7 @@ function dropResults() {
 }
 
 function syncAll() {
-    const state = { hasMap: Boolean(info), running: running.size > 0 };
+    const state = { hasMap: Boolean(info), running: running.size > 0, canCreate };
     syncTarget(state);
     syncBatch(state);
 }
@@ -137,12 +143,35 @@ async function refresh() {
     pendingRate = null;
     const r = await window.danApi.rateInfo();
     const key = r.ok ? r.key ?? null : null;
-    if (key !== mapKey) {
+    const origin = r.ok ? r.origin ?? null : null;
+    const anotherMap = key !== mapKey;
+    if (anotherMap) {
         // another map (or none): what was worked out for the old one goes
         dropResults();
         resetTarget({ keepPick: false });
         mapKey = key;
     }
+    // the original of a mirrored or LN-less rate map opens with those options on, and they go off with it. A rate map
+    // and its original (or a rate map of it with other options) share the original's key, so the options follow the
+    // rate map's own as well as the key; on the same map with the same rate map the player's choice stays
+    const on = Boolean(origin && !origin.virtual && (origin.mirror || origin.noLn));
+    const asked = on ? `${Boolean(origin.mirror)}|${Boolean(origin.noLn)}` : "";
+    if (anotherMap || asked !== originOptions) {
+        if (on || optionsFromOrigin) {
+            const mirror = on && Boolean(origin.mirror);
+            const noLn = on && Boolean(origin.noLn);
+            // the same key with other options: the dans worked out with the old ones go too
+            if (!anotherMap && ($("rate-mirror").checked !== mirror || $("rate-noln").checked !== noLn)) dropResults();
+            $("rate-mirror").checked = mirror;
+            $("rate-noln").checked = noLn;
+        }
+        optionsFromOrigin = on;
+        originOptions = asked;
+    }
+    canCreate = !origin?.virtual;
+    const originNote = $("rate-origin-note");
+    originNote.hidden = !origin;
+    originNote.textContent = origin ? t(origin.virtual ? "rate.originRebuilt" : "rate.origin", { rate: origin.rate }) : "";
     // osu! lazer: no Songs folder, the copies go in as an .osz (the note says so); an Interlude chart: likewise
     $("rate-lazer-note").hidden = !(r.ok && r.client === "lazer");
     $("rate-interlude-note").hidden = !(r.ok && r.client === "interlude");
@@ -161,7 +190,7 @@ async function refresh() {
     showLnBadge(r.lnShare);
     $("rate-od").value = String(info.od);
     $("rate-hp").value = String(info.hp);
-    $("rate-create").disabled = !r.mania;
+    $("rate-create").disabled = !r.mania || !canCreate;
     if (!r.mania) $("rate-status").textContent = t("rate.notManiaMap");
     syncAll();
     setRate(wanted ?? currentRate());
@@ -182,7 +211,7 @@ async function create() {
         // a copy made in osu!'s Songs folder can go to Interlude too, as an .osz
         if (r.ok && !r.client && r.file) $("rate-interlude").replaceChildren(...sendButtons([r.file]));
     } finally {
-        $("rate-create").disabled = false;
+        $("rate-create").disabled = !canCreate;
     }
 }
 
@@ -190,6 +219,9 @@ export function initRateTab() {
     info = null;
     mapKey = null;
     pendingRate = null;
+    canCreate = true;
+    optionsFromOrigin = false;
+    originOptions = "";
     shown = null;
     running.clear();
     $("rate-quick").replaceChildren(...QUICK_RATES.map((r) => {

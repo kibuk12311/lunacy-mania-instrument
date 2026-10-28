@@ -8,7 +8,7 @@
 // written there. Without them, the synthetic fixture songs (tests/fixtures). Runs per flavour and engine: songs × 2
 // dans × seeds (held-out: 5 × 2 × 1 = 10).
 // Per flavour and engine: the finder's top-3 names (how often each shows), how often the flavour is its top-1 and
-// top-1/2 (the finder's name for finder-named flavours, else our detector's rank among all 21), our coverage (the
+// top-1/2 (the finder's name for finder-named flavours, else our detector's rank among all 22), our coverage (the
 // share of the map's rows in its motif) against the baseline, dan in range (and the baseline's), and the guard's
 // awkward spots (jack / fast jack / anchor / hand) per 1000 rows. Target: top-1/2 in ≥70% of runs and coverage ≥1.5×
 // the baseline.

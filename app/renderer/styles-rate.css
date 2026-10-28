@@ -1,6 +1,8 @@
 /* The rate tab's own rules (tabs v2). Classes start with .rate- only; colours come from the tokens in styles.css :root. */
 #rate-tab [hidden] { display: none; }
 .rate-lazer-note { font-size: 11px; }
+/* a rate map on the analysis card: the tab shows its original (rateTab.js) */
+.rate-origin-note { font-size: 11px; color: var(--gold); margin: -2px 0 6px; }
 #rate-tab button.small:disabled { opacity: 0.4; cursor: default; }
 #rate-tab select { min-width: 0; }
 

@@ -46,8 +46,9 @@ pressing it again later only adds new scores.
   A play is kept once: same id, or same map + rate + every judgement (the live recording and the later scores.db
   import of the same play, a replay of one's own score).
 - `maps.json` — the analysis summary per map and rate (`<md5>@1.10`): our combined dan, every calculator's dan, the
-  pattern shares, the tech flag, the length. A map is analysed once per rate (through the shared analysis line and
-  its cache too).
+  pattern shares, the tech flag, the length, and beside it `vibro` (`{ v, vibro, share, longestRows, peakGapMs,
+  confidence }`, see [Vibro](#vibro); not part of the analysis, so the shared result cache is untouched). A map is
+  analysed once per rate (through the shared analysis line and its cache too).
 - `settings.json` — the record switch, the osu! folder, the last imports.
 - Export writes all of it into one JSON file; import merges a backup into the profile (plays already there are kept
   once); reset clears plays and maps (the record switch stays).
@@ -74,6 +75,44 @@ pressing it again later only adds new scores.
   combo breaks and HP loss, which dan courses punish more than a 100.
 - A pass without judgements (Interlude): `perf = mapDan − 0.5` with **quality 0.5** — "passed it" is evidence, but
   weaker.
+- A pass on a map that is **vibro at the rate played** (`MODEL.VIBRO_EXCLUDE = true`) is no evidence: it stays in
+  `plays.jsonl`, the lists show it («вибро — не влияет на даны» / "vibro — doesn't move your dans") with the map's
+  own dan, and `skill.vibroPlays` counts it (shown beside the play counts), but it is in no axis, pattern or overall
+  dan, nor in the best plays, the history, the Picks' level or the Dan widget's «эта игра». A map without an answer
+  (its `.osu` gone) counts as it always did.
+
+### Vibro
+
+Vibro is jacking so fast and so long that the player stops using the fingers and tenses the arm to "vibrate" the keys.
+Every calculator reads such a map as extreme jackspeed / dense chordjack and gives it a high dan, but passing it says
+little about the player's jacks, so one such pass could lift the Jack axis by dans. `src/vibro/detect.js` (pure, about
+1 ms a map, never imported by the analysis):
+
+1. The chart's rows (notes within **2 ms**), times divided by the rate: a map at 1.3x is judged 1.3x faster.
+2. A **link**: the next row within **95 ms** (1/4 at 158 BPM and faster, over 10 hits a second per key) sharing a
+   column with this one. A **run**: rows linked one after another.
+3. A run is **vibro** when it is at least **8 rows** long and at least **78 %** of its notes after the first row repeat
+   a column of the row before. One key, a jumpjack, a quad jack, a chord hammered again and again all repeat; a
+   chordjack's chords move (`[12][23][34]` repeats half its notes), so it is not vibro however fast.
+4. A map is **vibro** when at least **10 %** of its notes are in vibro runs; charts under 150 notes are not judged.
+   The answer lists the runs (start/end in real ms, columns, median gap, rows, notes, repeat share), the share of the
+   notes and of the time, the fastest run's gap and a confidence from how far the share is from 10 %.
+
+The numbers were fitted on 8361 4K rice maps of a real Songs folder (read only): **45 of 49** maps of vibro packs
+(4k Vibro Pack 4, arpia97's Vibro Anthology, void's "Just Hold On" Vibro 170–200, "Vibro on Jakads's belly fat")
+are vibro; **5 of 390** dan-course and jack/chordjack practice maps (all Zeta-level dense chordjack: "Crazy Tek 170
+bpm Chordjack", "Angel Dust ~ Zeta Jack ~", "EXTRA-ZETA+" …); 18 of 704 other jack packs (MSD 30+ dense chordjack:
+Super Polska Chordjack, Impossible jack 2); 116 of 7217 other maps; no map of a typical dan player's played set at the rates played (normal chordjack at 1/4
+150 BPM included). Linking any rows that share a column without the repeat share would have flagged 103 of the 390
+dan maps and many ordinary played ones (that same chordjack); a gap of 100 ms instead of 95 flags 150 BPM chordjack practice packs. Missed on purpose: vibro packs' maps with only short bursts or 100–120 ms gaps ("Night of Vibro", "KAEDE").
+The card shows a «вибро» / "vibro" chip with how much of the map and how fast (`app/renderer/view.js vibroChip`); the
+map's dan itself never changes.
+
+**Saved profiles.** Maps kept before vibro was looked at (or by another `VIBRO.VERSION`) are looked at once a
+session, a few seconds after the window loads (`checkVibro`): their `.osu` is found again where the plays came from
+(the last live plays' texts, Interlude's library, the Songs folder index, lazer's files store), the answer is written
+to `maps.json` and the skill worked out again. No play is changed or removed. A live play or an import of a map met
+again does the same on the spot.
 
 ### 2. Attribution
 
@@ -116,7 +155,7 @@ are always consistent with the plays and survive a model change.
 ## Where it is used
 
 The skill object has the tracker's shape (`readSkill`: `overall`, `overallLabel`, `tiles`, `msd`, `ready`,
-`analyzedPlays`) plus `local: true`, `axes`, `patterns`, `partial`. Picks' source «Мой профиль» (`rec-settings.source =
+`analyzedPlays`) plus `local: true`, `axes`, `patterns`, `partial`, `totalPlays`, `vibroPlays`. Picks' source «Мой профиль» (`rec-settings.source =
 "local"`) makes it the profile in use everywhere (`app/renderer/profile.js`): the window sends only `{ local: true }`
 and main takes its own copy of the skill — picks, the plan, the auto-marathon "by profile", «для тебя» on the card;
 Picks' Progress shows the local daily skill and joins the picks journal with the local plays. The local plays' beatmap
@@ -134,3 +173,6 @@ record switch, and a comparison with the tracker profile when one is loaded).
   the warm-up rule looks at the third best, the mean takes up to 20).
 - With few maps per axis the estimate is conservative (a mean of what there is); it settles as maps add up.
 - osu! stable's Songs folder must be the one the scores were made with; maps deleted since are skipped and counted.
+- Vibro is a line drawn on numbers: a map just under it counts in full, one just over it not at all; very dense
+  Zeta-level chordjack is on the vibro side. mania-tracker's own dans (the tracker profile) are worked out by the site
+  and can't leave vibro plays out.

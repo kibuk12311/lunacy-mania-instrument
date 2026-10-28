@@ -212,7 +212,8 @@ export function syncBatch(next) {
     const checked = rows.filter((e) => e.checked).length;
     const idle = state.hasMap && !state.running;
     $("rate-batch-dans").disabled = !idle;
-    $("rate-batch-create").disabled = !idle || !checked;
+    // an original rebuilt from a rate map makes no copies (rateTab.js)
+    $("rate-batch-create").disabled = !idle || !checked || state.canCreate === false;
     $("rate-batch-create").textContent = t("rate.batch.create", { n: checked });
     $("rate-batch-stop").hidden = !state.running;
 }

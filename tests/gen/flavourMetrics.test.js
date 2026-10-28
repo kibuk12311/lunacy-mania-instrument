@@ -1,10 +1,10 @@
 // Our flavour detector (src/gen/flavourMetrics.js): each flavour's hand-written example is found as that flavour
-// (and ranks first or second among all 21), a long gap breaks a motif, the planned-flavour score, and the finder-named
-// flavours agree with the LeoBlack finder on the same rows.
+// (and ranks first or second among all 22), a long gap breaks a motif, the planned-flavour score, the finder-named
+// flavours agree with the LeoBlack finder on the same rows, and the analysis's own list leaves the newer ones out.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { flavourMarks, flavourShares, flavourCoverage, plannedFlavourScore, detectedFlavours } from "../../src/gen/flavourMetrics.js";
-import { FLAVOUR_IDS, FINDER_NAME, FLAVOUR_FAMILY } from "../../src/gen/flavours.js";
+import { FLAVOUR_IDS, FINDER_NAME, FLAVOUR_FAMILY, ANALYSIS_FLAVOUR_IDS } from "../../src/gen/flavours.js";
 import { analyzePatternFromText } from "../../src/core/leoblack.js";
 import { patternShares } from "../../src/core/patterns.js";
 import { toOsu } from "../../src/gen/writer.js";
@@ -31,6 +31,7 @@ export const EXAMPLES = {
     Handjack: "[123] [234] [134] [124]",
     Jumpjack: "[23] [23] [14] [14] [12] [12] [34] [34]",
     Quadhand: "[1234] [123] [234] [134] [1234] [124] [123] [234]",
+    JumpQuad: "[12] [1234] [34] [1234] [23] [1234] [14] [1234] [13] [13] [1234] [1234] [24] [24] [1234] [1234]",
     Quadstream: "[23] [1234] 1 3 [24] [1234] 2 4",
     Minijacks: "[12] [12] 3 4 [23] [23] 1 4 [34] [34] 1 2",
     Longjacks: "[12] [12] [12] [13] [12] [14] [12] [12] 3 [34] [34] [24] [34] [14] [34] [34] 2",
@@ -40,7 +41,7 @@ export const EXAMPLES = {
     JackyStream: "1 2 2 3 4 1 3 2 4 4 1 2 3 1 1 4",
 };
 
-test("every flavour has an example, and the example is found as that flavour (first or second of all 21)", () => {
+test("every flavour has an example, and the example is found as that flavour (first or second of all 22)", () => {
     assert.deepEqual(Object.keys(EXAMPLES).sort(), [...FLAVOUR_IDS].sort());
     for (const [id, seq] of Object.entries(EXAMPLES)) {
         const shares = flavourShares(rowsOf(seq));
@@ -62,7 +63,19 @@ test("a plain random stream is none of the motif-heavy flavours", () => {
         rows.push({ t: 1000 + k * 90, mask });
     }
     const shares = Object.fromEntries(flavourShares(rows).map((x) => [x.id, x.share]));
-    for (const id of ["Jumptrill", "SplitTrill", "Quadhand", "Handjack", "Longjacks", "Speedjacks", "JackyStream", "Gluts"]) assert.equal(shares[id], 0, id);
+    for (const id of ["Jumptrill", "SplitTrill", "Quadhand", "JumpQuad", "Handjack", "Longjacks", "Speedjacks", "JackyStream", "Gluts"]) assert.equal(shares[id], 0, id);
+});
+
+test("2/4 chordjacks: jumps and quads in turn with a jack on every row; the other chordjacks are not", () => {
+    const share = (seq) => flavourShares(rowsOf(seq)).find((x) => x.id === "JumpQuad").share;
+    assert.equal(share("[12] [1234] [34] [1234]"), 1);
+    assert.equal(share("[12] [12] [1234] [1234] [34] [34] [1234] [1234]"), 1, "doubled rows");
+    assert.equal(share("[13] [1234] [13] [1234]"), 1, "the same jump each time is still one");
+    // a jump that does not keep two columns of the one before, a quadjack, hands, a jumpjack, a quadstream: none
+    for (const seq of ["[12] [34] [12] [1234]", "[1234] [1234] [1234] [12]", "[123] [1234] [234] [1234]", EXAMPLES.Jumpjack,
+        EXAMPLES.Quadhand, EXAMPLES.Handjack, EXAMPLES.Quadstream, EXAMPLES.Gluts, EXAMPLES.Jumptrill]) {
+        assert.equal(share(seq), 0, seq);
+    }
 });
 
 test("a long rest breaks a motif: two halves of a sweep are no roll", () => {
@@ -88,6 +101,17 @@ test("detectedFlavours: the largest few, none at 0, shares to three decimals", (
     assert.ok(found.length >= 1 && found.length <= 5);
     assert.equal(found[0].id, "SplitTrill");
     assert.ok(found.every((f) => f.share > 0 && Math.round(f.share * 1000) === f.share * 1000));
+});
+
+test("detectedFlavours over the analysis's list: the flavours of 0.10.3 only, the rest exactly as over all", () => {
+    const mixed = rowsOf(`${EXAMPLES.JumpQuad} ${EXAMPLES.Gluts} ${EXAMPLES.Quadhand}`, { reps: 3 });
+    assert.equal(detectedFlavours(mixed)[0].id, "JumpQuad");
+    const analysed = detectedFlavours(mixed, 5, ANALYSIS_FLAVOUR_IDS);
+    assert.ok(analysed.every((f) => ANALYSIS_FLAVOUR_IDS.includes(f.id)));
+    assert.deepEqual(analysed, detectedFlavours(mixed, 99).filter((f) => f.id !== "JumpQuad").slice(0, 5));
+    const marks = flavourMarks(mixed, ANALYSIS_FLAVOUR_IDS).marks;
+    assert.deepEqual(Object.keys(marks), [...ANALYSIS_FLAVOUR_IDS]);
+    for (const id of ANALYSIS_FLAVOUR_IDS) assert.deepEqual(marks[id], flavourMarks(mixed).marks[id], id);
 });
 
 test("the finder-named flavours: the LeoBlack finder names each example by that flavour too", () => {

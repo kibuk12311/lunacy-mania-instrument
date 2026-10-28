@@ -2,8 +2,8 @@
 // The finder-named flavours use the finder's own rules (patternsDef.js SPECIFIC_4K: rolls, trills, minitrills,
 // jumptrills, split trills, quadstream, minijacks, longjacks, gluts) on the same rows; the others have rules of their
 // own. One detector serves the range search (how much of each planned flavour came out), the eval, and the analysis
-// tab's detailed view. Rows: [{ t, mask }] (or { cols }) sorted by time; a gap of more than GAP_BEATS × the map's usual
-// row step (at least MIN_GAP_MS) breaks every motif.
+// tab's detailed view (which looks for flavours.js ANALYSIS_FLAVOUR_IDS only). Rows: [{ t, mask }] (or { cols }) sorted
+// by time; a gap of more than GAP_BEATS × the map's usual row step (at least MIN_GAP_MS) breaks every motif.
 import { FLAVOUR_IDS, direction } from "./flavours.js";
 
 const MIN_GAP_MS = 250;
@@ -135,6 +135,18 @@ const DETECTORS = {
         const rows = [m[i], m[i + 1], m[i + 2], m[i + 3]];
         return rows.every((x) => popcount(x) >= 3) && rows.some((x) => x === 15) && rows.some(isHand);
     }),
+    // jumps and quads in turn (the 2/4 chordjack): four rows, two jumps and two quads, each row keeping at least two
+    // columns of the one before (so two jumps next to each other are the same jump)
+    JumpQuad: (m) => markWindows(m, 4, (i) => {
+        let jumps = 0;
+        for (let k = i; k < i + 4; k += 1) {
+            const n = popcount(m[k]);
+            if (n === 2) jumps += 1;
+            else if (n !== 4) return false;
+            if (k > i && popcount(m[k] & m[k - 1]) < 2) return false;
+        }
+        return jumps === 2;
+    }),
     // the finder's quadstream: a quad that jacks a chord, then two rows without jacks
     Quadstream: (m) => {
         const marks = new Uint8Array(m.length);
@@ -264,8 +276,9 @@ export function plannedFlavourScore(rowsIn) {
     return { score: total ? hits / total : 0, rows: total, byFlavour };
 }
 
-const SHOWN_FLAVOURS = 5;
+export const SHOWN_FLAVOURS = 5;
 const round3 = (x) => Math.round(x * 1000) / 1000;
-// The flavours found in a map's rows, for the detailed view: [{ id, share }], the largest SHOWN_FLAVOURS, none at 0.
-export const detectedFlavours = (rows, max = SHOWN_FLAVOURS) => flavourShares(rows).filter((f) => f.share > 0).slice(0, max)
-    .map((f) => ({ id: f.id, share: round3(f.share) }));
+// The flavours found in a map's rows, for the detailed view: [{ id, share }], the largest `max`, none at 0; `only` =
+// the flavours looked for (the analysis passes flavours.js ANALYSIS_FLAVOUR_IDS).
+export const detectedFlavours = (rows, max = SHOWN_FLAVOURS, only = FLAVOUR_IDS) => flavourShares(rows, only)
+    .filter((f) => f.share > 0).slice(0, max).map((f) => ({ id: f.id, share: round3(f.share) }));

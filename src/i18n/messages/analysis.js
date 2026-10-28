@@ -33,6 +33,27 @@ export default {
     "analysis.client.stable": { ru: "stable", en: "stable" },
     "analysis.client.lazer": { ru: "lazer", en: "lazer" },
     "analysis.client.title": { ru: "Подключено: osu! {client}", en: "Connected: osu! {client}" },
+    // a rate map on the card (app/selectionController.js): its chip, and the chip's tooltip (the original found in the
+    // map's folder, or rebuilt from the rate map)
+    "analysis.rateMap.chip": { ru: "рейт-карта ×{rate}", en: "rate map ×{rate}" },
+    "analysis.rateMap.title": {
+        ru: "Рейт-карта: оригинал на ×{rate} отдельным файлом. Дан — её собственный, а «Дан на рейтах» считается от оригинала.",
+        en: "A rate map: the original at ×{rate} as a file of its own. The dan is its own; “Dan by rate” counts from the original.",
+    },
+    "analysis.rateMap.titleRebuilt": {
+        ru: "Рейт-карта: оригинал на ×{rate} отдельным файлом. Дан — её собственный, а «Дан на рейтах» считается от оригинала — его нет в папке карты, он восстановлен из рейт-карты.",
+        en: "A rate map: the original at ×{rate} as a file of its own. The dan is its own; “Dan by rate” counts from the original — it isn't in the map's folder, so it's rebuilt from the rate map.",
+    },
+    // the vibro mark on the card (app/renderer/view.js vibroChip, src/vibro/detect.js): the chip and its tooltip
+    "analysis.vibro.chip": { ru: "Vibro", en: "Vibro" },
+    "analysis.vibro.title": {
+        ru: "Вибро на этом рейте: {pct}% нот — в длинных быстрых джеках (до {hits} нажатий в секунду на клавишу). Дан карты — её собственный, но в «Моём профиле» такие игры не влияют на даны.",
+        en: "Vibro at this rate: {pct}% of the notes are in long, fast jacks (up to {hits} hits a second per key). The map's dan is its own, but in My profile such plays don't move your dans.",
+    },
+    "analysis.vibro.titleNoSpeed": {
+        ru: "Вибро на этом рейте: {pct}% нот — в длинных быстрых джеках. Дан карты — её собственный, но в «Моём профиле» такие игры не влияют на даны.",
+        en: "Vibro at this rate: {pct}% of the notes are in long, fast jacks. The map's dan is its own, but in My profile such plays don't move your dans.",
+    },
 
     // >>> analysis v2: the blocks under the card (app/renderer/analysisExtras.js) and the analysis-rate channel
     // the difficulty line and the pattern strip

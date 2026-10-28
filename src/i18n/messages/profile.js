@@ -18,8 +18,8 @@ export default {
     "profile.html.openSite": { ru: "Открыть на mania-tracker.com", en: "Open on mania-tracker.com" },
     "profile.html.record": { ru: "Записывать мои игры", en: "Record my plays" },
     "profile.html.recordNote": {
-        ru: "Каждая игра, дошедшая до экрана результатов в osu! (stable или lazer), записывается и анализируется. Всё хранится только на этом компьютере.",
-        en: "Every play that reaches the results screen in osu! (stable or lazer) is recorded and analysed. It all stays on this computer.",
+        ru: "Каждая игра, дошедшая до экрана результатов в osu! (stable или lazer), записывается и анализируется. Игры на вибро-картах сохраняются, но на даны не влияют. Всё хранится только на этом компьютере.",
+        en: "Every play that reaches the results screen in osu! (stable or lazer) is recorded and analysed. Plays on vibro maps are kept but don't move your dans. It all stays on this computer.",
     },
     "profile.html.patterns": { ru: "По паттернам", en: "By pattern" },
     "profile.html.top": { ru: "Лучшие игры", en: "Best plays" },
@@ -66,6 +66,11 @@ export default {
     "profile.local.partial": { ru: "(не по всем осям)", en: "(not every axis yet)" },
     "profile.local.noPlays": { ru: "Игр пока нет", en: "No plays yet" },
     "profile.local.count": { ru: "{n} игр, с даном {rated}", en: "{n} plays, {rated} with a dan" },
+    "profile.local.vibro": { ru: "вибро не учтено: {n}", en: "{n} vibro left out" },
+    "profile.local.vibroTitle": {
+        ru: "Игры на картах, которые на сыгранном рейте — вибро: они сохранены и видны в списках, но в даны профиля не идут.",
+        en: "Plays on maps that are vibro at the rate played: kept and listed, but not counted in your dans.",
+    },
     "profile.local.fromLive": { ru: "записано {n}", en: "{n} recorded" },
     "profile.local.fromStable": { ru: "из osu! stable {n}", en: "{n} from osu! stable" },
     "profile.local.fromInterlude": { ru: "из Interlude {n}", en: "{n} from Interlude" },
@@ -112,6 +117,12 @@ export default {
     "profile.play.perf": { ru: "карта {map} → {perf}", en: "map {map} → {perf}" },
     "profile.play.map": { ru: "карта {map}", en: "map {map}" },
     "profile.play.unrated": { ru: "без дана", en: "no dan" },
+    // a play on a map that is vibro at its rate (src/vibro/detect.js): listed, in no dan
+    "profile.play.vibro": { ru: "вибро — не влияет на даны", en: "vibro — doesn't move your dans" },
+    "profile.play.vibroTitle": {
+        ru: "На этом рейте {pct}% нот карты — вибро (длинные быстрые джеки). Такую игру проходят не пальцами, а напряжённой рукой, и о джеках она почти ничего не говорит, поэтому в даны профиля она не идёт. Игра сохранена.",
+        en: "At this rate {pct}% of the map's notes are vibro (long, fast jacks). Such a play is passed with a tensed arm rather than the fingers and says little about your jacks, so it doesn't count in your dans. The play is kept.",
+    },
 
     // the history import
     "profile.import.scan": { ru: "Читаю папку Songs: {done} / {total}", en: "Reading the Songs folder: {done} / {total}" },

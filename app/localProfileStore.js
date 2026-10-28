@@ -1,11 +1,13 @@
 // The local profile on disk, all in userData\local-profile (nothing leaves the machine):
 //   plays.jsonl   — one play per line, appended as they come (the source of truth: the skill is worked out from it);
-//   maps.json     — the analysis summary of each map at each rate a play was on ("md5@1.10"), so a map is analysed once;
+//   maps.json     — the analysis summary of each map at each rate a play was on ("md5@1.10"), so a map is analysed once,
+//                   with whether it is vibro at that rate beside it (src/vibro/detect.js, not part of the analysis);
 //   settings.json — { record, osuFolder, imports: { stable, interlude, lazer } }.
 // A play is the same play when its id matches or when md5, rate and every judgement do (the live recording and a
 // later scores.db import, a replay of one's own score): it is kept once. Export is one JSON file with all three.
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
+import { vibroSummary } from "../src/vibro/detect.js";
 
 export const BUNDLE_FORMAT = "lunacy-mania-local-profile";
 export const BUNDLE_VERSION = 1;
@@ -62,7 +64,9 @@ export function normalizePlay(x) {
     };
 }
 
-// An analysis result (src/core/analyze.js) → what is kept of it: the dans, the pattern shares, the length.
+// An analysis result (src/core/analyze.js) → what is kept of it: the dans, the pattern shares, the length; and, set
+// beside it by the service (never part of the analysis), whether the map is vibro at that rate (src/vibro/detect.js
+// vibroSummary), so the model can leave its plays out of the dans.
 export function mapSummary(result) {
     if (!result || !MAP_KINDS.includes(result.kind)) return null;
     if (result.kind !== "ok") return { kind: result.kind };
@@ -70,6 +74,7 @@ export function mapSummary(result) {
     for (const [k, v] of Object.entries(result.calcs ?? {})) if (finite(v) !== null) calcs[k] = v;
     const msd = {};
     for (const [k, v] of Object.entries(result.msd ?? {})) if (finite(v) !== null) msd[k] = v;
+    const vibro = vibroSummary(result.vibro);
     return {
         kind: "ok",
         numeric: finite(result.numeric),
@@ -81,6 +86,7 @@ export function mapSummary(result) {
         tech: Boolean(result.tech),
         primary: typeof result.primary === "string" ? result.primary.slice(0, 40) : null,
         durationSec: finite(result.durationSec),
+        ...(vibro ? { vibro } : {}),
     };
 }
 
@@ -229,7 +235,11 @@ export function createLocalProfileStore({ dir, fs = nodeFs }) {
             }
             for (const [k, v] of Object.entries(bundle.maps && typeof bundle.maps === "object" ? bundle.maps : {})) {
                 const m = normalizeMap(v);
-                if (m && /^[0-9a-f]{32}@\d\.\d\d$/.test(k) && !state.maps.has(k)) state.maps.set(k, m);
+                if (!m || !/^[0-9a-f]{32}@\d\.\d\d$/.test(k)) continue;
+                const ours = state.maps.get(k);
+                if (!ours) state.maps.set(k, m);
+                // the backup knows whether the map is vibro and this profile does not yet: that answer is taken
+                else if (ours.kind === "ok" && m.kind === "ok" && !ours.vibro && m.vibro) state.maps.set(k, { ...ours, vibro: m.vibro });
             }
             state.plays.sort((a, b) => a.at - b.at);
             await savePlays();

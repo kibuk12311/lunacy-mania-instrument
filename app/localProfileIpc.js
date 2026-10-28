@@ -12,6 +12,8 @@ import { readRecent } from "../src/recommend/progress.js";
 import { t } from "../src/i18n/i18n.js";
 
 export const HISTORY_DAYS = [7, 30, 90, 365];
+// after the window loads, the pass over the maps kept before vibro was looked at waits this long (the start is busy)
+export const VIBRO_CHECK_DELAY_MS = 8000;
 export const TRACKER_SITE = "https://mania-tracker.com/player/";
 const fail = (error) => ({ ok: false, message: String(error?.message ?? error) });
 
@@ -179,9 +181,15 @@ export function registerLocalProfileIpc({ ipcMain, dialog, window, shell, log, l
     ipcMain.handle("local-profile-reset", () => h.reset());
     ipcMain.handle("tracker-recent", () => h.trackerRecent());
     ipcMain.handle("tracker-open-site", () => h.openTracker());
-    // the recording starts with the window (registering does no I/O), once
+    // the recording starts with the window (registering does no I/O), once; a while later the maps kept before vibro
+    // was looked at are looked at (src/vibro/detect.js), so a saved profile leaves its vibro plays out of the dans too
     let socket = null;
+    let vibroTimer = null;
     hooks?.on?.("window-load", () => {
+        if (!vibroTimer) {
+            vibroTimer = setTimeout(() => { Promise.resolve(localProfile.checkVibro?.()).catch(() => {}); }, VIBRO_CHECK_DELAY_MS);
+            vibroTimer.unref?.();
+        }
         socket ??= connectTosu({
             port: tosu.port,
             parse: (json) => json,

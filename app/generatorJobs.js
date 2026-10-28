@@ -222,9 +222,9 @@ export function createGeneratorJobs({ load = (spec) => import(spec), readModel, 
 
     async function remap(payload, onProgress) {
         const { remapChart } = await load("../src/gen/remap.js");
-        const { osuText, range, seed } = payload;
+        const { osuText, range, seed, allowJacks } = payload;
         const { model: m } = await pick("auto", { stems: false });
-        const out = await remapChart({ osuText, range, seed }, analyze, m, { onProgress });
+        const out = await remapChart({ osuText, range, seed, allowJacks: allowJacks === true }, analyze, m, { onProgress });
         return { kind: "remapped", ...out };
     }
 

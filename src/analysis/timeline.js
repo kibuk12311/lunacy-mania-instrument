@@ -4,8 +4,8 @@ import { runSunnyEstimatorFromText, parseOsuManiaFromText, findPatterns } from "
 import { chartInfo } from "../core/features.js";
 import { FAMILIES, BREAK, familyShares } from "./families.js";
 import { parseRows } from "../gen/mapRows.js";
-import { flavourMarks, detectedFlavours } from "../gen/flavourMetrics.js";
-import { FLAVOUR_IDS } from "../gen/flavours.js";
+import { flavourMarks, detectedFlavours, SHOWN_FLAVOURS } from "../gen/flavourMetrics.js";
+import { ANALYSIS_FLAVOUR_IDS } from "../gen/flavours.js";
 import { NAME_FAMILY } from "../gen/search.js";
 
 export { FAMILIES, BREAK, familyShares };
@@ -143,12 +143,14 @@ export function binFamilies(instances, { durationMs, rate = 1, bins = BINS, minC
 }
 
 // The flavour (sub-pattern, src/gen/flavours.js) that holds most rows of each bin, by our detector
-// (flavourMetrics.js): BREAK when a bin has no rows or under minCover of them are in any flavour's motif.
+// (flavourMetrics.js): BREAK when a bin has no rows or under minCover of them are in any flavour's motif. The analysis
+// looks for ANALYSIS_FLAVOUR_IDS (the flavours of 0.10.3), here and in the map's detected flavours, so a flavour added
+// for the generator leaves every saved analysis as it was.
 // rows: [{ t, mask }] in ms of the file; times count from firstMs and are divided by the rate, like binFamilies.
 export function binFlavours(rows, { firstMs = rows[0]?.t ?? 0, durationMs, rate = 1, bins = BINS, minCover = 0.3 }) {
     const out = new Array(bins).fill(BREAK);
     if (!(durationMs > 0) || !rows.length) return out;
-    const { rows: sorted, marks } = flavourMarks(rows);
+    const { rows: sorted, marks } = flavourMarks(rows, ANALYSIS_FLAVOUR_IDS);
     const binMs = durationMs / bins;
     const binOf = (r) => Math.min(bins - 1, Math.max(0, Math.floor((r.t - firstMs) / rate / binMs)));
     const total = new Array(bins).fill(0);
@@ -156,12 +158,12 @@ export function binFlavours(rows, { firstMs = rows[0]?.t ?? 0, durationMs, rate 
     sorted.forEach((r, k) => {
         const b = binOf(r);
         total[b] += 1;
-        for (const id of FLAVOUR_IDS) if (marks[id][k]) counts[b].set(id, (counts[b].get(id) ?? 0) + 1);
+        for (const id of ANALYSIS_FLAVOUR_IDS) if (marks[id][k]) counts[b].set(id, (counts[b].get(id) ?? 0) + 1);
     });
     for (let b = 0; b < bins; b += 1) {
         let best = null;
         let most = 0;
-        for (const id of FLAVOUR_IDS) {
+        for (const id of ANALYSIS_FLAVOUR_IDS) {
             const n = counts[b].get(id) ?? 0;
             if (n > most) {
                 best = id;
@@ -190,7 +192,7 @@ export function computeDetails(osuText, rate = 1) {
         strain,
         hardest: hardestRanges(strain, { durationSec }),
         families: binFamilies(findPatterns(chart), { durationMs: durationSec * 1000, rate, bins: BINS }),
-        flavours: detectedFlavours(rows),
+        flavours: detectedFlavours(rows, SHOWN_FLAVOURS, ANALYSIS_FLAVOUR_IDS),
         flavourBins: binFlavours(rows, { firstMs: chart.FirstNote, durationMs: durationSec * 1000, rate, bins: BINS }),
     };
 }

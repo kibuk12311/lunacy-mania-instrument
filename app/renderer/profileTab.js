@@ -220,6 +220,7 @@ const localStatus = (text) => { $("prof-local-status").textContent = text; };
 function countsText(c) {
     if (!c?.plays) return t("profile.local.noPlays");
     const parts = [t("profile.local.count", { n: c.plays, rated: c.rated })];
+    if (c.vibro) parts.push(t("profile.local.vibro", { n: c.vibro }));
     if (c.live) parts.push(t("profile.local.fromLive", { n: c.live }));
     if (c.stable) parts.push(t("profile.local.fromStable", { n: c.stable }));
     if (c.interlude) parts.push(t("profile.local.fromInterlude", { n: c.interlude }));
@@ -285,6 +286,7 @@ function renderLocal() {
     const k = local.skill;
     $("prof-record").checked = local.settings?.record !== false;
     $("prof-local-counts").textContent = countsText(local.counts);
+    $("prof-local-counts").title = local.counts?.vibro ? t("profile.local.vibroTitle") : "";
     $("prof-local-card").replaceChildren(skillSummary(k, { name: t("profile.local.name"), tag: t("profile.local.tag") }), ...[skillChart(k)].filter(Boolean));
     $("prof-local-patterns").replaceChildren(patternTable(k));
     renderTop();

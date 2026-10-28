@@ -1,8 +1,9 @@
 // The analysis tab's main-process service, fed by the "result" hook of the selection controller:
 // details for the map selected in osu! (the strain line and pattern strip under the card, a lazy worker job in the
 // background line), and the ladder's dan of the same chart at other rates.
-// onResult({ key, text, rate, result }) — the selection changed; an ok result gets its details delayMs later,
+// onResult({ key, text, rate, result, rateMap }) — the selection changed; an ok result gets its details delayMs later,
 //   from the shared cache or the worker, sent as send({ key, details | null }) only while key is still the selection;
+//   rateMap { text }: the selection is a rate map, whose ladder is its original's (that chart at each rate);
 // rate({ key, rate }) → { ok:true, rate, kind:"ok", label, numeric, primary } | { ok:true, rate, kind, message }
 //   | { ok:false, stale:true } (another map by now) | { ok:false, message };
 // last() → the payload sent for the current map, or null (sent again when the page reloads).
@@ -21,7 +22,7 @@ export const looksLikeDetails = (d) => d?.v === DETAILS_VERSION && Array.isArray
 export function createDetailsService({
     analysis, worker, cache, send, log = () => {}, delayMs = 300, setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
-    let current = { key: null, text: null };
+    let current = { key: null, text: null, ladder: null }; // ladder: the chart the ladder's rates are of
     let timer = null;
     let running = null; // the key whose details are being worked out
     let last = null;
@@ -76,8 +77,10 @@ export function createDetailsService({
     }
 
     return {
-        onResult({ key, text, rate, result } = {}) {
-            current = { key: typeof key === "string" && key ? key : null, text: typeof text === "string" ? text : null };
+        onResult({ key, text, rate, result, rateMap = null } = {}) {
+            const own = typeof text === "string" ? text : null;
+            const original = typeof rateMap?.text === "string" && rateMap.text ? rateMap.text : null;
+            current = { key: typeof key === "string" && key ? key : null, text: own, ladder: own === null ? null : original ?? own };
             clearTimer(timer);
             timer = null;
             if (!current.key || current.text === null || result?.kind !== "ok" || !validRate(rate)) return;
@@ -93,10 +96,10 @@ export function createDetailsService({
             try {
                 const key = typeof request?.key === "string" && request.key && request.key.length <= MAX_KEY ? request.key : null;
                 if (!key) return { ok: false, message: t("analysis.err.request") };
-                if (!isCurrent(key) || current.text === null) return { ok: false, stale: true };
+                if (!isCurrent(key) || current.ladder === null) return { ok: false, stale: true };
                 const rate = request.rate;
                 if (typeof rate !== "number" || !validRate(rate)) return { ok: false, message: t("analysis.err.rate") };
-                const r = await analysis.analyzeQueued(current.text, rate, { isCancelled: () => !isCurrent(key) });
+                const r = await analysis.analyzeQueued(current.ladder, rate, { isCancelled: () => !isCurrent(key) });
                 if (r?.cancelled || !isCurrent(key)) return { ok: false, stale: true };
                 log(`ladder ${rate} ${r?.kind === "ok" ? r.label : r?.kind ?? "?"}`);
                 if (r?.kind === "ok") return { ok: true, rate, kind: "ok", label: r.label, numeric: r.numeric, primary: r.primary ?? null };

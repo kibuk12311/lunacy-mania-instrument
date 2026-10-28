@@ -119,3 +119,7 @@
 .an-srow-top .an-sname { color: var(--gold); font-weight: 700; }
 .an-snum { text-align: right; color: var(--muted); }
 .an-spat { color: var(--muted); }
+/* the card's chip of a rate map (view.js), its own rate in it */
+.chips span.an-ratemap { color: var(--gold); border-color: var(--accent-bg); }
+/* the card's vibro mark (view.js vibroChip): the map's dan is its own, the local profile leaves its plays out */
+.chips span.an-vibro { color: var(--orange); background: #ffb36b22; cursor: help; }

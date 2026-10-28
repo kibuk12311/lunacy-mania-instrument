@@ -53,6 +53,66 @@ test("the ladder runner: 1.0x is not asked when it is the current rate; a known 
     assert.deepEqual(calls.map((c) => c.rate), [0.9, 1.2, 1.3, 1.4, 1.5]);
 });
 
+test("the ladder runner for a rate map asks its current rate too, right after 1.0x, also off the list", async () => {
+    for (const [currentRate, expected] of [[1.2, [1, 1.2, 0.9, 1.1, 1.3, 1.4, 1.5]], [1.8, [1, 1.8, 0.9, 1.1, 1.2, 1.3, 1.4, 1.5]]]) {
+        const { calls, analysisRate } = manualRate();
+        const runner = createLadderRunner({ analysisRate, rates: OLD_STEP_RATES, onRow: () => {} });
+        runner.start({ key: "a", currentRate, askCurrent: true });
+        for (let i = 0; i < expected.length; i += 1) {
+            await flush();
+            calls[i].answer({ ok: true, kind: "ok", numeric: 13 });
+        }
+        await flush();
+        assert.deepEqual(calls.map((c) => c.rate), expected, String(currentRate));
+    }
+});
+
+test("a rate map on the card: its ladder asks the now row as well and draws the original's dan there", async () => {
+    const asked = [];
+    const answers = { 1: 12, 1.2: 13.4 };
+    const dom = fakeDom({ analysisRate: async (key, rate) => { asked.push(rate); return { ok: true, rate, kind: "ok", numeric: answers[rate] ?? 13, label: "x" }; } },
+        { storage: { "analysis-extras": JSON.stringify({ ladderOpen: true }) } });
+    const timers = [];
+    const panel = createAnalysisPanel({
+        card: dom.$("card"), profile: { getProfile: () => ({ state: "idle" }), onProfile: () => () => {}, ensureProfile: async () => {} },
+        setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {},
+    });
+    const card = { screen: "result", result: { ...RESULT, numeric: 13.1, rate: 1.2 }, key: "rm", rateMap: { rate: 1.2, virtual: false } };
+    panel.html(card);
+    timers.shift()();
+    for (let i = 0; i < 40 && panel.state.ladder.size < LADDER_RATES.length; i += 1) await flush();
+    assert.deepEqual(asked.slice(0, 2), [1, 1.2]);
+    assert.equal(panel.state.ladder.size, LADDER_RATES.length);
+    const html = panel.html(card);
+    assert.match(html, /data-rate="1\.2"[^>]*>.*?<span class="an-lnum">13\.4<\/span><span class="an-ldelta">\+1\.4</);
+    assert.ok(!html.includes(">13.1<"), "not the card's own dan");
+    // the same file without its rate map (DT took it past the ladder): its own ladder, now from the card again
+    asked.length = 0;
+    panel.html({ ...card, result: { ...card.result, rate: 1 }, rateMap: undefined });
+    assert.equal(panel.state.ladder.size, 0, "another ladder");
+});
+
+test("a rate map past the ladder's range: every rate of the original is asked, the card's rate as well, none is now", async () => {
+    const asked = [];
+    const dom = fakeDom({ analysisRate: async (key, rate) => { asked.push(rate); return { ok: true, rate, kind: "ok", numeric: 9, label: "x" }; } },
+        { storage: { "analysis-extras": JSON.stringify({ ladderOpen: true }) } });
+    const timers = [];
+    const panel = createAnalysisPanel({
+        card: dom.$("card"), profile: { getProfile: () => ({ state: "idle" }), onProfile: () => () => {}, ensureProfile: async () => {} },
+        setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {},
+    });
+    const card = { screen: "result", result: { ...RESULT, numeric: 13.1, rate: 1.5 }, key: "rm", rateMap: { rate: 1.5, virtual: false, beyond: true } };
+    panel.html(card);
+    assert.equal(panel.state.rate, null);
+    timers.shift()();
+    for (let i = 0; i < 40 && panel.state.ladder.size < LADDER_RATES.length; i += 1) await flush();
+    assert.deepEqual([...asked].sort((a, b) => a - b), [...LADDER_RATES].sort((a, b) => a - b), "1.5 too: it is the original's, not the card's");
+    const html = panel.html(card);
+    assert.ok(!html.includes("an-lnow"));
+    assert.ok(!html.includes(">13.1<"), "not the card's own dan");
+    assert.equal(timers.length, 0, "a ladder with every row is done");
+});
+
 test("the ladder runner stops on another map, and on a stale answer", async () => {
     const { calls, analysisRate } = manualRate();
     const rows = [];

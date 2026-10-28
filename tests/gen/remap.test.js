@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseChart, removalOrder, additionOrder, applyKnob, remapChart, maxJackOf } from "../../src/gen/remap.js";
 import { readMeta } from "../../src/gen/osuMeta.js";
+import { DEFAULT_BUDGET } from "../../src/gen/search.js";
 import { chartInfo } from "../../src/core/features.js";
 import { numericToLabel } from "../../src/core/labels.js";
 import { setLang, t } from "../../src/i18n/i18n.js";
@@ -154,8 +155,13 @@ test("only [HitObjects] changes; timing points, events and kept note lines are b
         const before = new Set(objectLines(ORIGINAL));
         const after = objectLines(out.osuText);
         const fresh = after.filter((l) => !before.has(l));
-        assert.equal(fresh.length, out.added);
-        for (const l of fresh) assert.match(l, /^\d+,192,\d+,1,0,0:0:0:0:$/);
+        // a new note is a plain line; a note a trill's halving moved to another column is its own line with another x
+        const plain = fresh.filter((l) => /^\d+,192,\d+,1,0,0:0:0:0:$/.test(l));
+        assert.equal(plain.length, out.added - out.moved);
+        const butX = new Set([...before].map((l) => l.replace(/^[^,]*/, "")));
+        for (const l of fresh.filter((f) => !plain.includes(f))) assert.ok(butX.has(l.replace(/^[^,]*/, "")), l);
+        assert.equal(fresh.length - plain.length, out.moved);
+        // a moved note counts once as removed (from its place) and once as added (at the new one)
         assert.equal(after.length - fresh.length, before.size - out.removed);
         const times = after.map((l) => Number(l.split(",")[2]));
         assert.deepEqual(times, [...times].sort((a, b) => a - b), "objects stay in time order");
@@ -256,6 +262,39 @@ test("progress is reported per analysis, the original is analysed once more at t
     assert.equal(analyses, seen.length + 1);
 });
 
+test("a range the dan steps over is searched once more with other layouts; one out of reach is not", async () => {
+    // the dan jumps from 9.3 straight to 8.8, so [9.0, 9.1) is never hit; nothing goes below 1
+    const stepping = async (text) => {
+        analyses += 1;
+        const ratio = chartInfo(text, 1).noteCount / N0;
+        const numeric = ratio >= 0.91 ? 9.3 + (ratio - 0.91) * 10 : ratio >= 0.85 ? 8.8 : Math.max(1, Math.round(ratio * 100) / 10);
+        return { kind: "ok", numeric, label: numericToLabel(numeric).text, top3: [{ name: "Stream", share: 1 }] };
+    };
+    // a search analyses each prefix once (its bisection can come back to one), the second one a plan of its own
+    const once = DEFAULT_BUDGET.coarse + 1 + DEFAULT_BUDGET.refine;
+    const twoSearches = (n) => n > 1 + once && n <= 1 + 2 * once;
+    analyses = 0;
+    const missed = await remapChart({ osuText: ORIGINAL, range: { lo: 9.0, hi: 9.1 }, seed: 1 }, stepping, null);
+    assert.equal(missed.reachable, false);
+    assert.ok([8.8, 9.3].includes(Math.round(missed.result.numeric * 10) / 10), `the closest comes back: ${missed.result.numeric}`);
+    assert.ok(twoSearches(analyses), `two searches (${analyses})`);
+    analyses = 0;
+    const far = await remapChart({ osuText: ORIGINAL, range: { lo: 0.2, hi: 0.4 }, seed: 1 }, stepping, null);
+    assert.equal(far.reachable, false);
+    assert.equal(analyses, 1 + DEFAULT_BUDGET.coarse + 1, "one search: nothing came below the range");
+    // a map the analyzer no longer reads (an easier one that is mostly holds now) went past the range too
+    const unread = async (text) => {
+        analyses += 1;
+        const ratio = chartInfo(text, 1).noteCount / N0;
+        if (ratio < 0.85) return { kind: "not-rice", message: "ln" };
+        return { kind: "ok", numeric: ratio >= 0.91 ? 9.3 + (ratio - 0.91) * 10 : 8.8, label: "x", top3: [{ name: "Stream", share: 1 }] };
+    };
+    analyses = 0;
+    const past = await remapChart({ osuText: ORIGINAL, range: { lo: 8.0, hi: 8.5 }, seed: 1 }, unread, null);
+    assert.equal(past.reachable, false);
+    assert.ok(twoSearches(analyses), `two searches: one went past the range (${analyses})`);
+});
+
 test("a map already in range comes back unchanged apart from its name", async () => {
     const out = await remapChart({ osuText: ORIGINAL, range: { lo: 9.5, hi: 10.5 }, seed: 1 }, fakeAnalyze, null);
     assert.deepEqual([out.removed, out.added, out.reachable], [0, 0, true]);
@@ -279,4 +318,31 @@ test("LF files stay LF and a BOM stays", async () => {
     const out = await remapChart({ osuText: lf, range: { lo: 8.5, hi: 9.5 }, seed: 1 }, fakeAnalyze, null);
     assert.ok(!out.osuText.includes("\r"));
     assert.ok(out.osuText.startsWith("﻿osu file format v14\n"));
+});
+
+test("thickening keeps the map's share of jacks: a note that would make the map jackier waits until nothing else fits", () => {
+    // one quick jumpjack (so a jack as fast as 1/4 is allowed), then a 1/2 jumpstream with no jack, which gets rows
+    // between its rows; the model would put every new note into a jack
+    const BEAT = 400;
+    const objects = [];
+    const put = (t, m) => {
+        for (let c = 0; c < 4; c += 1) if (m & (1 << c)) objects.push(`${x(c)},192,${t},1,0,0:0:0:0:`);
+    };
+    for (let k = 0; k < 16; k += 1) put(1000 + k * (BEAT / 4), [3, 3, 12, 12][k % 4]);
+    const stream = [5, 2, 8, 3, 4, 9, 2, 8];
+    for (let k = 0; k < 96; k += 1) put(1000 + 5 * BEAT + k * (BEAT / 2), stream[k % stream.length]);
+    const text = ["osu file format v14", "", "[General]", "Mode: 3", "", "[Metadata]", "Version:Jacks", "", "[Difficulty]", "CircleSize:4", "",
+        "[TimingPoints]", `1000,${BEAT},4,2,0,60,1,0`, "", "[HitObjects]", ...objects, ""].join("\r\n");
+    const chart = parseChart(text);
+    const share = (rows) => rows.filter((r, i) => i > 0 && (r.mask & rows[i - 1].mask) && r.t - rows[i - 1].t <= BEAT / 2 + 1).length / rows.length;
+    const before = share(chart.rows);
+    assert.ok(before > 0);
+    for (const seed of [1, 2, 3]) {
+        const plan = { additions: additionOrder(chart, { seed, model: jackLover }) };
+        for (const knob of [0.5, 1]) {
+            const rows = rowsOf(applyKnob(chart, plan, knob).osuText);
+            assert.ok(rows.reduce((n, r) => n + popcount(r.mask), 0) > chart.notes.length, "notes were added");
+            assert.ok(share(rows) <= before + 1e-9, `seed ${seed} at ${knob}: ${share(rows).toFixed(3)} of the rows a jack, the original ${before.toFixed(3)}`);
+        }
+    }
 });

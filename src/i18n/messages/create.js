@@ -68,6 +68,12 @@ export default {
     "create.timing.oneBpm": { ru: "Один BPM на всю песню", en: "One BPM for the whole song" },
     "create.timing.fitWave": { ru: "Подогнать по волне", en: "Snap to waveform" },
     "create.timing.nudgeHint": { ru: "←/→ — сдвиг на 1 мс, с Shift — на 5 мс", en: "←/→ moves 1 ms, with Shift 5 ms" },
+    // the detected BPM and another octave that fits almost as well: «Темп под вопросом: 130 / 260?»
+    "create.timing.octaveAsk": { ru: "Темп под вопросом:", en: "Tempo unsure:" },
+    "create.timing.octaveHint": {
+        ru: "Поставить {bpm} BPM: музыка почти так же хорошо ложится и на этот темп",
+        en: "Use {bpm} BPM: the music fits this tempo almost as well",
+    },
     "create.snap.title": { ru: "Дробление сетки", en: "Snap divisors" },
     "create.snap.betaHint": {
         ru: "триплеты пока ставятся по правилам — модель обучена только на 1/4",
@@ -287,6 +293,8 @@ export default {
     "create.remap.easier": { ru: "−1 дан", en: "−1 dan" },
     "create.remap.harder": { ru: "+1 дан", en: "+1 dan" },
     "create.remap.custom": { ru: "свой дан", en: "custom dan" },
+    // off: the remap makes no minijack or anchor the map did not have (src/gen/remap.js allowJacks)
+    "create.remap.allowJacks": { ru: "Можно миниджеки и анкоры", en: "Allow minijacks and anchors" },
     "create.remap.go": { ru: "Переделать", en: "Remap" },
     "create.remap.working": { ru: "Переделываем карту… обычно 10–40 секунд", en: "Remapping… usually 10–40 seconds" },
     "create.remap.done": {
@@ -306,6 +314,8 @@ export default {
         ru: "Ближе всего: [{version}] · {numeric} · убрано {removed} / добавлено {added} нот — в папке карты, нажми F5 в osu!",
         en: "Closest we got: [{version}] · {numeric} · {removed} removed / {added} added notes — in the map's folder, press F5 in osu!",
     },
+    // …and with «Можно миниджеки и анкоры» the remap would have got into the range or much closer
+    "create.remap.tryJacks": { ru: "С «Можно миниджеки и анкоры» выйдет ближе", en: "With “Allow minijacks and anchors” on it gets closer" },
     "create.remap.onlyRice": { ru: "Переделка работает только для рисовых 4K-карт", en: "Remapping works only for 4K rice maps" },
     "create.remap.failed": { ru: "Не вышло: {message}", en: "Didn't work: {message}" },
     // 0.9.8: the dan targeting (src/gen/targeting.js) and «Автоподбор» (src/gen/autoPlan.js, app/renderer/autoPick.js)

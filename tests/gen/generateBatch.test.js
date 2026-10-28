@@ -1,6 +1,7 @@
 // Stream W, D3/D4 in the generator: builds that do not depend on each other run together on the GPU decoder
 // (src/gen/nn/webgpu/gpuBatch.js), the search decides exactly as before. Without a GPU the generator is 0.10.2's bit
-// for bit (tests/fixtures/batchGolden.json was recorded with 0.10.2's code). Over exactBackend (a stand-in whose
+// for bit (tests/fixtures/batchGolden.json was recorded with 0.10.2's code; its cases draw with 0.10.4's trill momentum
+// off, request.trills: false, and with it on a batch must still give the CPU's responses). Over exactBackend (a stand-in whose
 // decoder answers give the CPU's very logits) the batch path must give the very same responses, also when the GPU
 // fails mid-batch (the batch finishes on the CPU) — so the batching changes when a build runs, never what it draws.
 import test from "node:test";
@@ -26,7 +27,7 @@ const progressOf = async (run) => {
     return { out, seen };
 };
 
-test("without a GPU the generator gives 0.10.2's responses bit for bit (nn-v2, XGB, the shipped S model)", async () => {
+test("without a GPU and with request.trills: false the generator gives 0.10.2's responses bit for bit (nn-v2, XGB, the shipped S model)", async () => {
     assert.deepEqual(await batchGoldenCases(), GOLDEN);
 });
 
@@ -42,6 +43,21 @@ test("with a GPU batch the responses and the progress are the CPU's, and the bui
         assert.ok(debug.timing.batched >= debug.timing.builds / 2, `${name}: ${JSON.stringify(debug.timing)}`);
         assert.equal(debug.batch.fallbacks, 0);
         assert.equal(backend.sessions.size, 0, `${name}: the variant's session was released`);
+    }
+});
+
+test("with the trill momentum on (as the app draws now), a GPU batch still gives the CPU's responses", async () => {
+    // the first three come out other than 0.10.2's with the momentum (the others hold no trill it would take; "nn2
+    // target" only split jumps and roll starts, which it leaves alone)
+    const changed = ["nn2 narrow (refine)", "nn2 far low (dan retry)", "nn2 boost rung 2"];
+    for (const name of [...changed, "nn2 target", "nn2 candidates 6 + flavours", "nn2 locked part", "nn2 repeats + stems"]) {
+        const cpu = await BATCH_CASES[name]({ trills: true });
+        const backend = exactBackend();
+        const debug = {};
+        const gpu = await BATCH_CASES[name]({ trills: true, debug, source: nnV2Source(exactGpuSource(backend)) });
+        assert.equal(fingerprint(gpu), fingerprint(cpu), name);
+        if (changed.includes(name)) assert.notEqual(fingerprint(cpu), GOLDEN.find((c) => c.name === name).hash, `${name}: the momentum changes the map`);
+        assert.ok(debug.batch.maxBatch >= 2, `${name}: ${JSON.stringify(debug.batch)}`);
     }
 });
 

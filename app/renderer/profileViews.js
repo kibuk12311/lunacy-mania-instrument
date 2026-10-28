@@ -194,7 +194,15 @@ export function playRow(play, now = Date.now(), { showPerf = true } = {}) {
     } else if (play.unrated) {
         parts.push(t("profile.play.unrated"));
     }
+    // a map that is vibro at this rate (app/localProfileService.js describe): the play is kept, in no dan
+    const vibro = play.vibro && Number.isFinite(play.vibro.share) ? play.vibro : null;
+    if (vibro) parts.push(t("profile.play.vibro"));
     if (Number.isFinite(play.at)) parts.push(whenText(play.at, now));
-    row.append(title, el("div", "muted prof-play-line", parts.join(" · ")));
+    const line = el("div", "muted prof-play-line", parts.join(" · "));
+    if (vibro) {
+        row.classList.add("vibro");
+        line.title = t("profile.play.vibroTitle", { pct: Math.max(1, Math.round(vibro.share * 100)) });
+    }
+    row.append(title, line);
     return row;
 }

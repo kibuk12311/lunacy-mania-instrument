@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Lunacy mania: даны для osu!",
+    "description": "Название расширения. Это не osu!: его делает приложение Lunacy mania."
+  },
+  "extDescription": {
+    "message": "Дан Lunacy mania для каждой 4K-карты osu!mania на страницах карт osu!, дан на рейтах и демо прямо там. Не от osu!.",
+    "description": "Описание в магазине, не длиннее 132 символов."
+  }
+}

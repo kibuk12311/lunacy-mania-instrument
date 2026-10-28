@@ -7,6 +7,8 @@
 // score when the finder reports those names, and so which attempt it keeps: with the real finder some family-only
 // maps differ from before sub-patterns. goldenNamedCases() pins that on purpose (tests/fixtures/familyGoldenNames.json,
 // recorded with the new table, not before it).
+// Both are drawn with request.trills: false (the trill momentum of 0.10.4 off: generateLearned.js TRILL_MOMENTUM,
+// patterns.js TRILL_CONTINUE), so they keep pinning the old draws bit for bit; tests/gen/trillMomentum.test.js has the new.
 import { createHash } from "node:crypto";
 import { onsetEnvelope } from "../../src/audio/onset.js";
 import { generateMap } from "../../src/gen/generate.js";
@@ -89,7 +91,7 @@ const REQUESTS = [
 let envelope = null;
 const inputFor = (r, extra) => ({
     timing: { bpm: PARTS_SONG_BPM, offsetMs: PARTS_SONG_OFFSET }, envelope: (envelope ??= onsetEnvelope(partsSong(), 22050)), durationMs: PARTS_SONG.at(-1).endMs,
-    request: { patterns: r.patterns, mix: r.mix, stamina: 0.5, burst: 0.3, seed: 7, ...extra },
+    request: { patterns: r.patterns, mix: r.mix, stamina: 0.5, burst: 0.3, seed: 7, trills: false, ...extra },
     meta: { title: "golden", audioFilename: "a.mp3" },
 });
 

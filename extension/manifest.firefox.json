@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
+  "version": "0.1.0",
+  "icons": { "16": "icons/icon.png", "32": "icons/icon.png", "48": "icons/icon.png", "128": "icons/icon.png" },
+  "permissions": ["storage"],
+  "host_permissions": ["https://osu.ppy.sh/*", "https://b.ppy.sh/*", "https://*.ppy.sh/*"],
+  "background": { "scripts": ["background/firefox.js"], "type": "module" },
+  "content_scripts": [{ "matches": ["https://osu.ppy.sh/*"], "js": ["content/loader.js"], "run_at": "document_idle" }],
+  "web_accessible_resources": [{ "resources": ["content/*", "shared/*", "player/*", "icons/*"], "matches": ["https://osu.ppy.sh/*"] }],
+  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "lunacy-mania-dans@lunacy-mania",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
+}

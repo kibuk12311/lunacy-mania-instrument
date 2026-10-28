@@ -1,14 +1,16 @@
 // Timing from an onset envelope. detectTiming: one BPM for the whole song. Score = Fourier magnitude at the beat
-// frequency (rejects f/2) × autocorrelation at the beat period (rejects 2f) × a log-tempo prior centred on 150 BPM.
+// frequency (rejects f/2) × autocorrelation at the beat period (rejects 2f) × a log-tempo prior centred on 150 BPM,
+// then the octave step (chooseOctave): of that tempo, its double and its half, the one people map to.
 // detectTimingSections: the same score over 10 s windows, a Viterbi path through it that changes BPM only on strong
 // evidence, then each section's exact BPM, phase and start (and, with fine onsets, its red line to the millisecond).
-import { refineSection, beatPhase, fineTempo, foldsAt } from "./fineOnset.js";
+import { refineSection, beatPhase, hintPhase, fineTempo, foldsAt } from "./fineOnset.js";
 
 const MIN_BPM = 60;
-const MAX_BPM = 260;
+const MAX_BPM = 330; // speedcore and hardcore dan songs sit at 260–320
 
-function detrend(values, hopSec) {
-    const half = Math.max(1, Math.round(0.25 / hopSec));
+// The values minus their mean over ±halfSec; with `clip` only what rises above it.
+function minusLocalMean(values, hopSec, halfSec, clip) {
+    const half = Math.max(1, Math.round(halfSec / hopSec));
     const out = new Float64Array(values.length);
     let sum = 0;
     let lo = 0;
@@ -16,10 +18,13 @@ function detrend(values, hopSec) {
     for (let i = 0; i < values.length; i += 1) {
         while (hi < Math.min(values.length - 1, i + half)) sum += values[++hi];
         while (lo < i - half) sum -= values[lo++];
-        out[i] = Math.max(0, values[i] - sum / (hi - lo + 1));
+        const v = values[i] - sum / (hi - lo + 1);
+        out[i] = clip ? Math.max(0, v) : v;
     }
     return out;
 }
+
+const detrend = (values, hopSec) => minusLocalMean(values, hopSec, 0.25, true);
 
 function autocorrelation(x, maxLag) {
     const ac = new Float64Array(maxLag + 2);
@@ -39,20 +44,87 @@ const interp = (arr, x) => {
     return i + 1 < arr.length ? arr[i] * (1 - t) + arr[i + 1] * t : 0;
 };
 
+// Magnitude and phase of the whole curve at one period: fourierSpan's rotating phasor (a cos and sin per sample made
+// the 60–330 BPM scan several times slower; the answers on 308 songs are the same).
 function fourier(x, periodFrames) {
-    let re = 0;
-    let im = 0;
-    const w = (2 * Math.PI) / periodFrames;
-    for (let n = 0; n < x.length; n += 1) {
-        if (x[n] === 0) continue;
-        re += x[n] * Math.cos(w * n);
-        im -= x[n] * Math.sin(w * n);
-    }
-    return { mag: Math.hypot(re, im), phase: Math.atan2(-im, re) };
+    return fourierSpan(x, 0, x.length, periodFrames);
 }
 
 const prior = (bpm) => Math.exp(-0.5 * (Math.log2(bpm / 150) / 0.9) ** 2);
 
+// ---- the octave: the tempo, its double or its half ----
+// The onset scores rise at ×2 and ×½ of a song's beat about as much as at the beat itself: kicks or a bass on the
+// eighths, or on every other beat, are a beat at another tempo, and on a loud limited master every frame is an
+// onset. The beat people map to is told by a log-tempo prior of mapped songs (centre 185 BPM, ±0.45 octave), by how
+// strongly the loudness repeats at that beat (envelope.energy: the once-per-beat bass swell and the pumping of a
+// sidechained master), and by how alike the low band (kick, bass) is one beat apart (a kick once per beat is not alike
+// half a beat apart). That likeness counts down to OCTAVE_FLOOR only: a backbeat (kick on 1 and 3, snare on 2 and 4)
+// leaves the low band unalike one beat apart too, and must not halve a 144 BPM pop song to 72. Picked by a search on
+// 308 single-BPM human maps (right BPM 78 % → 84 %) among the settings that keep click tracks at 96, 100 (with
+// eighth-note hi-hats) and 128 BPM, checked on the 712 single-BPM held-out maps of tools/eval-timing.mjs
+// (78 % → 85 %); how tightly the fine onsets fold added nothing there, so it takes no part.
+const OCTAVE_CENTRE_BPM = 185;
+const OCTAVE_WIDTH = 0.45; // octaves
+const OCTAVE_ENERGY = 0.7;
+const OCTAVE_LOW = 4;
+const OCTAVE_FLOOR = 0.2; // a low band less alike than this one beat apart counts as this
+const ENERGY_MEAN_SEC = 1; // the loudness of the moment (±1 s) is taken out of the energy curve first
+// another octave scoring within this much (natural log: at least a fifth as likely) of the chosen one is offered next
+// to it (Timing.alternatives); on the held-out maps that puts the right BPM one click away for half the wrong ones
+// and shows a needless choice on about a fifth of the right ones
+export const OCTAVE_OFFER = 1.5;
+
+// How alike x[from, to) is `lag` frames apart (fractional), against itself.
+function lagCorrelation(x, from, to, lag) {
+    const at = (l) => {
+        let sum = 0;
+        for (let i = from + l; i < to; i += 1) sum += x[i] * x[i - l];
+        return sum;
+    };
+    const zero = at(0);
+    if (!(zero > 0)) return 0;
+    const i = Math.floor(lag);
+    const t = lag - i;
+    return (at(i) * (1 - t) + at(i + 1) * t) / zero;
+}
+
+// (bpm, from, to) → the octave score of that tempo over frames [from, to) (higher is likelier).
+function octaveScorer(envelope, x) {
+    const { hopSec } = envelope;
+    const low = envelope.bands?.low?.length ? detrend(envelope.bands.low, hopSec) : x;
+    const energy = envelope.energy?.length ? minusLocalMean(envelope.energy, hopSec, ENERGY_MEAN_SEC, false) : null;
+    return (bpm, from, to) => {
+        const period = 60 / (bpm * hopSec);
+        let score = -0.5 * (Math.log2(bpm / OCTAVE_CENTRE_BPM) / OCTAVE_WIDTH) ** 2;
+        score += OCTAVE_LOW * Math.log(Math.max(OCTAVE_FLOOR, lagCorrelation(low, from, to, period)));
+        if (energy) score += OCTAVE_ENERGY * Math.log(Math.max(1e-12, fourierSpan(energy, from, to, period).mag));
+        return score;
+    };
+}
+
+// The song's octave over its spans [{ bpm, from, to }] (frames): ×1, ×2 or ×½ for every span alike (×2 and ×½ only
+// when every span stays inside MIN_BPM..MAX_BPM), the spans' scores weighted by their length.
+// → { factor, alternatives: [{ factor (against the chosen one), share (0..1 of the three) }] } with the close ones.
+function chooseOctave(score, spans) {
+    const total = spans.reduce((sum, s) => sum + Math.max(0, s.to - s.from), 0) || 1;
+    const options = [1, 2, 0.5]
+        .filter((f) => f === 1 || spans.every((s) => s.bpm * f >= MIN_BPM && s.bpm * f <= MAX_BPM))
+        .map((f) => ({ factor: f, value: spans.reduce((sum, s) => sum + (Math.max(0, s.to - s.from) / total) * score(s.bpm * f, s.from, s.to), 0) }))
+        .sort((a, b) => b.value - a.value);
+    const best = options[0];
+    const z = options.reduce((sum, o) => sum + Math.exp(o.value - best.value), 0);
+    const alternatives = options.slice(1).filter((o) => best.value - o.value < OCTAVE_OFFER)
+        .map((o) => ({ factor: o.factor / best.factor, share: Math.round((Math.exp(o.value - best.value) / z) * 100) / 100 }));
+    return { factor: best.factor, alternatives };
+}
+
+const roundBpm = (raw) => {
+    const bpm = Math.round(raw * 100) / 100;
+    return Math.abs(bpm - Math.round(bpm)) <= 0.15 ? Math.round(bpm) : bpm;
+};
+
+// One BPM for the song → { bpm, offsetMs, alternatives: [{ bpm, offsetMs, share }] } (the other octaves that score
+// close to the chosen one, best first; usually none).
 export function detectTiming(envelope) {
     const { values, hopSec, frameTimeSec } = envelope;
     const x = detrend(values, hopSec);
@@ -65,21 +137,24 @@ export function detectTiming(envelope) {
         const score = fourier(x, p).mag * Math.max(0, interp(ac, p)) * prior(bpm);
         if (score > best.score) best = { score, bpm };
     }
-    // The octave is settled; the Fourier peak alone is far sharper for the exact value.
+    // The family is settled; the Fourier peak alone is far sharper for the exact value.
     let fine = { mag: -1, bpm: best.bpm };
     for (let bpm = best.bpm - 0.6; bpm <= best.bpm + 0.6; bpm += 0.01) {
         const { mag } = fourier(x, periodOf(bpm));
         if (mag > fine.mag) fine = { mag, bpm };
     }
-
-    let bpm = Math.round(fine.bpm * 100) / 100;
-    if (Math.abs(bpm - Math.round(bpm)) <= 0.15) bpm = Math.round(bpm);
-    const period = periodOf(bpm);
-    const { phase } = fourier(x, period);
-    const firstFrame = (((phase / (2 * Math.PI)) * period) % period + period) % period;
-    const beatMs = 60000 / bpm;
-    const offsetMs = ((frameTimeSec(firstFrame) * 1000) % beatMs + beatMs) % beatMs;
-    return { bpm, offsetMs: Math.round(offsetMs) };
+    const octave = chooseOctave(octaveScorer(envelope, x), [{ bpm: fine.bpm, from: 0, to: x.length }]);
+    const timed = (raw) => {
+        const bpm = roundBpm(raw);
+        const period = periodOf(bpm);
+        const { phase } = fourier(x, period);
+        const firstFrame = (((phase / (2 * Math.PI)) * period) % period + period) % period;
+        const beatMs = 60000 / bpm;
+        const offsetMs = ((frameTimeSec(firstFrame) * 1000) % beatMs + beatMs) % beatMs;
+        return { bpm, offsetMs: Math.round(offsetMs) };
+    };
+    const chosen = fine.bpm * octave.factor;
+    return { ...timed(chosen), alternatives: octave.alternatives.map((a) => ({ ...timed(chosen * a.factor), share: a.share })) };
 }
 
 // ---- sectioned timing (mapgen v3) ----
@@ -349,16 +424,26 @@ function prune(sections, { x, hopSec, frameOf, maxSections }) {
 
 const clampBpm = (bpm) => Math.min(LIMITS_BPM[1], Math.max(LIMITS_BPM[0], bpm));
 
+// «Подогнать по волне» keeps the user's red line: it moves onto the attacks within this much of it (a sixth of a beat
+// at most), further only when the attacks there fold under HINT_OFF_RATIO of the strongest in the beat.
+const HINT_NEAR_MS = 40;
+const HINT_NEAR_BEATS = 1 / 6;
+const HINT_OFF_RATIO = 0.5;
+export const hintNearMs = (bpm) => Math.min(HINT_NEAR_MS, (60000 / bpm) * HINT_NEAR_BEATS);
+
 // Timing sections of the whole song: { sections: [{ timeMs, bpm, meter }], confidence (0..1 or null),
-// variable, refinedErrMs (with fine onsets: how far the attacks sit from the grid) }.
-// With `hint` (a Timing) its sections are kept and each one's BPM and red line are refined instead.
+// variable, refinedErrMs (with fine onsets: how far the attacks sit from the grid), alternatives }.
+// alternatives: for one BPM found on its own, the other octaves that score close to it, [{ timeMs, bpm, share }]
+// (share 0..1 of the octave scores), else [].
+// With `hint` (a Timing) its sections are kept and each one's BPM is refined, its red line kept near the user's (see
+// HINT_NEAR_MS); with fine onsets a hint's times are where its attacks are (timingJob.js moves them by the bias).
 // When one section survives on its own (and there are no fine onsets) the answer is exactly detectTiming's.
 export function detectTimingSections(envelope, { fine = null, maxSections = 32, hint = null } = {}) {
     const { values, hopSec, frameTimeSec } = envelope;
     const songMs = frameTimeSec(Math.max(0, values.length - 1)) * 1000;
     const single = () => {
         const one = detectTiming(envelope);
-        return finish([{ timeMs: one.offsetMs, bpm: one.bpm, meter: 4, endMs: songMs }], { fine, songMs, confidence, single: true });
+        return finish([{ timeMs: one.offsetMs, bpm: one.bpm, meter: 4, endMs: songMs }], { fine, songMs, confidence, single: true, alternatives: one.alternatives });
     };
     const x = detrend(values, hopSec);
     const frameOf = (ms) => Math.max(0, Math.min(values.length, Math.round((ms / 1000 - frameTimeSec(0)) / hopSec)));
@@ -396,8 +481,13 @@ export function detectTimingSections(envelope, { fine = null, maxSections = 32, 
             if (b - a < 8) [a, b] = [frameOf(startMs), frameOf(sec.endMs)];
             const { bpm, firstFrame } = refineSpan(x, phaseX, a, b, sec.bpm, hopSec);
             const out = { ...sec, bpm, beatMs: 60000 / bpm, gridMs: frameTimeSec(firstFrame) * 1000, startMs };
-            // a hint's red lines stay where they were, moved onto the nearest beat of the refined grid
-            if (hint) out.startMs = out.gridMs += Math.round((sec.roughMs - out.gridMs) / out.beatMs) * out.beatMs;
+            if (hint) {
+                // a hint's red line stays where the user put it: with fine onsets finish() moves it onto the attacks
+                // next to it; without them it goes onto the nearest beat of the envelope's grid only when that is near.
+                // (The low band's grid can sit half a beat off on a loud pumping song.)
+                const nearest = out.gridMs + Math.round((sec.roughMs - out.gridMs) / out.beatMs) * out.beatMs;
+                out.startMs = out.gridMs = !fine && Math.abs(nearest - sec.roughMs) <= hintNearMs(bpm) ? nearest : sec.roughMs;
+            }
             return out;
         });
         if (hint) break;
@@ -410,12 +500,42 @@ export function detectTimingSections(envelope, { fine = null, maxSections = 32, 
         if (sections.length === 1) return single();
         if (sections.length === before) break;
     }
+    if (!hint) sections = withOctave(sections, { envelope, x, phaseX, frameOf });
     const out = sections.map((s, i) => {
         // without a hint the first red line is the song's first beat, as detectTiming gives it
         const timeMs = i === 0 && !hint ? ((s.gridMs % s.beatMs) + s.beatMs) % s.beatMs : s.startMs;
         return { timeMs, bpm: s.bpm, meter: s.meter ?? 4, endMs: sections[i + 1]?.startMs ?? songMs };
     });
     return finish(out, { fine, songMs, confidence, single: false, hinted: !!hint });
+}
+
+// The song's octave for found sections. A section an octave from the longest one is the same tempo found at another
+// octave (the windows' usual mistake), so it first goes to the longest one's octave; then every BPM is ×2 or ×½ alike
+// when that scores better (chooseOctave). ×2 keeps every beat of the grid; ×½ keeps every other one, those the phase
+// curve puts the beat on; a later section starts on the beat of its new grid nearest its old start.
+function withOctave(sections, { envelope, x, phaseX, frameOf }) {
+    const { hopSec, frameTimeSec } = envelope;
+    const spans = sections.map((s) => ({ from: frameOf(s.startMs), to: frameOf(s.endMs) }));
+    let longest = 0;
+    spans.forEach((sp, i) => { if (sp.to - sp.from > spans[longest].to - spans[longest].from) longest = i; });
+    const ref = sections[longest].bpm;
+    const own = sections.map((s) => [2, 0.5].find((f) => Math.abs((s.bpm * f) / ref - 1) <= OCTAVE_TOLERANCE) ?? 1);
+    const { factor } = chooseOctave(octaveScorer(envelope, x), spans.map((sp, i) => ({ ...sp, bpm: sections[i].bpm * own[i] })));
+    if (own.every((o) => o * factor === 1)) return sections;
+    return sections.map((s, i) => {
+        const f = own[i] * factor;
+        if (f === 1) return s;
+        const bpm = s.bpm * f;
+        const beatMs = 60000 / bpm;
+        let { gridMs } = s;
+        if (f < 1) {
+            const period = 60 / (bpm * hopSec);
+            const { phase } = fourierSpan(phaseX, spans[i].from, spans[i].to, period);
+            gridMs = frameTimeSec((((phase / (2 * Math.PI)) * period) % period + period) % period) * 1000;
+        }
+        const startMs = i === 0 ? s.startMs : gridMs + Math.round((s.startMs - gridMs) / beatMs) * beatMs;
+        return { ...s, bpm, beatMs, gridMs, startMs };
+    }).map((s, i, all) => ({ ...s, endMs: all[i + 1]?.startMs ?? s.endMs }));
 }
 
 // A later section keeps its own BPM only when it folds its attacks clearly tighter than the BPM before it does:
@@ -437,45 +557,65 @@ function confirmSplits(sections, fine, songMs) {
     return list;
 }
 
+const firstBeat = (timeMs, bpm) => {
+    const beatMs = 60000 / bpm;
+    return ((timeMs % beatMs) + beatMs) % beatMs;
+};
+
+// The BPM that folds the attacks of [fromMs, toMs) tightest near `bpm`, rounded where the grid allows.
+const fineBpm = (fine, bpm, fromMs, toMs) => clampBpm(roundSectionBpm(fineTempo(fine, { bpm, fromMs, toMs }).bpm, toMs - fromMs));
+
 // With fine onsets each section's BPM and red line come from the attacks; BPMs are rounded where the grid allows.
-function finish(sections, { fine, songMs, confidence, single, hinted = false }) {
+// alternatives (single only): detectTiming's other octaves, timed the same way as the chosen one.
+function finish(sections, { fine, songMs, confidence, single, hinted = false, alternatives = [] }) {
     if (single && !fine) {
-        return { sections: sections.map(({ timeMs, bpm, meter }) => ({ timeMs, bpm, meter })), confidence, variable: false, refinedErrMs: null };
+        return {
+            sections: sections.map(({ timeMs, bpm, meter }) => ({ timeMs, bpm, meter })), confidence, variable: false, refinedErrMs: null,
+            alternatives: alternatives.map(({ bpm, offsetMs, share }) => ({ timeMs: offsetMs, bpm, share })),
+        };
     }
     if (fine && !hinted) sections = confirmSplits(sections, fine, songMs);
     const errs = [];
     const out = sections.map((s, i) => {
         const endMs = sections[i + 1]?.timeMs ?? s.endMs ?? songMs;
         const fromMs = i === 0 && !hinted ? 0 : s.timeMs;
-        let { timeMs, bpm } = s;
+        let { timeMs } = s;
         // with fine onsets: the BPM that folds the attacks tightest, then where in the beat they gather
-        if (fine) bpm = fineTempo(fine, { bpm, fromMs, toMs: endMs }).bpm;
-        const round = clampBpm(roundSectionBpm(bpm, endMs - fromMs));
-        if (fine) {
-            // a later section's red line stays within half a beat of where it was found, a hint's within a quarter
-            // beat of where the user put it
-            const withinMs = hinted ? Math.min(60000 / round / 4, 60) : null;
-            timeMs = beatPhase(fine, { bpm: round, anchorMs: timeMs, fromMs, toMs: endMs, withinMs });
+        const round = fine ? fineBpm(fine, s.bpm, fromMs, endMs) : clampBpm(roundSectionBpm(s.bpm, endMs - fromMs));
+        if (fine && hinted) {
+            // a hint's red line stays near where the user put it (onto the attacks next to it), unless it is clearly off
+            const nearMs = hintNearMs(round);
+            const p = hintPhase(fine, { bpm: round, anchorMs: timeMs, fromMs, toMs: endMs, nearMs, offRatio: HINT_OFF_RATIO });
+            const r = refineSection(fine, { timeMs: p.timeMs, bpm: round, fromMs, toMs: endMs }, { tempo: false });
+            timeMs = p.near ? Math.min(s.timeMs + nearMs, Math.max(s.timeMs - nearMs, r.timeMs)) : r.timeMs;
+            if (r.errMs !== null) errs.push(r.errMs);
+        } else if (fine) {
+            // a later section's red line stays within half a beat of where it was found
+            timeMs = beatPhase(fine, { bpm: round, anchorMs: timeMs, fromMs, toMs: endMs });
             const r = refineSection(fine, { timeMs, bpm: round, fromMs, toMs: endMs }, { tempo: false });
             timeMs = r.timeMs;
             if (r.errMs !== null) errs.push(r.errMs);
         }
         return { timeMs, bpm: round, meter: s.meter ?? 4 };
     });
-    if (out.length && !hinted) {
-        const beatMs = 60000 / out[0].bpm;
-        out[0].timeMs = ((out[0].timeMs % beatMs) + beatMs) % beatMs;
-    }
+    if (out.length && !hinted) out[0].timeMs = firstBeat(out[0].timeMs, out[0].bpm);
     const kept = [];
     for (const s of out) {
         const last = kept.at(-1);
         if (last && (s.timeMs <= last.timeMs || (!hinted && Math.abs(s.bpm / last.bpm - 1) < MERGE_RELATIVE))) continue;
         kept.push(s);
     }
+    // the other octaves of a single BPM: the attacks' own BPM near each and its first beat, from the chosen red line
+    const timedAlternatives = single && kept.length === 1 ? alternatives.map(({ bpm, share }) => {
+        const b = fineBpm(fine, bpm, 0, songMs);
+        const t = beatPhase(fine, { bpm: b, anchorMs: kept[0].timeMs, fromMs: 0, toMs: songMs });
+        return { timeMs: firstBeat(refineSection(fine, { timeMs: t, bpm: b, fromMs: 0, toMs: songMs }, { tempo: false }).timeMs, b), bpm: b, share };
+    }) : [];
     return {
         sections: kept,
         confidence,
         variable: kept.length > 1,
         refinedErrMs: errs.length ? Math.round((errs.reduce((a, b) => a + b, 0) / errs.length) * 10) / 10 : null,
+        alternatives: timedAlternatives,
     };
 }

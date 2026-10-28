@@ -1,5 +1,6 @@
 // Main-process events the tab modules subscribe to without touching main.js:
-// "result" — a fresh result for the map selected in osu! ({ key, text, rate, result, checksum });
+// "result" — a fresh result for the map selected in osu! ({ key, text, rate, result, checksum } and, for a rate map,
+//   rateMap { rate, shown, text }: its original, app/selectionController.js);
 // "window-load" — the page (re)loaded, after settings and the view were sent.
 export const HOOK_NAMES = ["result", "window-load"];
 

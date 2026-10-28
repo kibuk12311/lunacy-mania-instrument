@@ -4,7 +4,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makeChart } from "./fixtures/makeChart.js";
 import { chartInfo } from "../src/core/features.js";
-import { BINS, binStrain, hardestRanges, familyOf, binFamilies, familyShares, computeDetails, detailsJob } from "../src/analysis/timeline.js";
+import { BINS, binStrain, hardestRanges, familyOf, binFamilies, binFlavours, familyShares, computeDetails, detailsJob } from "../src/analysis/timeline.js";
+import { ANALYSIS_FLAVOUR_IDS } from "../src/gen/flavours.js";
+import { flavourShares } from "../src/gen/flavourMetrics.js";
+import { toOsu } from "../src/gen/writer.js";
 
 const inst = (Pattern, SpecificType, Start, End, { Mixed = false, MsPerBeat = 333 } = {}) => ({ Pattern, SpecificType, Mixed, Start, End, MsPerBeat });
 
@@ -122,6 +125,23 @@ test("computeDetails on a synthetic jumpstream: 120 bins, the card's duration, t
     }
     const stream = computeDetails(makeChart({ kind: "stream", bpm: 170, seconds: 40 }), 1);
     assert.equal(familyShares(stream.families)[0].family, "stream");
+});
+
+// "[12] [1234]" → rows every stepMs (columns 1–4 as players count them)
+const rowsOf = (seq, { reps, stepMs = 120, from = 1000 }) => Array.from({ length: reps }, () => seq.split(" ")).flat()
+    .map((tok, k) => ({ t: from + k * stepMs, cols: [...tok.replace(/[[\]]/g, "")].map((c) => Number(c) - 1) }));
+
+test("the analysis looks for the flavours of 0.10.3 only: a map of 2/4 chordjacks (a generator flavour) changes no saved detail", () => {
+    const rows = [...rowsOf("[12] [1234] [34] [1234] [13] [1234] [24] [1234]", { reps: 30 }),
+        ...rowsOf("[1234] [123] [234] [134]", { reps: 30, from: 1000 + 240 * 120 })];
+    assert.ok(flavourShares(rows).find((f) => f.id === "JumpQuad").share > 0.4, "our detector finds them");
+    const text = toOsu({ rows, timingPoints: [{ time: 1000, beatLength: 480, meter: 4 }], title: "t", artist: "a", version: "v", audioFilename: "a.mp3" });
+    const details = computeDetails(text, 1);
+    assert.ok(details.flavours.length > 0 && details.flavours.every((f) => ANALYSIS_FLAVOUR_IDS.includes(f.id)), JSON.stringify(details.flavours));
+    assert.ok(details.flavourBins.every((b) => b === "-" || ANALYSIS_FLAVOUR_IDS.includes(b)));
+    assert.ok(details.flavourBins.includes("Quadhand"), "the quadhand half is still shown");
+    const masks = rows.map((r) => ({ t: r.t, mask: r.cols.reduce((m, c) => m | (1 << c), 0) }));
+    assert.ok(binFlavours(masks, { durationMs: 70_000 }).every((b) => b !== "JumpQuad"));
 });
 
 test("detailsJob is the worker's answer: the details, or an error with its message", () => {

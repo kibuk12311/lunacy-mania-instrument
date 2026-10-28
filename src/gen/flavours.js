@@ -12,7 +12,7 @@ export const FAMILY_FLAVOURS = {
     Stream: ["Rolls", "Trills", "Minitrills", "RunningMan"],
     Jumpstream: ["Jumptrill", "SplitTrill", "Anchor", "Dumpstream"],
     Handstream: ["ChordTrills", "DenseHandstream", "JumpyHandstream"],
-    Chordjack: ["Handjack", "Jumpjack", "Quadhand", "Quadstream"],
+    Chordjack: ["Handjack", "Jumpjack", "Quadhand", "JumpQuad", "Quadstream"],
     Jack: ["Minijacks", "Longjacks", "Gluts", "Speedjacks"],
     Tech: ["Coordination", "JackyStream"],
 };
@@ -26,6 +26,12 @@ export const FINDER_NAME = {
 };
 
 export const FLAVOUR_IDS = Object.values(FAMILY_FLAVOURS).flat();
+// The flavours the analysis looks for (src/analysis/timeline.js: a map's detected flavours and the flavour strip):
+// those of 0.10.3, in the same order. A flavour added since is the generator's only, so every saved analysis stays
+// what it was (it would show up in those lists and move them, and a changed analyzer analyses every map again);
+// it joins this list with the next change that re-runs the analyses anyway.
+export const GENERATOR_ONLY_FLAVOURS = Object.freeze(["JumpQuad"]);
+export const ANALYSIS_FLAVOUR_IDS = Object.freeze(FLAVOUR_IDS.filter((id) => !GENERATOR_ONLY_FLAVOURS.includes(id)));
 export const FLAVOUR_FAMILY = Object.fromEntries(Object.entries(FAMILY_FLAVOURS).flatMap(([family, ids]) => ids.map((id) => [id, family])));
 export const familyOfFlavour = (id) => FLAVOUR_FAMILY[id] ?? null;
 export const flavoursOf = (family) => FAMILY_FLAVOURS[family] ?? [];
@@ -319,6 +325,52 @@ function quadhand(recent) {
     });
 }
 
+// Jumps and quads in turn, a jack on every row (the 2/4 chordjack: [12][1234][34][1234], or with doubled rows
+// [12][12][1234][1234][34][34]): a quad keeps both notes of any jump, a jump keeps two columns of the quad. A jump is
+// played at most twice and a quad too (a third would be a jumpjack or a quadjack). The jump after a quad is mostly
+// the other half of the jump before ([12] → [34], [13] → [24]): a column it kept is held for five rows (quad, jump,
+// quad, jump, quad), so the pair only now and then moves on to a jump that keeps one column, and a column held for
+// four rows already is kept no longer (doubled rows hold their columns for six: [1234][1234][34][34][1234][1234]).
+// `phrase` picks the first pair and how often rows are doubled (every other phrase more), so phrases differ.
+const PAIRS = [[3, 12], [5, 10], [9, 6]]; // [12]/[34], [13]/[24], [14]/[23]
+const isJump = (m) => popcount(m) === 2;
+const DOUBLING = [0.15, 0.6];
+const NEW_PAIR = 0.08; // per jump keeping one column (four of them: about a quarter of the jumps after a quad)
+const SAME_JUMP = 0.03; // [12] [1234] [12]: both columns held
+const HELD = 4;
+function jumpQuad(recent, phrase) {
+    const [p = 0, q = 0, r2 = 0] = recent;
+    const doubling = DOUBLING[phrase & 1];
+    const pair = PAIRS[phrase % 3];
+    const last = recent.find(isJump) ?? 0;
+    const held = (m) => Math.max(...[0, 1, 2, 3].filter((c) => m & bit(c)).map((c) => runOf(recent, c)));
+    const jumpAfterQuad = (m) => {
+        if (!last) return pair.includes(m) ? HIT : 0.3;
+        if (!(m & last)) return HIT;
+        if (held(m & last) >= HELD) return OFF;
+        return m === last ? SAME_JUMP : NEW_PAIR;
+    };
+    return table((m) => {
+        const n = popcount(m);
+        if (n !== 2 && n !== 4) return RARE;
+        if (isJump(p)) {
+            if (m === 15) return HIT;
+            if (m === p) return q === p ? NONE : held(p) >= HELD ? OFF : doubling;
+            return m & p ? NONE : OFF; // no jack on two columns (the other half alone is a jumptrill)
+        }
+        if (p === 15) {
+            if (m === 15) {
+                if (q === 15) return NONE;
+                return isJump(q) && r2 === q ? HIT : doubling * 0.3; // a doubled jump, then the quad doubled too
+            }
+            const w = jumpAfterQuad(m);
+            return isJump(q) && r2 === q ? 0.25 * w : w;
+        }
+        // the start, or a row of another kind before: a jump of the phrase's pair, or a quad
+        return m === 15 ? 0.5 : pair.includes(m) ? HIT : 0.3;
+    });
+}
+
 // quad, two rows of stream, a jump, quad … (the finder's quadstream: a quad jacking a chord, then rows without jacks)
 function quadstream(recent) {
     const [p = 0] = recent;
@@ -451,6 +503,7 @@ const MOTIFS = {
     Handjack: handjack,
     Jumpjack: jumpjack,
     Quadhand: quadhand,
+    JumpQuad: jumpQuad,
     Quadstream: quadstream,
     Minijacks: minijacks,
     Longjacks: longjacks,

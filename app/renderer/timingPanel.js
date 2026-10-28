@@ -1,6 +1,7 @@
 // Timing panel of the create tab (mapgen v3): the red lines (sections) of the song, their table and buttons
 // (+ point here, one BPM, ×2 ÷2 ×1.5 ×⅔, −5 −1 +1 +5 ms, snap to the waveform), #bpm / #offset for the chosen line,
-// the note under them, and the snap divisor chips with the even-scroll checkbox.
+// the note under them, and the snap divisor chips with the even-scroll checkbox. When the detected BPM has another
+// octave that fits almost as well (Timing.alternatives), a row «130 / 260?» puts that one in with one click.
 // The pure helpers take a Timing and give a new one (or null when the change is not allowed); nothing is changed in place.
 import { t } from "../../src/i18n/i18n.js";
 import { sectionsOf, sectionIndexAt } from "./snapColors.js";
@@ -83,6 +84,18 @@ export function setSection(timing, index, change) {
 
 const shown = (x) => String(Math.round(x * 100) / 100);
 
+// The octave choices of a detected Timing: its own single red line and its alternatives ({ timeMs, bpm }), slowest
+// first; [] when there is nothing to choose (several red lines, no alternative, or none usable).
+export function octaveChoices(timing) {
+    const sections = timing?.sections ?? [];
+    if (sections.length !== 1 || !Array.isArray(timing.alternatives)) return [];
+    const own = { timeMs: sections[0].timeMs, bpm: sections[0].bpm };
+    const others = timing.alternatives
+        .filter((a) => okBpm(a?.bpm) && Number.isFinite(a.timeMs) && a.timeMs >= 0 && Math.abs(a.bpm - own.bpm) > 1e-6)
+        .map((a) => ({ timeMs: a.timeMs, bpm: a.bpm }));
+    return others.length ? [own, ...others].sort((a, b) => a.bpm - b.bpm) : [];
+}
+
 function el(tag, { className = "", text = "", title = "" } = {}) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -107,6 +120,23 @@ export function createTimingPanel({ root, snapsRoot, bpmInput, offsetInput, note
     const snaps = new Set([4]);
     let normalizeSv = true;
     let fitting = false;
+    let choices = []; // octaveChoices of the last detected timing
+
+    // «130 / 260?»: the BPM in use as text, each other choice a button; only while the timing is one of the choices
+    function octaveRow() {
+        if (choices.length < 2 || timing.sections.length !== 1) return null;
+        const current = timing.sections[0];
+        if (!choices.some((c) => Math.abs(c.bpm - current.bpm) < 1e-6)) return null;
+        const row = el("div", { className: "row" });
+        row.dataset.role = "octave";
+        row.append(el("span", { className: "muted", text: t("create.timing.octaveAsk") }));
+        choices.forEach((c, i) => {
+            if (i > 0) row.append(el("span", { className: "muted", text: "/" }));
+            if (Math.abs(c.bpm - current.bpm) < 1e-6) row.append(el("span", { text: shown(c.bpm) }));
+            else row.append(button(`${shown(c.bpm)}?`, () => apply(withMirrors([{ timeMs: c.timeMs, bpm: c.bpm, meter: current.meter }])), t("create.timing.octaveHint", { bpm: shown(c.bpm) })));
+        });
+        return row;
+    }
 
     function showInputs() {
         const s = timing.sections[selected];
@@ -190,7 +220,8 @@ export function createTimingPanel({ root, snapsRoot, bpmInput, offsetInput, note
         });
         fit.disabled = fitting;
         nudges.append(fit);
-        kids.push(points, octaves, nudges);
+        const choice = octaveRow();
+        kids.push(points, octaves, ...(choice ? [choice] : []), nudges);
         root.replaceChildren(...kids);
         root.hidden = false;
         showInputs();
@@ -239,9 +270,11 @@ export function createTimingPanel({ root, snapsRoot, bpmInput, offsetInput, note
     return {
         get timing() { return timing; },
         get selected() { return selected; },
-        // a new timing (detected, or snapped to the waveform); { detected } or { refined } words the note
+        // a new timing (detected, or snapped to the waveform); { detected } or { refined } words the note; a detected
+        // one's alternatives become the octave row
         set(next, { detected = false, refined = false } = {}) {
             timing = withMirrors(sectionsOf(next));
+            choices = detected ? octaveChoices(next) : [];
             selected = 0;
             typedOk = true;
             if (note) {

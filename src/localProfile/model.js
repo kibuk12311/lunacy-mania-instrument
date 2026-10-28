@@ -3,8 +3,10 @@
 // and overall, each with a ± range and a confidence. Pure functions; docs/local-profile.md explains every constant.
 //
 //   one play  → its performance dan: the map's dan at the play's rate (our analysis), moved by the accuracy
-//               (full credit at REF_ACC, a little more near perfect, steadily less below) and by the misses;
-//   one map   → its attribution: which patterns (and so which axes) it is evidence for, from the analysis's pattern
+//               (full credit at REF_ACC, a little more near perfect, steadily less below) and by the misses; none
+//               for a map that is vibro at that rate (src/vibro/detect.js, kept beside the map's summary): such a
+//               pass says little about the player's jacks, so it is listed but moves no dan (MODEL.VIBRO_EXCLUDE);
+//   one map  → its attribution: which patterns (and so which axes) it is evidence for, from the analysis's pattern
 //               shares (LeoBlack's top three, the tech flag, the length);
 //   many plays → per key (an axis or a pattern) the best play of each map, ordered by performance (old plays fade a
 //               little a year), the top TOP_N weighted DECAY^i × share × quality, their weighted mean. Shown only with
@@ -53,6 +55,9 @@ export const MODEL = Object.freeze({
     STAMINA_FROM_SEC: 120, // a map longer than this is partly Stamina evidence …
     STAMINA_FULL_SEC: 360, // … up to STAMINA_MAX of it at this length
     STAMINA_MAX: 0.5,
+    // a pass on a map that is vibro at its rate (map.vibro.vibro, src/vibro/detect.js) is no evidence: kept and
+    // listed, counted in vibroPlays, but in no axis, pattern or overall dan
+    VIBRO_EXCLUDE: true,
 });
 
 // Mods that make a play not the player's own (autoplay, cinema, relax, autopilot) or not a play at all.
@@ -90,13 +95,23 @@ export function accuracyAdjust(accPct, m = MODEL) {
 
 const excluded = (mods) => (Array.isArray(mods) ? mods : []).some((x) => EXCLUDED_MODS.includes(String(x).toUpperCase()));
 
+// Whether a map's summary says it is vibro at its rate (no answer is not vibro: the play counts as it always did).
+export const isVibroMap = (map) => map?.vibro?.vibro === true;
+
+// A play that would be evidence (a pass, the player's own, on a map with a dan) but is left out: the map is vibro.
+export function vibroExcluded(play, map, m = MODEL) {
+    if (!m.VIBRO_EXCLUDE || !isVibroMap(map) || !play || play.outcome !== "pass" || excluded(play.mods)) return false;
+    return map.kind === "ok" && finite(map.numeric) !== null;
+}
+
 // One play on a map (its analysis summary at the play's rate) → { dan, quality, adjust, accuracy } or null when it is
-// no evidence: not a pass (a fail or a quit tells only that the player stopped), autoplay-like mods, or a map
-// without a dan (LN, not 4K, too short).
+// no evidence: not a pass (a fail or a quit tells only that the player stopped), autoplay-like mods, a map without a
+// dan (LN, not 4K, too short), or a map that is vibro at that rate (vibroExcluded).
 export function performanceDan(play, map, m = MODEL) {
     if (!play || play.outcome !== "pass" || excluded(play.mods)) return null;
     const mapDan = map?.kind === "ok" ? finite(map.numeric) : null;
     if (mapDan === null) return null;
+    if (m.VIBRO_EXCLUDE && isVibroMap(map)) return null;
     const acc = play.hits ? accuracyOf(play.hits) : (finite(play.accuracy) !== null ? play.accuracy * 100 : null);
     if (acc === null) {
         return { dan: round2(mapDan + m.NO_ACC_CREDIT), mapDan, quality: m.NO_ACC_QUALITY, adjust: m.NO_ACC_CREDIT, accuracy: null };
@@ -202,6 +217,7 @@ export function createSkillModel({ model = MODEL } = {}) {
     const seen = new Set();
     let rated = 0;
     let total = 0;
+    let vibro = 0; // passes left out because their map is vibro
     let lastAt = null;
 
     // → the play's performance (null when it is no evidence)
@@ -210,7 +226,10 @@ export function createSkillModel({ model = MODEL } = {}) {
         seen.add(play.id);
         total += 1;
         const perf = performanceDan(play, map, model);
-        if (!perf) return null;
+        if (!perf) {
+            if (vibroExcluded(play, map, model)) vibro += 1;
+            return null;
+        }
         rated += 1;
         lastAt = Math.max(lastAt ?? play.at, play.at);
         const { patterns, axes } = attribution(map, model);
@@ -223,16 +242,16 @@ export function createSkillModel({ model = MODEL } = {}) {
     function skill(now = Date.now()) {
         const axes = Object.fromEntries(AXES.map((k) => [k, aggregate(byKey.get(`axis:${k}`), now, model)]));
         const patterns = Object.fromEntries(PATTERNS.map((p) => [p, aggregate(byKey.get(`pattern:${p}`), now, model)]));
-        return skillObject({ axes, patterns, rated, total, lastAt });
+        return skillObject({ axes, patterns, rated, total, vibro, lastAt });
     }
 
-    return { add, skill, size: () => total, rated: () => rated };
+    return { add, skill, size: () => total, rated: () => rated, vibro: () => vibro };
 }
 
 // The estimates → the skill object every consumer takes (src/recommend/skill.js readSkill's shape: overall, tiles,
 // msd, ready, analyzedPlays), plus local: true and the per-axis / per-pattern details. A tile without enough evidence
 // is null, so src/recommend/skill.js playerDanFor falls back to the overall dan there.
-export function skillObject({ axes, patterns, rated = 0, total = 0, lastAt = null }) {
+export function skillObject({ axes, patterns, rated = 0, total = 0, vibro = 0, lastAt = null }) {
     const tiles = Object.fromEntries(AXES.map((k) => [k, axes[k]?.dan ?? null]));
     const known = AXES.map((k) => tiles[k]).filter((d) => d !== null);
     const overall = known.length ? round2(known.reduce((s, d) => s + d, 0) / known.length) : null;
@@ -243,6 +262,7 @@ export function skillObject({ axes, patterns, rated = 0, total = 0, lastAt = nul
         local: true,
         analyzedPlays: rated,
         totalPlays: total,
+        vibroPlays: vibro, // passes on vibro maps: kept and listed, in no dan
         lastPlayAt: lastAt,
         overall,
         overallLabel: overall === null ? null : numericToLabel(overall).text,

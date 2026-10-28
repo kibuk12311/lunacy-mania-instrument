@@ -198,13 +198,17 @@ export function ladderRows(rows, { currentRate = null, growthRate: growth = null
     }).join("");
 }
 
-function ladderBlock({ result, ladder, ladderOpen, fit }) {
+// a rate map (rateMap of the view): every row is its original's at that rate, the now row too — the card's dan is the
+// file's own and the calculators do not rate a chart at ×r and its rate map at 1.0 the same, so the now row is asked for
+// like the others and agrees with the 1.0 row the deltas are from and with the Rate tab its click opens (the original)
+// past the ladder's 0.5…2 (rateMap.beyond: a 1.5x rate map with DT) the rows are still the original's, none of them now
+function ladderBlock({ result, ladder, ladderOpen, fit, rateMap = null }) {
     const head = `<button type="button" class="an-ltoggle" data-toggle="ladder" aria-expanded="${ladderOpen ? "true" : "false"}">`
         + `${escape(t("analysis.ladder.title"))} ${ladderOpen ? "▾" : "▸"}</button>`;
     if (!ladderOpen) return `<div class="an-ladder">${head}</div>`;
-    const current = rateKey(result.rate ?? 1);
+    const current = rateMap?.beyond ? null : rateKey(result.rate ?? 1);
     const rows = ladderRates(current).map((rate) => {
-        if (rate === current) return { rate, state: "ok", numeric: result.numeric };
+        if (rate === current && !rateMap) return { rate, state: "ok", numeric: result.numeric };
         const row = ladder?.get(rate);
         return { rate, state: row?.state ?? "pending", numeric: row?.numeric };
     });
@@ -220,7 +224,7 @@ export function renderExtras(state) {
     const profile = state.profile ?? { state: "idle" };
     const fit = profile.state === "ready" ? fitForSkill(result, profile.skill) : null;
     // the ladder asks main by the map's key: a view without one cannot have it
-    const ladder = state.view.key ? ladderBlock({ result, ladder: state.ladder, ladderOpen: Boolean(state.ladderOpen), fit }) : "";
+    const ladder = state.view.key ? ladderBlock({ result, ladder: state.ladder, ladderOpen: Boolean(state.ladderOpen), fit, rateMap: state.view.rateMap ?? null }) : "";
     // the dan by part comes by the map's key too
     const parts = state.view.key ? sectionsBlock(state.sections, { mapDan: result.numeric, selected: state.partSel ?? null, open: Boolean(state.partsOpen) }) : "";
     const blocks = timelineBlock(state.details) + parts + forYouLine(fit, profile) + ladder;

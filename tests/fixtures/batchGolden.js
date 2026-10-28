@@ -2,6 +2,8 @@
 // change: fixed seeds, a stand-in analyzer and finder, and a hash of what each response says about the map. Recorded
 // with 0.10.2 (7a519e4), before the generator could run builds concurrently: tests/fixtures/batchGolden.json.
 // Record again (only on purpose): node tests/fixtures/batchGolden.js --write
+// The cases draw with request.trills: false (0.10.4's trill momentum off), so they still pin 0.10.2's maps; a case
+// run with { trills: true } (an option of the case, not passed on) draws as the app does now.
 // Every case is run(opts) → the generator's response, so the same request can also go through the batch path
 // (tests/gen/generateBatch.test.js); the nn-v2 cases use random tiny weights, "nn2 S" the shipped S model.
 import { createHash } from "node:crypto";
@@ -44,16 +46,16 @@ const threeParts = [
     { startMs: 20000, endMs: 40000, kind: "break" },
     { startMs: 40000, endMs: 60000, kind: "drop" },
 ];
-const dropInput = (request, over = {}) => ({
+const dropInput = (request, over = {}, trills = false) => ({
     timing: { sections: [{ timeMs: 300, bpm: 180, meter: 4 }], bpm: 180, offsetMs: 300 },
     envelope: drop, durationMs: 60000,
-    request: { range: { lo: 4, hi: 5 }, patterns: [{ name: "Stream", share: 1 }], mix: "sections", stamina: 0.5, burst: 0.3, seed: 7, ...request },
+    request: { range: { lo: 4, hi: 5 }, patterns: [{ name: "Stream", share: 1 }], mix: "sections", stamina: 0.5, burst: 0.3, seed: 7, trills, ...request },
     meta: { title: "batch golden", audioFilename: "a.mp3" },
     deadlineMs: 1e9, // the candidate phase builds every candidate (the deadline is wall-clock)
     ...over,
 });
 let aba = null;
-const abaInput = (request) => {
+const abaInput = (request, trills = false) => {
     if (!aba) {
         const song = sectionSong(["A", "B", "A"], { bpm: 160 });
         aba = {
@@ -64,7 +66,7 @@ const abaInput = (request) => {
     }
     return {
         timing: { bpm: 160, offsetMs: 0 }, envelope: aba.envelope, durationMs: aba.durationMs, stems: aba.stems,
-        request: { range: { lo: 3, hi: 4.5 }, patterns: [{ name: "Jumpstream", share: 1 }], mix: "sections", stamina: 0.5, burst: 0.3, seed: 2, ...request },
+        request: { range: { lo: 3, hi: 4.5 }, patterns: [{ name: "Jumpstream", share: 1 }], mix: "sections", stamina: 0.5, burst: 0.3, seed: 2, trills, ...request },
         meta: { title: "batch golden aba", audioFilename: "a.mp3" },
         deadlineMs: 1e9,
     };
@@ -73,30 +75,34 @@ const flavoured = [{ name: "Stream", share: 0.5 }, { name: "Jumpstream", share: 
 let sModel = null;
 const shippedS = () => (sModel ??= JSON.parse(readFileSync(new URL("../../models/mapper-nn2-s.json", import.meta.url), "utf8")));
 
-// a map to lock part of (the first part), made once per model
+// a map to lock part of (the first part), made once per model and trills
 const baseCache = new Map();
-async function lockedFrom(model, opts) {
-    if (!baseCache.has(model)) baseCache.set(model, await generateLearnedMap(dropInput({ parts: threeParts }), analyze(1), model, { patternsOf, ...opts }));
-    const base = await baseCache.get(model);
+async function lockedFrom(model, opts, trills) {
+    const key = `${trills}`;
+    if (!baseCache.has(model)) baseCache.set(model, new Map());
+    const byTrills = baseCache.get(model);
+    if (!byTrills.has(key)) byTrills.set(key, await generateLearnedMap(dropInput({ parts: threeParts }, {}, trills), analyze(1), model, { patternsOf, ...opts }));
+    const base = await byTrills.get(key);
     const rows = parseRows(base.osuText).filter((r) => r.t < 20000);
     return { rows: rows.map((r) => ({ t: r.t, mask: r.mask })), ranges: [[0, 20000]], knob: base.knob, planSeed: base.planSeed };
 }
 
-// name → run(opts): opts go to generateLearnedMap (the batch tests add a source or a backend)
+// name → run(opts): opts go to generateLearnedMap (the batch tests add a source or a backend), all but `trills`
+// (true: the trill momentum on, as the app draws; the golden is with it off)
 export const BATCH_CASES = {
-    "nn2 range": (o) => generateLearnedMap(dropInput({}), analyze(1), tinyModel, { patternsOf, ...o }),
-    "nn2 candidates 6 + flavours": (o) => generateLearnedMap(dropInput({ candidates: 6, patterns: flavoured, range: { lo: 3, hi: 6 } }), analyze(1), tinyModel, { patternsOf, ...o }),
-    "nn2 own-range part + retry": (o) => generateLearnedMap(dropInput({
+    "nn2 range": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({}, {}, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "nn2 candidates 6 + flavours": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ candidates: 6, patterns: flavoured, range: { lo: 3, hi: 6 } }, {}, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "nn2 own-range part + retry": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({
         parts: threeParts.map((p, k) => (k === 2 ? { ...p, range: { lo: 2, hi: 4 } } : p)), stamina: 1, range: { lo: 3, hi: 6 }, candidates: 3,
-    }), analyze(1), tinyModel, { patternsOf, ...o }),
-    "nn2 narrow (refine)": (o) => generateLearnedMap(dropInput({ range: { lo: 5.62, hi: 5.7 } }), analyze(3), tinyModel, { patternsOf, ...o }),
-    "nn2 target": (o) => generateLearnedMap(dropInput({ range: undefined, target: 4.5, candidates: 4 }), analyze(1), tinyModel, { patternsOf, ...o }),
-    "nn2 far low (dan retry)": (o) => generateLearnedMap(dropInput({ range: { lo: 4, hi: 5 } }), analyze(6), tinyModel, { patternsOf, ...o }),
-    "nn2 boost rung 2": (o) => generateLearnedMap(dropInput({ range: { lo: 9, hi: 11 }, candidates: 4 }), analyze(1), tinyModel, { patternsOf, boost: BOOST_LADDER[1], ...o }),
-    "nn2 locked part": async (o) => generateLearnedMap(dropInput({ parts: threeParts, candidates: 4 }, { locked: await lockedFrom(tinyModel, o) }), analyze(1), tinyModel, { patternsOf, ...o }),
-    "nn2 repeats + stems": (o) => generateLearnedMap(abaInput({ repeats: true, candidates: 4 }), analyze(1), tinyModel, { patternsOf, ...o }),
-    "xgb candidates 4 + parts": (o) => generateLearnedMap(dropInput({ parts: threeParts.map((p, k) => (k === 0 ? { ...p, range: { lo: 5, hi: 7 } } : p)), candidates: 4 }), analyze(1), goldenModel, { patternsOf, ...o }),
-    "nn2 S repeats + candidates 3": (o) => generateLearnedMap(abaInput({ repeats: true, candidates: 3, range: { lo: 2, hi: 3.5 } }), analyze(1), shippedS(), { patternsOf, ...o }),
+    }, {}, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "nn2 narrow (refine)": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ range: { lo: 5.62, hi: 5.7 } }, {}, trills), analyze(3), tinyModel, { patternsOf, ...o }),
+    "nn2 target": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ range: undefined, target: 4.5, candidates: 4 }, {}, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "nn2 far low (dan retry)": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ range: { lo: 4, hi: 5 } }, {}, trills), analyze(6), tinyModel, { patternsOf, ...o }),
+    "nn2 boost rung 2": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ range: { lo: 9, hi: 11 }, candidates: 4 }, {}, trills), analyze(1), tinyModel, { patternsOf, boost: BOOST_LADDER[1], ...o }),
+    "nn2 locked part": async ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ parts: threeParts, candidates: 4 }, { locked: await lockedFrom(tinyModel, o, trills) }, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "nn2 repeats + stems": ({ trills = false, ...o } = {}) => generateLearnedMap(abaInput({ repeats: true, candidates: 4 }, trills), analyze(1), tinyModel, { patternsOf, ...o }),
+    "xgb candidates 4 + parts": ({ trills = false, ...o } = {}) => generateLearnedMap(dropInput({ parts: threeParts.map((p, k) => (k === 0 ? { ...p, range: { lo: 5, hi: 7 } } : p)), candidates: 4 }, {}, trills), analyze(1), goldenModel, { patternsOf, ...o }),
+    "nn2 S repeats + candidates 3": ({ trills = false, ...o } = {}) => generateLearnedMap(abaInput({ repeats: true, candidates: 3, range: { lo: 2, hi: 3.5 } }, trills), analyze(1), shippedS(), { patternsOf, ...o }),
 };
 
 // What a response says about the map (no timings: the critic's ms and the like)

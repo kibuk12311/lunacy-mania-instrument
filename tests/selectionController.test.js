@@ -348,3 +348,95 @@ test("an onResult that throws does not break the controller", async () => {
     await flush();
     assert.equal(views.at(-1).screen, "result");
 });
+
+// ---- rate maps: a difficulty already sped up into a file of its own, shown as its original at its rate ----
+
+function withRateMaps({ origin = async (text) => (text === "rate-map" ? { rate: 1.2, text: "original", virtual: false, path: "orig.osu" } : null), analyze } = {}) {
+    const asked = [];
+    const calls = [];
+    const setup = { results: [], views: [] };
+    const files = { R: "rate-map", A: "text-A", L: "ln-rate-map" };
+    const current = { checksum: null };
+    const controller = createSelectionController({
+        fetchOsu: async () => files[current.checksum],
+        analyze: analyze ?? (async (text, rate) => { calls.push([text, rate]); return { kind: "ok", text, rate }; }),
+        cache: memoryCache(),
+        onView: (v) => setup.views.push(v),
+        onResult: (r) => setup.results.push(r),
+        rateOrigin: (text, opts) => { asked.push([text, opts.checksum]); return origin(text); },
+    });
+    const frame = (checksum, rate = 1, state = "songselect") => {
+        current.checksum = checksum;
+        controller.onFrame({ state, checksum, rate, mods: [] });
+    };
+    return { controller, frame, asked, calls, ...setup, last: () => setup.views.at(-1) };
+}
+
+test("a rate map keeps the file's own dan and is shown as its original at the map's rate; a plain map is as before", async () => {
+    const { controller, frame, asked, calls, results, last } = withRateMaps();
+    frame("R");
+    await flush();
+    assert.deepEqual(calls, [["rate-map", 1]], "the dan is the file's own, at the mods' rate");
+    assert.deepEqual(asked, [["rate-map", "R"]]);
+    assert.deepEqual(last(), {
+        screen: "result", result: { kind: "ok", text: "rate-map", rate: 1.2 }, key: cacheKey("rate-map", 1), rateMap: { rate: 1.2, virtual: false },
+    });
+    assert.deepEqual(results.at(-1), {
+        key: cacheKey("rate-map", 1), text: "rate-map", rate: 1, result: { kind: "ok", text: "rate-map", rate: 1 }, checksum: "R",
+        rateMap: { rate: 1.2, shown: 1.2, text: "original" },
+    });
+    assert.deepEqual(controller.rateMap(), { rate: 1.2, text: "original", virtual: false, path: "orig.osu", shown: 1.2 });
+
+    frame("A");
+    await flush();
+    assert.deepEqual(last(), { screen: "result", result: { kind: "ok", text: "text-A", rate: 1 }, key: cacheKey("text-A", 1) });
+    assert.equal("rateMap" in results.at(-1), false);
+    assert.equal(controller.rateMap(), null);
+});
+
+test("a rate map with DT or HT: its rate times the mods'; past the ladder's 0.5…2 the card is the file, the ladder its original's", async () => {
+    const { frame, calls, results, last } = withRateMaps();
+    frame("R", 1.5);
+    await flush();
+    assert.deepEqual(calls.at(-1), ["rate-map", 1.5]);
+    assert.equal(last().result.rate, 1.8, "1.2 × 1.5, no float dust");
+    assert.deepEqual(last().rateMap, { rate: 1.2, virtual: false });
+    assert.deepEqual([results.at(-1).rate, results.at(-1).rateMap.shown], [1.5, 1.8]);
+    frame("R", 0.75);
+    await flush();
+    assert.equal(last().result.rate, 0.9);
+
+    const fast = withRateMaps({ origin: async () => ({ rate: 1.5, text: "original", virtual: true }) });
+    fast.frame("R", 1.5);
+    await flush();
+    assert.equal(fast.last().result.rate, 1.5, "2.25 is past the ladder: the file as it is");
+    assert.deepEqual(fast.last().rateMap, { rate: 1.5, virtual: true, beyond: true }, "no row of the original is the one played");
+    assert.deepEqual(fast.results.at(-1).rateMap, { rate: 1.5, shown: null, text: "original" }, "the ladder's rows are the original's");
+    // the Rate tab does not depend on the mods: it keeps the original, never the sped-up file
+    assert.deepEqual(fast.controller.rateMap(), { rate: 1.5, text: "original", virtual: true, shown: null });
+    const slow = withRateMaps({ origin: async () => ({ rate: 0.6, text: "original", virtual: false, path: "orig.osu" }) });
+    slow.frame("R", 0.75);
+    await flush();
+    assert.equal(slow.last().result.rate, 0.75, "0.45 is below the ladder: the file as it is");
+    assert.equal(slow.controller.rateMap().path, "orig.osu");
+});
+
+test("an Interlude chart is never looked at as a rate map; a lookup that fails or a result without a dan leave the card as it was", async () => {
+    const { controller, asked, last } = withRateMaps();
+    controller.showExternal({ id: "h", text: "rate-map", rate: 1 });
+    await flush();
+    assert.deepEqual(asked, []);
+    assert.equal("rateMap" in last(), false);
+
+    const failing = withRateMaps({ origin: async () => { throw new Error("no folder"); } });
+    failing.frame("R");
+    await flush();
+    assert.deepEqual(failing.last(), { screen: "result", result: { kind: "ok", text: "rate-map", rate: 1 }, key: cacheKey("rate-map", 1) });
+
+    const noDan = withRateMaps({ analyze: async () => ({ kind: "not-rice", reason: "ln", keys: 4 }) });
+    noDan.frame("R");
+    await flush();
+    assert.deepEqual(noDan.last().result, { kind: "not-rice", reason: "ln", keys: 4 });
+    assert.equal("rateMap" in noDan.last(), false);
+    assert.equal(noDan.controller.rateMap().rate, 1.2, "the Rate tab still gets the original");
+});

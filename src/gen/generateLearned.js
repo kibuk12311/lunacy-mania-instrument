@@ -19,6 +19,8 @@
 //   build, snapshot/restore for own-range part searches and block retry, a shorter search, cond { msd, style, rate,
 //   source };
 // - request.style (G4): the XGB source blends the mapper's pattern tables; the critic scores the style.
+// Trill momentum (0.10.4, on unless request.trills is false; TRILL_MOMENTUM below): a trill that has started is
+// continued about as often as in human maps, so the models no longer cut every trill after 4–5 rows.
 // opts: { onProgress, patternsOf, critic, personal, deadlineMs, now, source, snapshots, debug, boost } (personal and
 // deadlineMs may also come in `input`, as the evaluation tools send them; source: a row source for tests and tools;
 // snapshots: false re-decodes everything (tests); debug: an object filled with internals for tests).
@@ -98,6 +100,124 @@ export const CHORD_ROOM = Object.freeze({ Stream: 1, Jumpstream: 1, Handstream: 
 const STREAM_CHORD = 0.5; // streams take half the chord boost: single notes are what makes them streams
 
 const popcount = (m) => ((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1));
+
+// Trill momentum (0.10.4): the models start trills as often as human mappers do but break them early (from the 4th
+// row on a human map continues a single-note trill about 2 times in 3, the models 1 in 6 to 1 in 3), so trills ended
+// after 4–5 rows instead of 6–8. Where the last two rows alternate (disjoint, both gaps within half a beat), the row
+// that continues the alternation (the one before last) weighs β more, by the alternation's kind and its length so far
+// (rows 2 / 3 / 4–7 / 8+): single notes from both hands or one, and two-note rows between the hands (3 ↔ 12, the
+// jumptrills). Split two-note rows (5 ↔ 10, 6 ↔ 9) are not pushed: the models make enough split trills, and a push on
+// them took the jumptrills' place (plain neural L, 14 held-out trill songs × 3 seeds: jumptrills 1.17× the human share
+// before the momentum, 0.76× with that push, 1.27× without it; split trills 1.50×, 1.94×, 1.63×). Never above the human
+// maps' own rate: each build counts how often its trills of a kind and length went on, and once that reaches
+// TRILL_TARGET (after TRILL_EVIDENCE of them) that kind and length gets no push until it falls below again — so a
+// model that already trills a lot on a song is left as it is, and only one that cuts its trills short is pushed. A hand and a single note (chord trills) are never pushed (the models make
+// enough of them), nor anything in a chordjack or jack, nor a slot whose flavour's motif decides it, nor a trill
+// past TRILL_RUN_CAP rows, nor the first notes of a roll under way (rollUnderWay: that push took the rolls' place).
+// β multiplies the guard's weight, so a row the guard vetoes stays out. (A fixed push without
+// that ceiling matched the human share on average only by flooding 8–12 of 41 held-out songs with trills.)
+// request.trills: false draws as v3 did, bit for bit.
+export const TRILL_MOMENTUM = Object.freeze({
+    single: Object.freeze([2, 2, 3, 3]),
+    jumpRoll: Object.freeze([2, 1.5, 1, 1]),
+});
+// P(the next row goes on with the trill) in the held-out human maps, by kind and length (rows 2 / 3 / 4–7 / 8+)
+export const TRILL_TARGET = Object.freeze({
+    single: Object.freeze([0.11, 0.16, 0.66, 0.84]),
+    jumpRoll: Object.freeze([0.64, 0.63, 0.69, 0.92]),
+});
+export const TRILL_EVIDENCE = 6;
+export const TRILL_RUN_CAP = 16;
+// Nor once the build holds TRILL_SHARE of its rows so far in trills of the kind's group (single notes; two-note rows:
+// the jump and the split trills together), after TRILL_SHARE.evidence rows. The ceiling above holds how often a
+// started trill goes on, not how many trills there are: on slow jumpstream songs that plain neural L already floods
+// with jump and split trills (a 117 BPM map: 0.9 of its rows, the human map 0.07) the push made more of them and the
+// dan overshot (15 held-out songs × 2 seeds: hits 25 → 23 of 30, jump trills 1.96× → 2.52× the human share). The share
+// is over the human maps' 90th percentile in the family that holds the most of the kind (rows in alternations of 4+
+// rows: single notes 0.096 on stream maps, two-note rows 0.157 on jumpstream maps), so only a flood stops the push,
+// and a map that never gets there is drawn exactly as before.
+export const TRILL_SHARE = Object.freeze({ single: 0.12, jump: 0.16, evidence: 64 });
+const NO_MOMENTUM = new Set(["Chordjack", "Jack"]);
+const TRILL_KINDS = Object.keys(TRILL_MOMENTUM);
+const runBucket = (run) => (run <= 2 ? 0 : run === 3 ? 1 : run <= 7 ? 2 : 3);
+
+// The kind of alternation between two rows (older first): "single", "jumpRoll", "jumpSplit" or null (only the first two
+// are pushed: TRILL_MOMENTUM).
+export function alternationKind(older, newer) {
+    if (!older || !newer || older & newer) return null;
+    const a = popcount(older);
+    const b = popcount(newer);
+    if (a === 1 && b === 1) return "single";
+    if (a === 2 && b === 2) return older === 3 || older === 12 ? "jumpRoll" : "jumpSplit";
+    return null;
+}
+
+// The rows of the alternation that ends with recent[0] (newest first, { mask, gapMs }), given the run before it was
+// pushed and half a beat (ms, with its slack): 2 when the last two rows are disjoint and close, one more each row that
+// repeats the row before last, else 1 (0 without rows).
+export function trillRunAfter(recent, run, halfMs) {
+    const [a, b, c] = recent;
+    if (!a) return 0;
+    if (!b || a.mask & b.mask || !(a.gapMs <= halfMs)) return 1;
+    return run >= 2 && c && c.mask === a.mask ? run + 1 : 2;
+}
+
+// A roll under way (src/gen/flavourMetrics.js Rolls: four single notes sweeping 1 2 3 4 or 4 3 2 1): the last rows'
+// masks (oldest first) are its first two or three notes.
+export function rollUnderWay(...masks) {
+    const s = masks.map((m) => ({ 1: "0", 2: "1", 4: "2", 8: "3" })[m] ?? "-").join("");
+    return /(01|32)$/.test(s) || /(012|321)$/.test(s);
+}
+
+// A build's count of its trills by kind and length: [tries, went on] per length bucket.
+export const trillCounts = () => Object.fromEntries(TRILL_KINDS.map((k) => [k, new Float64Array(8)]));
+
+// The share group of an alternation kind (TRILL_SHARE): "single", "jump" (jumpRoll and jumpSplit) or null.
+const shareGroup = (kind) => (kind === "single" ? "single" : kind === "jumpRoll" || kind === "jumpSplit" ? "jump" : null);
+// A build's rows and how many of them are in trills, by share group (TRILL_SHARE).
+export const trillRows = () => ({ rows: 0, single: 0, jump: 0 });
+// After a row went onto the context (ctx.trillRun as trillRunAfter left it): counted, and a trill's rows once it has
+// four (A B A B: all four at once, then one a row), as the human maps' alternations were counted.
+export function noteTrillRow(rows, ctx) {
+    if (!rows) return;
+    rows.rows += 1;
+    const run = ctx?.trillRun ?? 0;
+    if (run < 4) return;
+    const group = shareGroup(alternationKind(ctx.recent[1]?.mask ?? 0, ctx.recent[0]?.mask ?? 0));
+    if (group) rows[group] += run === 4 ? 4 : 1;
+}
+// Whether a build's trills of a kind's group already hold TRILL_SHARE of its rows (rows: trillRows; null: never).
+export function trillShareFull(rows, kind) {
+    const group = shareGroup(kind);
+    return Boolean(rows && group && rows.rows >= TRILL_SHARE.evidence && rows[group] >= TRILL_SHARE[group] * rows.rows);
+}
+
+// The next row's chance to go on with a trill: { mask (the row that does), beta, kind, bucket } or null (no trill to go
+// on with, or one never pushed). beta is 1 where the table has none or the build's own trills of that kind and length
+// already go on as often as the human maps' (counts: trillCounts, as noteTrill keeps them; null: the table alone).
+// ctx: { recent, trillRun } as buildSteps keeps it; gapMs: from the last row to this slot; beatMs: the slot's beat;
+// rows: the build's trillRows (beta 1 once its trills of the kind's group hold TRILL_SHARE; null: no such limit).
+export function trillMomentum(ctx, gapMs, beatMs, family, counts = null, rows = null) {
+    const run = ctx?.trillRun ?? 0;
+    if (run < 2 || run >= TRILL_RUN_CAP || NO_MOMENTUM.has(family) || !(gapMs <= beatMs / 2 + 1)) return null;
+    const [last, before, third] = ctx.recent;
+    const kind = alternationKind(before?.mask ?? 0, last?.mask ?? 0);
+    if (!TRILL_MOMENTUM[kind] || (kind === "single" && run === 2 && rollUnderWay(third?.mask ?? 0, before.mask, last.mask))) return null;
+    const bucket = runBucket(run);
+    let beta = TRILL_MOMENTUM[kind][bucket];
+    const seen = counts?.[kind];
+    if (seen && seen[2 * bucket] >= TRILL_EVIDENCE && seen[2 * bucket + 1] >= TRILL_TARGET[kind][bucket] * seen[2 * bucket]) beta = 1;
+    if (trillShareFull(rows, kind)) beta = 1;
+    return { mask: before.mask, beta, kind, bucket };
+}
+
+// After the row of a slot that had a chance to go on with a trill was drawn (mask 0: no row): counted.
+export function noteTrill(counts, chance, mask) {
+    if (!counts || !chance || !mask) return;
+    const seen = counts[chance.kind];
+    seen[2 * chance.bucket] += 1;
+    if (mask === chance.mask) seen[2 * chance.bucket + 1] += 1;
+}
 const maskToCols = (m) => [0, 1, 2, 3].filter((c) => m & (1 << c));
 const defaultPatternsOf = (osuText) => patternShares(analyzePatternFromText(osuText, 1)?.report);
 const numericOf = (result) => (result?.kind === "ok" ? result.numeric : -Infinity);
@@ -127,6 +247,7 @@ async function learnedMap(input, analyze, model, opts, held) {
     // ---- prepare ----
     const request = normalizeRequest(input.request, durationMs);
     const { range } = request;
+    const trills = request.trills !== false; // the trill momentum (TRILL_MOMENTUM); false: v3's draws
     const sections = timingSections(input.timing);
     const timing = { sections };
     const points = sectionsToPoints(sections);
@@ -270,6 +391,8 @@ async function learnedMap(input, analyze, model, opts, held) {
         const echoRun = echo && echoSeed !== null ? echo.forBuild(echoSeed, { infill }) : null;
         let lastDrawn = -1;
         let fedTo = -1;
+        const trillSeen = trills ? trillCounts() : null; // this build's trills, for the momentum (counted where sampled)
+        const trillHeld = trills ? trillRows() : null; // and its rows in trills (every row, kept ones too: TRILL_SHARE)
         if (infill) {
             for (let k = blocks.length - 1; k >= 0 && lastDrawn < 0; k -= 1) if (!fixed.has(blocks[k].index) && (!only || only.has(blocks[k].part))) lastDrawn = k;
             if (resume) {
@@ -284,12 +407,14 @@ async function learnedMap(input, analyze, model, opts, held) {
             const gapMs = lastT === null ? Infinity : row.t - lastT;
             ctx.recent.unshift({ mask: row.mask, gapMs });
             if (ctx.recent.length > RECENT_ROWS) ctx.recent.pop();
+            ctx.trillRun = trillRunAfter(ctx.recent, ctx.trillRun, (slots[row.i]?.beatMs ?? 0) / 2 + 1);
+            noteTrillRow(trillHeld, ctx);
             ctx.prev2 = ctx.prev;
             ctx.prev = row.mask;
             lastT = row.t;
         };
         const freshContext = () => {
-            ctx = { prev: 0, prev2: 0, recent: [] };
+            ctx = { prev: 0, prev2: 0, recent: [], trillRun: 0 };
             lastT = null;
         };
         for (let k = 0; k < blocks.length; k += 1) {
@@ -331,8 +456,12 @@ async function learnedMap(input, analyze, model, opts, held) {
                 const ahead = next?.length ? aheadOf(next, slot) : null;
                 const before = guard.forced;
                 const chordW = chordWeights(family);
+                const base = chordW ? (m) => guard.weight(m, i, family, ahead, fl) * chordW[popcount(m)] : (m) => guard.weight(m, i, family, ahead, fl);
+                // the trill momentum (none on a flavoured slot: its motif decides the columns there)
+                const chance = trills && !fl ? trillMomentum(ctx, lastT === null ? Infinity : slot.t - lastT, slot.beatMs, family, trillSeen, trillHeld) : null;
+                const push = chance && chance.beta > 1 ? chance : null;
                 const weightOf = Object.assign(
-                    chordW ? (m) => guard.weight(m, i, family, ahead, fl) * chordW[popcount(m)] : (m) => guard.weight(m, i, family, ahead, fl),
+                    push ? (m) => (m === push.mask ? base(m) * push.beta : base(m)) : base,
                     { fallback: () => guard.fallback(i, family, ahead, fl) },
                 );
                 const offset = knob + adjustOf(i, scale);
@@ -345,6 +474,7 @@ async function learnedMap(input, analyze, model, opts, held) {
                     if (copy.mask === SAMPLE) {
                         mask = src.step(i, offset, ctx, rngs, weightOf);
                         if (mask === WAIT) mask = yield WAIT;
+                        noteTrill(trillSeen, chance, mask);
                     } else {
                         mask = copy.echoed && infill ? src.step(i, offset, ctx, rngs, weightOf, copy.mask) : copy.mask;
                     }
@@ -352,6 +482,7 @@ async function learnedMap(input, analyze, model, opts, held) {
                 } else {
                     mask = src.step(i, offset, ctx, rngs, weightOf);
                     if (mask === WAIT) mask = yield WAIT;
+                    noteTrill(trillSeen, chance, mask);
                 }
                 if (infill) fedTo = i;
                 if (!mask || looseAt?.has(i)) continue; // a loose locked row is added at the end (an infill source returns it here)

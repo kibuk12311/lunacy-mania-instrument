@@ -1,13 +1,22 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { writeTosuConfig, startTosu, TOSU_PORT } from "../app/tosuManager.js";
 import { setLang } from "../src/i18n/i18n.js";
 
+// every folder these tests make goes at the end: the fake tosu ones hold a ~90 MB copy of node.exe each
+const made = [];
+async function tempDir(prefix) {
+    const dir = await mkdtemp(path.join(tmpdir(), prefix));
+    made.push(dir);
+    return dir;
+}
+after(() => Promise.all(made.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }))));
+
 test("tosu config disables dashboard, autoupdate and pp", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "тосу "));
+    const dir = await tempDir("тосу ");
     const file = writeTosuConfig(dir);
     assert.equal(file, path.join(dir, "tosu.env"));
     const text = await readFile(file, "utf8");
@@ -25,7 +34,7 @@ test("tosu config disables dashboard, autoupdate and pp", async () => {
 });
 
 test("missing tosu.exe reports through onExit instead of throwing", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "нет тосу "));
+    const dir = await tempDir("нет тосу ");
     const error = await new Promise((resolve) => {
         startTosu({ tosuDir: dir, onExit: resolve });
     });
@@ -36,8 +45,8 @@ test("missing tosu.exe reports through onExit instead of throwing", async () => 
 test("installTosu copies tosu out of a temp location and skips when up to date", async () => {
     const { mkdir, writeFile, readFile: read } = await import("node:fs/promises");
     const { installTosu } = await import("../app/tosuManager.js");
-    const src = await mkdtemp(path.join(tmpdir(), "src тосу "));
-    const dst = path.join(await mkdtemp(path.join(tmpdir(), "dst ")), "tosu");
+    const src = await tempDir("src тосу ");
+    const dst = path.join(await tempDir("dst "), "tosu");
     await writeFile(path.join(src, "tosu.exe"), "v1");
     await writeFile(path.join(src, "VERSION"), "v4.26.3\n");
     await mkdir(path.join(src, "static"));
@@ -58,7 +67,7 @@ test("installTosu copies tosu out of a temp location and skips when up to date",
 
 async function fakeTosuDir() {
     const { copyFile } = await import("node:fs/promises");
-    const dir = await mkdtemp(path.join(tmpdir(), "фейк тосу "));
+    const dir = await tempDir("фейк тосу ");
     await copyFile(process.execPath, path.join(dir, "tosu.exe"));
     return dir;
 }
@@ -105,7 +114,7 @@ test("isPortFree detects a busy port", async () => {
 });
 
 test("a missing tosu.exe is reported in English when the app is in English", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "no tosu "));
+    const dir = await tempDir("no tosu ");
     setLang("en");
     try {
         const error = await new Promise((resolve) => { startTosu({ tosuDir: dir, onExit: resolve }); });
@@ -116,7 +125,7 @@ test("a missing tosu.exe is reported in English when the app is in English", asy
 });
 
 test("a tosu failure is told again in the new language after a switch", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "no tosu "));
+    const dir = await tempDir("no tosu ");
     const exe = path.join(dir, "tosu.exe");
     const error = await new Promise((resolve) => { startTosu({ tosuDir: dir, onExit: resolve }); });
     assert.equal(error.message, `tosu.exe не найден: ${exe}`);

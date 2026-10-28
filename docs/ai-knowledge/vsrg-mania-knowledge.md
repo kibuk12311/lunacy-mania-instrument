@@ -179,6 +179,7 @@ The project's pattern guide uses six families. "Level 1-3" in the guide is a lea
 - Handjack: hands in a row, each repeating two columns of the one before (level 3).
 - Jumpjack: the same jump hit 2+ times, then moves.
 - Quadhand: quads mixed with hands, a jack in every row.
+- 2/4 chordjack («чордджеки 2/4», «жеки 2/4»): jumps and quads in turn, `[12][1234][34][1234]`, sometimes with doubled rows `[12][12][1234][1234][34][34]`; every row repeats two columns of the one before (a quad holds both notes of any jump), so it is a chordjack, not a jumpstream. The generator's flavour (`JumpQuad`) mostly follows a jump with the other half of it after the quad (`[12]` → `[34]`, `[13]` → `[24]`) and moves to a new pair now and then, since a kept column stays down for five rows.
 - Quadstream: a quad, a short single-note stream, a quad again (tagged Handstream + Chordjack).
 - Gluts: jumps sliding one column per row sharing a note: `[12][23][34]` (Chordjack + JackSpeed).
 
@@ -235,7 +236,7 @@ A map is tagged Tech only if its most important pattern cluster has uneven ("Mix
 - **Core gates:** Stream needs 5 single-note jack-free rows with first column != fifth. Chordstream needs a chord row then 3 jack-free rows, at least one more of them a chord. **Jacks fires only when 2+ columns repeat** (Jacks > 1) and MsPerBeat < 2000. A single-column jack is not a Jacks match at all, and a stream with a jack in it drops out of Stream/Chordstream.
 - **Winner-take-all label:** detection is multi-label per window, but the chart label is the top cluster's most common name (if its share > 5%). The only blend is "Jumpstream/Handstream" (second name Handstream with share > 40% of Jumpstream's). Secondary clusters count only above 50% of the first's importance. A chart that is 60% jumpstream and 40% jacks reads as "Jumpstream"; use the cluster list, not the label.
 - **Tech is only an instability flag:** spans whose beat length varies by >= 5 ms are "Mixed" ("~BPM Mixed X"), and " Tech" is appended when the top cluster is Mixed.
-- **Not detected as names:** Anchor, Running man, Dumpstream, Chord trills, Handjack, Jumpjack, Speedjacks, grace notes, bursts, polyrhythm.
+- **Not detected as names:** Anchor, Running man, Dumpstream, Chord trills, Handjack, Jumpjack, 2/4 chordjack (the finder calls it Chordjacks), Speedjacks, grace notes, bursts, polyrhythm.
 - **7K/other-only names** never appear in 4K: Brackets, Double Stream, Dense/Light Chordstream, Chord Rolls, DS/DCS/LCS Density. **LN-only names:** Column Lock, Release, Shield, JS/HS/DS/DCS/LCS Density, Inverse, Jacky WC, Speedy WC.
 - **Mode tag** from LN ratio: <= 15% RC (rice), >= 90% LN, else Mix, or HB (hybrid) if >= 10% of rows mix LN heads and normal notes. For RC the LN cores are filtered out.
 - **Family mapping in Lunacy mania:** Stream/Rolls/Trills/Minitrills -> stream; Jumpstream/Chordstream/Split Trill/Jumptrill -> jumpstream; Handstream -> handstream; Chordjacks/Quadstream -> chordjack; Jacks/Minijacks/Longjacks/Gluts -> jack; tech from the tech flag.

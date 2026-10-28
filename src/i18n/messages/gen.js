@@ -48,6 +48,11 @@ export default {
     "gen.flavour.Jumpjack.hint": { ru: "Каждый прыжок дважды: [23][23][14][14]", en: "Every jump played twice: [23][23][14][14]" },
     "gen.flavour.Quadhand": { ru: "Квадхенд", en: "Quadhand" },
     "gen.flavour.Quadhand.hint": { ru: "Квады и хенды вперемешку: [1234][123][234]", en: "Quads and hands mixed: [1234][123][234]" },
+    "gen.flavour.JumpQuad": { ru: "Чордджеки 2/4", en: "2/4 chordjacks" },
+    "gen.flavour.JumpQuad.hint": {
+        ru: "Джампы и квады по очереди, джек в каждой строке: [12][1234][34][1234]",
+        en: "Jumps and quads in turn, a jack on every row: [12][1234][34][1234]",
+    },
     "gen.flavour.Quadstream": { ru: "Квадстрим", en: "Quadstream" },
     "gen.flavour.Quadstream.hint": { ru: "Квад, потом короткий стрим: [1234] 1 3 [24] [1234]", en: "A quad, then a short stream: [1234] 1 3 [24] [1234]" },
     "gen.flavour.Minijacks": { ru: "Миниджеки", en: "Minijacks" },

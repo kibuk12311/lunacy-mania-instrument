@@ -1,0 +1,136 @@
+// ru/en texts of the demo player, in the app's short, plain tone. Each key has both languages
+// (tests/extension/player/strings.test.js checks it). Values may be functions of the params.
+import { plural } from "../shared/lang.js";
+
+const notesWord = (n, lang) => plural(n, { ru: ["нота", "ноты", "нот"], en: ["note", "notes"] }, lang);
+const signed = (ms) => `${ms > 0 ? "+" : ms < 0 ? "−" : ""}${Math.abs(ms)}`;
+
+export const STRINGS = {
+    "brand": { ru: "Lunacy mania — демо", en: "Lunacy mania — demo" },
+    "notOsu": { ru: "не от osu!", en: "not made by osu!" },
+    "close": { ru: "Закрыть (Esc)", en: "Close (Esc)" },
+    "settings": { ru: "Настройки", en: "Settings" },
+    "settings.close": { ru: "Готово", en: "Done" },
+    "map": { ru: "{artist} — {title} [{version}]", en: "{artist} — {title} [{version}]" },
+
+    "loading.osu": { ru: "Загружаю карту…", en: "Loading the map…" },
+    "loading.preview": { ru: "Загружаю превью…", en: "Loading the preview…" },
+    "loading.decode": { ru: "Готовлю звук…", en: "Preparing the audio…" },
+    "loading.unzip": { ru: "Распаковываю .osz…", en: "Unpacking the .osz…" },
+    "loading.download": { ru: "Скачиваю .osz с osu!… {got}", en: "Downloading the .osz from osu!… {got}" },
+    "loading.file": { ru: "Читаю файл…", en: "Reading the file…" },
+    "mb": { ru: "{n} МБ", en: "{n} MB" },
+    "mbOf": { ru: "{n} из {total} МБ", en: "{n} of {total} MB" },
+    "cancel": { ru: "Отмена", en: "Cancel" },
+
+    "full.title": { ru: "Полная карта", en: "Full map" },
+    "full.text": {
+        ru: "Скачаю .osz с osu! так же, как кнопка Download на сайте: с твоим входом на osu! в этом браузере. Это считается в лимит загрузок osu!.",
+        en: "I'll download the .osz from osu! like the site's Download button: with your osu! login in this browser. It counts toward osu!'s download limit.",
+    },
+    "full.loggedOut": { ru: "Похоже, ты не вошёл на osu.ppy.sh — скачать не выйдет.", en: "Looks like you're not logged in on osu.ppy.sh — the download won't work." },
+    "full.download": { ru: "Скачать с osu!", en: "Download from osu!" },
+
+    "file.title": { ru: "Свой .osz", en: "Your own .osz" },
+    "file.text": { ru: "Перетащи .osz сюда или выбери файл. Он никуда не отправляется.", en: "Drop an .osz here or pick a file. It isn't sent anywhere." },
+    "file.pick": { ru: "Выбрать .osz", en: "Pick an .osz" },
+    "file.drop": { ru: "Отпусти — загружу", en: "Drop it — I'll load it" },
+    "file.or": { ru: "или перетащи .osz сюда", en: "or drop an .osz here" },
+
+    "choose.title": { ru: "Какую сложность?", en: "Which difficulty?" },
+    "choose.text": { ru: "В .osz несколько 4K-карт, а этой нет. Выбери:", en: "The .osz has several 4K maps, but not this one. Pick one:" },
+
+    "ready.start": { ru: "Начать", en: "Start" },
+    "ready.hint": { ru: "Пробел, Enter или клик — начать", en: "Space, Enter or click — start" },
+    "ready.keys": { ru: "Клавиши: {keys}", en: "Keys: {keys}" },
+    "ready.notes": { ru: (p) => `${p.n} ${notesWord(p.n, "ru")}`, en: (p) => `${p.n} ${notesWord(p.n, "en")}` },
+    "ready.preview": { ru: "Превью · {sec} с", en: "Preview · {sec} s" },
+    "ready.full": { ru: "Полная карта", en: "Full map" },
+    "ready.file": { ru: "Файл: {name}", en: "File: {name}" },
+    "ready.rate": { ru: "Рейт {rate}×", en: "Rate {rate}×" },
+    "ready.lnNote": { ru: "Холды: держи до конца хвоста", en: "Holds: keep the key down to the tail" },
+    "previewWarn": {
+        ru: "Превью общее для набора — может не совпасть с этой сложностью.",
+        en: "The preview is shared by the set — it may not match this difficulty.",
+    },
+    "countdown": { ru: "Готовься", en: "Get ready" },
+    "pause.title": { ru: "Пауза", en: "Paused" },
+    "pause.text": { ru: "Пробел или клик — продолжить · Esc — закрыть", en: "Space or click — go on · Esc — close" },
+    "pause.resume": { ru: "Продолжить", en: "Go on" },
+    "restart": { ru: "Ещё раз", en: "Again" },
+
+    "results.title": { ru: "Результат", en: "Result" },
+    "results.acc": { ru: "Точность", en: "Accuracy" },
+    "results.maxCombo": { ru: "Макс. комбо", en: "Max combo" },
+    "results.ur": { ru: "UR", en: "UR" },
+    "results.mean": { ru: "Средняя ошибка", en: "Mean error" },
+    "results.meanValue": {
+        ru: (p) => `${signed(p.ms)} мс${p.ms > 0 ? " (поздно)" : p.ms < 0 ? " (рано)" : ""}`,
+        en: (p) => `${signed(p.ms)} ms${p.ms > 0 ? " (late)" : p.ms < 0 ? " (early)" : ""}`,
+    },
+    "results.offsetTip": { ru: (p) => `Подходящий оффсет ≈ ${signed(p.ms)} мс`, en: (p) => `A fitting offset ≈ ${signed(p.ms)} ms` },
+    "results.again": { ru: "R или Пробел — ещё раз · Esc — закрыть", en: "R or Space — again · Esc — close" },
+
+    "settings.source": { ru: "Звук", en: "Audio" },
+    "source.preview": { ru: "Превью (10 с)", en: "Preview (10 s)" },
+    "source.full": { ru: "Полная карта", en: "Full map" },
+    "source.file": { ru: "Свой .osz", en: "Your own .osz" },
+    "settings.rate": { ru: "Рейт", en: "Rate" },
+    "settings.ratePitch": { ru: "Рейт меняет и высоту звука, как Nightcore.", en: "The rate also changes the pitch, like Nightcore." },
+    "settings.speed": { ru: "Скорость прокрутки", en: "Scroll speed" },
+    "settings.scroll": { ru: "Направление", en: "Direction" },
+    "scroll.down": { ru: "Вниз (downscroll)", en: "Down (downscroll)" },
+    "scroll.up": { ru: "Вверх (upscroll)", en: "Up (upscroll)" },
+    "settings.keys": { ru: "Клавиши", en: "Keys" },
+    "settings.rebind": { ru: "Переназначить", en: "Rebind" },
+    "rebind.prompt": { ru: "Нажми клавишу для дорожки {n} из 4", en: "Press the key for lane {n} of 4" },
+    "rebind.refused": { ru: "Эту клавишу нельзя — она нужна плееру", en: "Not this key — the player needs it" },
+    "rebind.duplicate": { ru: "Эта клавиша уже на другой дорожке", en: "That key is already on another lane" },
+    "rebind.cancel": { ru: "Esc — отмена", en: "Esc — cancel" },
+    "settings.offset": { ru: "Оффсет", en: "Offset" },
+    "settings.offsetHint": { ru: "- и = во время игры: ±5 мс, с Shift ±1 мс", en: "- and = while playing: ±5 ms, with Shift ±1 ms" },
+    "settings.volume": { ru: "Громкость", en: "Volume" },
+    "ms": { ru: (p) => `${signed(p.ms)} мс`, en: (p) => `${signed(p.ms)} ms` },
+    "toast.offset": { ru: (p) => `Оффсет ${signed(p.ms)} мс`, en: (p) => `Offset ${signed(p.ms)} ms` },
+    "side.od": { ru: "OD {od}", en: "OD {od}" },
+    "side.rate": { ru: "{rate}×", en: "{rate}×" },
+    "side.offset": { ru: (p) => `оффсет ${signed(p.ms)} мс`, en: (p) => `offset ${signed(p.ms)} ms` },
+
+    "err.title": { ru: "Не получилось", en: "That didn't work" },
+    "err.retry": { ru: "Попробовать ещё раз", en: "Try again" },
+    "err.network": { ru: "Нет связи с osu!. Проверь интернет и попробуй ещё раз.", en: "Can't reach osu!. Check the connection and try again." },
+    "err.http": { ru: "osu! ответил ошибкой {status}.", en: "osu! answered with an error {status}." },
+    "err.not-found": { ru: "osu! не нашёл эту карту.", en: "osu! couldn't find this map." },
+    "err.rate-limited": { ru: "osu! просит подождать: слишком много запросов. Попробуй через минуту.", en: "osu! asks to wait: too many requests. Try again in a minute." },
+    "err.login": { ru: "Войди на osu.ppy.sh в этом браузере — или перетащи .osz сюда", en: "Log in on osu.ppy.sh in this browser — or drop an .osz here" },
+    "err.limit": { ru: "Лимит загрузок osu! исчерпан. Подожди немного — или перетащи .osz сюда.", en: "osu!'s download limit is reached. Wait a while — or drop an .osz here." },
+    "err.disabled": { ru: "osu! не даёт скачать этот набор.", en: "osu! doesn't allow downloading this set." },
+    "err.not-zip": { ru: "Это не .osz: внутри не zip-архив.", en: "That's not an .osz: it isn't a zip archive." },
+    "err.too-big": { ru: "Файл слишком большой.", en: "The file is too big." },
+    "err.host": { ru: "Загрузка ушла на чужой адрес — остановил.", en: "The download went to a foreign address — stopped." },
+    "err.permission": { ru: "У расширения нет доступа к osu.ppy.sh. Разреши его в настройках расширения.", en: "The extension has no access to osu.ppy.sh. Allow it in the extension's settings." },
+    "err.analysis": { ru: "Что-то сломалось внутри расширения.", en: "Something broke inside the extension." },
+    "err.timeout": { ru: "Слишком долго — попробуй ещё раз.", en: "It took too long — try again." },
+    "err.bad-request": { ru: "Не хватает данных о карте. Открой демо со страницы карты.", en: "Map data is missing. Open the demo from the map's page." },
+    "err.cancelled": { ru: "Отменено.", en: "Cancelled." },
+    "err.context": { ru: "Расширение обновилось — обнови страницу.", en: "The extension was updated — reload the page." },
+    "err.mode": { ru: "Это не osu!mania-карта.", en: "This isn't an osu!mania map." },
+    "err.keys": { ru: "Демо только для 4K, а тут другое число клавиш.", en: "The demo is 4K only, and this map has another key count." },
+    "err.empty": { ru: "В карте нет нот.", en: "The map has no notes." },
+    "err.no-chart": { ru: "В .osz нет 4K-карты osu!mania.", en: "The .osz has no osu!mania 4K map." },
+    "err.no-audio": { ru: "В .osz нет звука {name}.", en: "The .osz has no audio file {name}." },
+    "err.decode": { ru: "Браузер не смог прочитать звук.", en: "The browser couldn't read the audio." },
+    "err.no-preview": { ru: "У этой сложности нет PreviewTime — превью не сыграть.", en: "This difficulty has no PreviewTime — the preview can't be played." },
+    "err.preview-empty": { ru: "В превью нет нот этой сложности.", en: "The preview has no notes of this difficulty." },
+    "err.no-audio-api": { ru: "Браузер не дал WebAudio — звук не запустить.", en: "The browser has no WebAudio — no sound." },
+    "err.unknown": { ru: "Неизвестная ошибка.", en: "Unknown error." },
+};
+
+// Codes the player can show; err.<code> exists for each (strings.test.js).
+export const ERROR_CODES = Object.freeze([
+    "network", "http", "not-found", "rate-limited", "login", "limit", "disabled", "not-zip", "too-big", "host",
+    "permission", "analysis", "timeout", "bad-request", "cancelled", "context",
+    "mode", "keys", "empty", "no-chart", "no-audio", "decode", "no-preview", "preview-empty", "no-audio-api", "unknown",
+]);
+
+export const errorKey = (code) => (ERROR_CODES.includes(code) ? `err.${code}` : "err.unknown");

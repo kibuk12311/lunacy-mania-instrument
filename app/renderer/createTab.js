@@ -185,7 +185,7 @@ async function loadSong(file) {
         state.diffs = [];
         state.focus = null;
         ui.player.load(buffer);
-        ui.strip.setSong({ samples, sampleRate: ANALYSIS_RATE, durationMs });
+        ui.strip.setSong({ samples, sampleRate: ANALYSIS_RATE, durationMs, envelope });
 
         // the worker detects the timing while the stems are worked out here
         const asked = (async () => {

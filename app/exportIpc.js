@@ -175,12 +175,20 @@ export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysi
             if (!isObject(range) || !Number.isFinite(range.lo) || !Number.isFinite(range.hi) || range.lo < 0 || range.hi > MAX_DAN || !(range.lo < range.hi)) bad("range");
             const seed = req.seed ?? 1;
             if (!Number.isSafeInteger(seed)) bad("seed");
+            // «Можно миниджеки и анкоры»: only a true turns it on
+            const allowJacks = req.allowJacks === true;
             if (!known.rice) refuse(t("app.remap.notRice"));
             const osuText = await readFile(req.path, "utf8");
             if (!chartFacts(osuText).rice) refuse(t("app.remap.notRice"));
-            log(`remap ${req.path} to ${range.lo}..${range.hi}`);
-            const out = await generatorClient.remap({ osuText, range: { lo: range.lo, hi: range.hi }, seed }, () => {});
+            log(`remap ${req.path} to ${range.lo}..${range.hi}${allowJacks ? " (minijacks and anchors allowed)" : ""}`);
+            const out = await generatorClient.remap({ osuText, range: { lo: range.lo, hi: range.hi }, seed, allowJacks }, () => {});
             if (out?.kind !== "remapped") return { ok: false, message: out?.message ?? t("app.gen.failed") };
+            // nothing changed (a range out of reach without new minijacks and anchors, say): no file that is the original;
+            // the toggle is worth a try only where remapChart found it would have changed the map
+            if (!out.reachable && !out.removed && !out.added && !out.moved) {
+                log(`remap ${req.path}: nothing changed (${out.result?.numeric})`);
+                return { ok: false, message: t(!allowJacks && out.jacksWouldHelp === true ? "app.remap.unchangedNoJacks" : "app.remap.unchanged") };
+            }
             // next to the original, under a name no file has yet
             const dir = path.dirname(req.path);
             const info = readMeta(out.osuText);
@@ -203,6 +211,8 @@ export function registerExportIpc({ ipcMain, generatedStore, paths, log, analysi
                 ...lazer,
                 ok: true, file, version, numeric: out.result?.numeric ?? null, label: out.result?.label ?? null,
                 reachable: Boolean(out.reachable), removed: out.removed, added: out.added,
+                // a miss the toggle would have reached or come much closer to: the panel says to try it
+                ...(!allowJacks && !out.reachable && out.jacksWouldHelp === true ? { jacksWouldHelp: true } : {}),
             };
         } catch (error) {
             if (!(error instanceof Refusal)) log(`remap failed: ${error?.message}`);

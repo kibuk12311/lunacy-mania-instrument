@@ -80,7 +80,28 @@ function externalInfo(info = {}) {
         + `<div class="ext-note muted">${escape(info.note ?? "")}</div></div>`;
 }
 
-function resultCard(r, calc) {
+// The chips' rate: ×1.5 at a rate; a rate map (rateMap { rate, virtual } of the view) says so, its own rate in it, the
+// mods' on top of it as the plain chip (r.rate is the rate its original is shown at; past the ladder, rateMap.beyond,
+// it is the mods' rate on the file itself).
+function rateChips(r, rateMap) {
+    const own = Number.isFinite(rateMap?.rate) ? rateMap.rate : null;
+    const plain = r.rate !== 1 && (r.rate !== own || rateMap?.beyond) ? { text: `×${r.rate}` } : null;
+    if (own === null) return [plain];
+    const title = t(rateMap.virtual ? "analysis.rateMap.titleRebuilt" : "analysis.rateMap.title", { rate: own });
+    return [plain, { text: t("analysis.rateMap.chip", { rate: own }), title, cls: "an-ratemap" }];
+}
+
+// The vibro mark (the view's vibro, app/selectionController.js cardVibro): { text, title, cls } or null. Its words say
+// how much of the map and how fast; the dan above it is the map's own, as for any map.
+export function vibroChip(vibro) {
+    if (!vibro || !Number.isFinite(vibro.share)) return null;
+    const pct = Math.max(1, Math.round(vibro.share * 100));
+    const hits = Number.isFinite(vibro.peakGapMs) && vibro.peakGapMs > 0 ? Math.round(1000 / vibro.peakGapMs) : null;
+    const title = hits === null ? t("analysis.vibro.titleNoSpeed", { pct }) : t("analysis.vibro.title", { pct, hits });
+    return { text: t("analysis.vibro.chip"), title, cls: "an-vibro" };
+}
+
+function resultCard(r, calc, rateMap = null, vibro = null) {
     const lead = calc === "all" ? "ours" : calc;
     const own = lead === "ours";
     const head = danHead(danOf(r, lead), own ? null : CALCS.find((c) => c.id === lead).name);
@@ -97,19 +118,20 @@ function resultCard(r, calc) {
             + `<div class="bar"><i style="width:${pct}%"></i></div>`;
     }).join("");
     const chips = [
-        r.tech ? "Tech" : null,
-        Number.isFinite(r.bpm) ? `${Math.round(r.bpm)} BPM` : null,
-        Number.isFinite(r.durationSec) ? formatDuration(r.durationSec) : null,
-        r.rate !== 1 ? `×${r.rate}` : null,
-    ].filter(Boolean).map((c) => `<span class="chip">${escape(c)}</span>`).join("");
+        r.tech ? { text: "Tech" } : null,
+        vibroChip(vibro),
+        Number.isFinite(r.bpm) ? { text: `${Math.round(r.bpm)} BPM` } : null,
+        Number.isFinite(r.durationSec) ? { text: formatDuration(r.durationSec) } : null,
+        ...rateChips(r, rateMap),
+    ].filter(Boolean).map((c) => `<span class="chip${c.cls ? ` ${c.cls}` : ""}"${c.title ? ` title="${escape(c.title)}"` : ""}>${escape(c.text)}</span>`).join("");
     // the comparison needs the room the pattern bars take
     if (calc === "all") return head + confidence + calcList(r) + starsLine(r) + primary + `<div class="chips">${chips}</div>`;
     return head + confidence + starsLine(r) + primary + `<div class="bars">${bars}</div>` + `<div class="chips">${chips}</div>`;
 }
 
-function resultView(r, calc) {
+function resultView(r, calc, rateMap, vibro = null) {
     switch (r.kind) {
-        case "ok": return resultCard(r, calc);
+        case "ok": return resultCard(r, calc, rateMap, vibro);
         case "not-rice":
             if (r.reason === "mode") return message(t("analysis.notMania"));
             return message(r.reason === "ln" ? t("analysis.ln") : t("analysis.notFourKey", { keys: r.keys ?? "?" }));
@@ -124,7 +146,7 @@ export function renderView(view, { calc = "ours", client = null, interlude = fal
     const chosen = CALCS.some((c) => c.id === calc) ? calc : "ours";
     switch (view?.screen) {
         case "loading": return message(t("analysis.loading"));
-        case "result": return resultView(view.result, chosen);
+        case "result": return resultView(view.result, chosen, view.rateMap ?? null, view.vibro ?? null);
         case "tosu-failed": return message(t("analysis.tosuFailed", { reason: view.reason }));
         case "external-info": return externalInfo(view.info);
         case "osu-updated": return message(t(client === "lazer" ? "analysis.lazerUpdated" : "analysis.osuUpdated"));

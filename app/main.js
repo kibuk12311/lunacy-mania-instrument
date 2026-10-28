@@ -12,6 +12,7 @@ import { createRecommender } from "../src/recommend/recommend.js";
 import { createTrackerApi } from "../src/recommend/tracker.js";
 import { createDownloader } from "../src/recommend/download.js";
 import { createSelectionController } from "./selectionController.js";
+import { createRateOrigins } from "./rateMapOrigin.js";
 import { createAnalysisService } from "./analysisService.js";
 import { createHooks } from "./hooks.js";
 import { createJsonStore } from "./jsonStore.js";
@@ -374,10 +375,12 @@ async function main() {
         // osu! lazer's maps and scores from its database, read on demand (app/lazerRealm.js; the session tab)
         lazer,
         // the analysis card for a map from elsewhere than osu! (an Interlude chart): showExternal({ id, text, rate, onEnd }),
-        // or only its names when there is no file of it: showInfo({ id, rate, title, artist, diff, note, onEnd })
+        // or only its names when there is no file of it: showInfo({ id, rate, title, artist, diff, note, onEnd });
+        // rateMap(): the original of the rate map on the card (app/rateMapOrigin.js), or null — the Rate tab's map then
         card: Object.freeze({
             showExternal: (request) => cardController?.showExternal(request),
             showInfo: (request) => cardController?.showInfo(request),
+            rateMap: () => cardController?.rateMap() ?? null,
         }),
         // the live reader's state, for the IL panel (app/interludeLive.js)
         interludeLive: () => (interludeLive ? { state: interludeLive.state(), text: interludeLive.text() } : null),
@@ -442,6 +445,8 @@ async function main() {
         fetchOsu: () => fetchCurrentOsu(TOSU_PORT),
         analyze: workerClient.analyze,
         cache: resultCache,
+        // a rate map on the card shows as its original at its rate (the original found in its folder, read only)
+        rateOrigin: createRateOrigins({ beatmap: () => fetchCurrentBeatmap(TOSU_PORT), log }),
         onResult: (r) => {
             hooks.emit("result", r);
             overlay?.onCardResult(r);

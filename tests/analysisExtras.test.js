@@ -132,6 +132,30 @@ test("the ladder: folded by default, rows with data-rate, now and growth marks, 
     for (const s of ["Dan by rate ▾", "● now", "your growth", "counting…", "click to open in the Rate tab"]) assert.ok(en.includes(s), s);
 });
 
+test("the ladder of a rate map: the now row is its original's from the ladder (counting until then), not the card's dan", () => {
+    const view = { screen: "result", result: { ...RESULT, numeric: 13, rate: 1.2 }, key: "k", rateMap: { rate: 1.2, virtual: false } };
+    const ladder = new Map([[1, { state: "ok", numeric: 12 }]]);
+    const row = (html) => /<button[^>]*data-rate="1\.2".*?<\/button>/.exec(html)?.[0] ?? "";
+    const counting = row(renderExtras(state({ view, ladderOpen: true, ladder })));
+    assert.ok(counting.includes("an-lnow") && counting.includes("считаем…"), counting);
+    assert.ok(!counting.includes("13.0"));
+    ladder.set(1.2, { state: "ok", numeric: 13.4 });
+    const known = row(renderExtras(state({ view, ladderOpen: true, ladder })));
+    assert.ok(known.includes("an-lnow") && known.includes("13.4") && known.includes("+1.4"), known);
+    // a plain map: the now row is the card's own, as before
+    const plainRow = row(renderExtras(state({ view: { ...view, rateMap: undefined }, ladderOpen: true, ladder })));
+    assert.ok(plainRow.includes("13.0") && plainRow.includes("+1.0"), plainRow);
+});
+
+test("the ladder of a rate map past its range (DT on a 1.5x one): the original's rows, none marked now", () => {
+    const view = { screen: "result", result: { ...RESULT, numeric: 13, rate: 1.5 }, key: "k", rateMap: { rate: 1.5, virtual: false, beyond: true } };
+    const ladder = new Map([[1, { state: "ok", numeric: 8 }], [1.5, { state: "ok", numeric: 9.9 }]]);
+    const html = renderExtras(state({ view, ladderOpen: true, ladder }));
+    assert.ok(!html.includes("an-lnow") && !html.includes("an-now"), "no row of the original is the one played");
+    const row = /<button[^>]*data-rate="1\.5".*?<\/button>/.exec(html)?.[0] ?? "";
+    assert.ok(row.includes("9.9") && !row.includes("13.0"), row);
+});
+
 test("ladderRows: the now mark sits on the current rate, growth on its rate, the 1.0x row has no delta", () => {
     const rows = [
         { rate: 1, state: "ok", numeric: 13 },

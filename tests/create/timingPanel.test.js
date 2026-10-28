@@ -1,11 +1,12 @@
 // The timing panel: the octave buttons, the offset nudge, adding / removing red lines, one BPM for the song,
-// typed values, and the panel itself (sections table, buttons, snap chips) on the fake DOM.
+// typed values, the panel itself (sections table, buttons, snap chips) on the fake DOM, and the octave row
+// «130 / 260?» of a detected timing's alternatives.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fakeDom, fire, textOf } from "../helpers/fakeDom.js";
 import { setLang } from "../../src/i18n/i18n.js";
 import {
-    scaleBpm, nudgeSection, addSectionAt, removeSection, oneBpm, setSection, withMirrors, createTimingPanel,
+    scaleBpm, nudgeSection, addSectionAt, removeSection, oneBpm, setSection, withMirrors, createTimingPanel, octaveChoices,
 } from "../../app/renderer/timingPanel.js";
 
 const T = (...sections) => withMirrors(sections.map(([timeMs, bpm, meter = 4]) => ({ timeMs, bpm, meter })));
@@ -191,4 +192,41 @@ test("0.9.8 «Автоподбор»: setSnaps sets the grid chips; 1/4 always s
     assert.deepEqual(p.snaps(), [4, 3, 8]);
     p.setSnaps([]);
     assert.deepEqual(p.snaps(), [4]);
+});
+
+test("the octave choices of a detected timing: its own line and its alternatives, slowest first", () => {
+    const detected = { ...T([16, 260]), alternatives: [{ timeMs: 247, bpm: 130, share: 0.4 }] };
+    assert.deepEqual(octaveChoices(detected), [{ timeMs: 247, bpm: 130 }, { timeMs: 16, bpm: 260 }]);
+    assert.deepEqual(octaveChoices(T([16, 260])), [], "no alternatives");
+    assert.deepEqual(octaveChoices({ ...T([16, 260], [60000, 180]), alternatives: detected.alternatives }), [], "several red lines");
+    assert.deepEqual(octaveChoices({ ...T([16, 260]), alternatives: [{ timeMs: 5, bpm: 900 }, { timeMs: -1, bpm: 130 }, { bpm: 130 }] }), [], "none usable");
+});
+
+test("the octave row «130 / 260?»: one click puts the other octave in, the row stays to go back", async () => {
+    setLang("en");
+    try {
+        const { $, p, changes } = panel(T([0, 150]));
+        const root = $("timing-sections");
+        const row = () => root.children.find((c) => c.dataset?.role === "octave");
+        assert.equal(row(), undefined, "a timing that was not detected: no row");
+        p.set({ ...T([16, 260]), alternatives: [{ timeMs: 247, bpm: 130, share: 0.4 }] }, { detected: true });
+        assert.equal(textOf(row()), "Tempo unsure: | 130? | / | 260");
+        assert.equal(byText(row(), "130?").title, "Use 130 BPM: the music fits this tempo almost as well");
+        await fire(byText(row(), "130?"));
+        assert.deepEqual(p.timing, { sections: [{ timeMs: 247, bpm: 130, meter: 4 }], bpm: 130, offsetMs: 247 });
+        assert.equal(changes.at(-1)[1], "edit", "the parts are worked out again, as after any edit");
+        assert.equal($("bpm").value, "130");
+        assert.equal(textOf(row()), "Tempo unsure: | 130 | / | 260?");
+        // ×2 from 130 is 260 again, one of the choices: the row stays
+        await fire(byText(root, "×2"));
+        assert.equal(p.timing.bpm, 260);
+        assert.equal(textOf(row()), "Tempo unsure: | 130? | / | 260");
+        $("bpm").value = "175";
+        await fire($("bpm"), "change");
+        assert.equal(row(), undefined, "a BPM of the user's own: nothing to choose between");
+        p.set({ ...T([16, 260]), alternatives: [{ timeMs: 247, bpm: 130 }], refinedErrMs: 1 }, { refined: true });
+        assert.equal(row(), undefined, "a refined timing is the user's own: no row");
+    } finally {
+        setLang("ru");
+    }
 });

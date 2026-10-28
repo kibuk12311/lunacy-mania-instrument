@@ -1,6 +1,7 @@
 // The Dan widget's data, kept pure so it can be tested: what main sends the widget with its config (the map's dan at
 // the play's rate from the card's analysis, "for you" against the player's profile, whether the local profile
-// records) and what the widget works out from it (the play's own performance dan on the results screen), plus the
+// records, whether the map is vibro at that rate) and what the widget works out from it (the play's own performance
+// dan on the results screen; none on a vibro map, whose play the local profile leaves out of the dans), plus the
 // words it shows. The widget shows the map's overall dan, the card's; the dan of each part of a map is the analysis
 // tab's own block (src/analysis/sections.js), not the overlay's.
 import { t } from "../i18n/i18n.js";
@@ -26,12 +27,13 @@ export function danStateOf(result) {
 }
 
 // The play's performance dan (the local profile's model) from the results screen's judgements, or null: no map dan,
-// no judgements, autoplay-like mods.
+// no judgements, autoplay-like mods, a map that is vibro at this rate (the profile leaves such a play out of its dans).
 export function playDanOf(payload, hits, mods = []) {
     if (payload?.state !== "ok" || finite(payload.numeric) === null || !hits) return null;
     const total = ["max", "n300", "n200", "n100", "n50", "miss"].reduce((s, k) => s + (Number(hits[k]) || 0), 0);
     if (!total) return null;
-    return performanceDan({ outcome: "pass", hits, mods }, { kind: "ok", numeric: payload.numeric })?.dan ?? null;
+    const vibro = payload.vibro ? { v: 1, vibro: true } : null;
+    return performanceDan({ outcome: "pass", hits, mods }, { kind: "ok", numeric: payload.numeric, vibro })?.dan ?? null;
 }
 
 // +0.4, −0.7 (a minus sign), ±0.0
@@ -80,6 +82,9 @@ export const forYouText = (fit) => (fit && finite(fit.delta) !== null ? t("overl
 // «эта игра: Gamma low/mid»
 export const playText = (dan) => (finite(dan) === null ? "" : t("overlay.dan.play", { label: numericToLabel(dan).text }));
 
+// «вибро, в профиль не идёт» on a map that is vibro at this rate; "" otherwise
+export const vibroText = (payload) => (payload?.vibro ? t("overlay.dan.vibro") : "");
+
 // Everything the widget writes for a payload and a snapshot: { state, number, label, line, confidence, pattern,
 // forYou, band, play, playDan, results }. payload: the config's dan (or the fake one).
 export function danView(payload, snapshot) {
@@ -90,7 +95,8 @@ export function danView(payload, snapshot) {
         return { state, number: "—", label: text, line: text, confidence: "", pattern: "", forYou: "", band: null, play: "", playDan: null, results };
     }
     const head = danHead(payload.numeric);
-    const playDan = (results || payload.preview) && payload.recording ? playDanOf(payload, snapshot?.hits, snapshot?.mods) : null;
+    const ownPlay = (results || payload.preview) && payload.recording;
+    const playDan = ownPlay ? playDanOf(payload, snapshot?.hits, snapshot?.mods) : null;
     return {
         state,
         number: head.number,
@@ -100,7 +106,8 @@ export function danView(payload, snapshot) {
         pattern: patternText(payload),
         forYou: forYouText(payload.fit),
         band: payload.fit?.band ?? null,
-        play: playText(playDan),
+        // a vibro map's play has no dan of its own: it says so instead
+        play: ownPlay && payload.vibro ? vibroText(payload) : playText(playDan),
         playDan,
         results,
     };
@@ -136,5 +143,7 @@ export function buildDanPayload({ checksum, rate = 1, mode = 3, entry = null, sk
         confidenceLevel: ["high", "medium", "low"].includes(r.confidenceLevel) ? r.confidenceLevel : null,
         fit: fit ? { delta: fit.delta, playerDan: fit.playerDan, band: fit.band, source: fit.source, tile: fit.tile } : null,
         recording: recording === true,
+        // the map is vibro at this rate (app/overlay/danSource.js looks at its .osu): the play goes in no dan
+        ...(entry?.vibro?.vibro === true ? { vibro: { share: entry.vibro.share, peakGapMs: entry.vibro.peakGapMs ?? null } } : {}),
     };
 }

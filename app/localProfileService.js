@@ -6,9 +6,10 @@
 // A lazer play the live recording already took is its imported score too (same map, rate, judgements): kept once.
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { createSkillModel, dailySkill, AXES, PATTERNS, performanceDan, DAY_MS } from "../src/localProfile/model.js";
+import { createSkillModel, dailySkill, AXES, PATTERNS, performanceDan, isVibroMap, DAY_MS } from "../src/localProfile/model.js";
 import { parseScoresDb, mainPlayer } from "../src/localProfile/scoresDb.js";
 import { createPlayRecorder } from "../src/localProfile/recorder.js";
+import { detectVibro, vibroSummary, vibroCurrent } from "../src/vibro/detect.js";
 import { mapKeyOf, mapSummary } from "./localProfileStore.js";
 
 const TEXT_CACHE = 6; // .osu texts of the maps played last (fetched from tosu while the play goes on)
@@ -21,6 +22,14 @@ function served(x) {
     return { md5: createHash("md5").update(bytes).digest("hex"), text: bytes.toString("utf8").replace(/^﻿/, "") };
 }
 const round2 = (x) => Math.round(x * 100) / 100;
+
+// A map's summary with the vibro answer for its .osu at the rate beside it (src/vibro/detect.js; worked out here, never
+// in the analysis, so the shared result cache does not change); a summary without a dan is kept as it is.
+export function withVibro(summary, text, rate) {
+    if (summary?.kind !== "ok" || typeof text !== "string" || !text) return summary;
+    const vibro = vibroSummary(detectVibro(text, rate));
+    return vibro ? { ...summary, vibro } : summary;
+}
 
 // store: app/localProfileStore.js; analyze(text, rate) → analysis result (the shared, cached service);
 // fetchMapText() → the .osu tosu has selected (its bytes, or its text); readFile(path) → Buffer; songsIndex: app/osuSongsScan.js;
@@ -87,11 +96,21 @@ export function createLocalProfileService({
 
     async function workOutMap(key, rate, getText) {
         const known = await store.map(key);
-        if (known) return { key, map: known };
+        if (known && (known.kind !== "ok" || vibroCurrent(known.vibro))) return { key, map: known };
         const text = await getText();
+        if (known) {
+            // kept before vibro was looked at (or by another version of it): looked at now that the .osu is here; the
+            // map's earlier plays were counted without the answer, so a vibro one has the skill worked out again
+            const next = withVibro(known, text, rate);
+            if (next !== known) {
+                await store.setMap(key, next);
+                if (isVibroMap(next) || isVibroMap(known)) rebuild();
+            }
+            return { key, map: next };
+        }
         if (!text) return { key, map: null, noText: true };
         const result = await analyze(text, rate);
-        const summary = mapSummary(result);
+        const summary = withVibro(mapSummary(result), text, rate);
         // a transient failure (the worker busy, cancelled) is worked out again next time
         if (summary && !(result?.kind === "error" && result.transient)) await store.setMap(key, summary);
         return { key, map: summary?.kind === "error" ? null : summary };
@@ -136,6 +155,124 @@ export function createLocalProfileService({
         return stored;
     }
 
+    // ---- vibro on the maps kept before it was looked at ----
+
+    let vibroRun = null; // the pass under way (a Promise of its answer)
+    let vibroBusy = false; // … past waiting for an import: it is reading
+    let vibroWanted = 1; // passes asked for: one a session, one more after a backup is imported …
+    let vibroDone = 0; // … and the one the last finished pass answered
+
+    // The Songs folder osu! stable keeps its maps in: tosu's, when it reads that osu! folder, else <osu>\Songs.
+    async function songsFolderOf(osu) {
+        const fromTosu = (await osuFolders().catch(() => null)) ?? {};
+        return fromTosu.songs && fromTosu.game && path.resolve(fromTosu.game) === path.resolve(osu) ? fromTosu.songs : path.join(osu, "Songs");
+    }
+
+    // Every played map with a dan and no vibro answer of this version: its .osu found again where its plays came from
+    // (the last live plays' texts, Interlude's library, the Songs folder, lazer's files store), looked at and the answer
+    // kept beside its summary. A map whose .osu is gone keeps none, and its plays count as they always did. The skill is
+    // worked out again when any answer came (the plays stay as they are). → { checked, vibro, missing }
+    async function backfillVibro() {
+        while (job) await job.ended;
+        vibroBusy = true; // an import asked for from now on waits for this pass (nothing between the check and this)
+        const plays = await store.plays();
+        const maps = store.mapsNow();
+        const todo = new Map(); // mapKey → { md5, rate, interlude (a chart hash), stable, lazer }
+        for (const p of plays) {
+            const m = maps.get(p.mapKey);
+            if (m?.kind !== "ok" || vibroCurrent(m.vibro)) continue;
+            const e = todo.get(p.mapKey) ?? { md5: p.md5, rate: p.rate, interlude: null, stable: false, lazer: false };
+            if (p.client === "interlude") e.interlude ??= String(p.id).split(":")[1] || null;
+            else if (p.client === "lazer") e.lazer = true;
+            else e.stable = true;
+            todo.set(p.mapKey, e);
+        }
+        if (!todo.size) return { checked: 0, vibro: 0, missing: 0 };
+        let charts = null; // the Songs folder's md5 → { path }, scanned (only what changed) once
+        const songsCharts = async () => {
+            if (charts) return charts;
+            charts = new Map();
+            try {
+                const osu = await osuFolderNow(null);
+                if (osu && songsIndex) charts = (await songsIndex.scan(await songsFolderOf(osu))).charts;
+            } catch (error) {
+                log(`local profile: vibro: Songs not read (${error?.message})`);
+            }
+            return charts;
+        };
+        let lazerHashes = null; // lazer's md5 → the hash its .osu is stored by, read once
+        const lazerHashOf = async (md5) => {
+            if (!lazerHashes) {
+                lazerHashes = new Map();
+                try {
+                    if (lazer && (await lazer.status())?.found) {
+                        const data = await lazer.read();
+                        for (const m of data?.maps ?? []) if (m?.md5 && m.hash) lazerHashes.set(m.md5, m.hash);
+                    }
+                } catch (error) {
+                    log(`local profile: vibro: lazer not read (${error?.message})`);
+                }
+            }
+            return lazerHashes.get(md5) ?? null;
+        };
+        const textOf = async (e) => {
+            const remembered = texts.get(e.md5);
+            if (remembered) return remembered;
+            if (e.interlude && interlude) {
+                const osu = await interlude.osuFor(e.interlude).catch(() => null);
+                if (osu?.text) return osu.text;
+            }
+            if (e.stable) {
+                const chart = (await songsCharts()).get(e.md5);
+                const bytes = chart ? await readFile(chart.path).catch(() => null) : null;
+                if (bytes) return served(bytes).text;
+            }
+            if (e.lazer) {
+                const hash = await lazerHashOf(e.md5);
+                const text = hash ? await lazer.text(hash).catch(() => null) : null;
+                if (text) return text;
+            }
+            return null;
+        };
+        let checked = 0;
+        let vibro = 0;
+        for (const [key, e] of todo) {
+            const text = await textOf(e).catch(() => null);
+            const known = await store.map(key);
+            const next = text && known ? withVibro(known, text, e.rate) : known;
+            if (!next || next === known) continue;
+            await store.setMap(key, next);
+            checked += 1;
+            if (isVibroMap(next)) vibro += 1;
+        }
+        const missing = todo.size - checked;
+        log(`local profile: vibro looked at on ${checked} kept maps (${vibro} vibro), ${missing} without their .osu`);
+        if (checked) {
+            rebuild();
+            await changed();
+        }
+        return { checked, vibro, missing };
+    }
+
+    // The pass over the kept maps, once a session (again after a backup is imported); → its answer. Asked again while
+    // one runs, the answer is that one's; one asked for after it began (a backup) follows it.
+    function checkVibro() {
+        if (vibroRun) return vibroRun;
+        if (vibroDone >= vibroWanted) return Promise.resolve({ checked: 0, vibro: 0, missing: 0, already: true });
+        const wanted = vibroWanted;
+        vibroRun = backfillVibro()
+            .catch((error) => {
+                log(`local profile: vibro pass failed: ${error?.message}`);
+                return { checked: 0, vibro: 0, missing: 0, failed: true };
+            })
+            .finally(() => {
+                vibroRun = null;
+                vibroBusy = false;
+                vibroDone = wanted;
+            });
+        return vibroRun;
+    }
+
     // ---- live ----
 
     function remember(md5, text) {
@@ -166,7 +303,7 @@ export function createLocalProfileService({
         const { map } = await mapFor(p.md5, p.rate, async () => texts.get(p.md5) ?? (await fetchNow()));
         const stored = await addPlay(play, map);
         const perf = stored ? performanceDan(stored, map) : null;
-        log(`local profile: ${p.outcome} ${p.artist} - ${p.title} [${p.version}] ${p.rate}x ${p.accuracy !== null ? (p.accuracy * 100).toFixed(2) : "—"}%${perf ? ` → ${perf.dan}` : ""}${stored ? "" : " (already there)"}`);
+        log(`local profile: ${p.outcome} ${p.artist} - ${p.title} [${p.version}] ${p.rate}x ${p.accuracy !== null ? (p.accuracy * 100).toFixed(2) : "—"}%${perf ? ` → ${perf.dan}` : ""}${isVibroMap(map) ? " (vibro: no dan)" : ""}${stored ? "" : " (already there)"}`);
         if (stored) await changed();
         return stored;
     }
@@ -214,9 +351,7 @@ export function createLocalProfileService({
         log(`local profile: scores.db ${parsed.scores.length} mania scores, ${mine.length} by the main player, ${todo.length} new`);
         let charts = new Map();
         if (todo.length) {
-            const tosuSongs = (await osuFolders().catch(() => null)) ?? {};
-            const songs = tosuSongs.songs && tosuSongs.game && path.resolve(tosuSongs.game) === path.resolve(osu) ? tosuSongs.songs : path.join(osu, "Songs");
-            const scanned = await songsIndex.scan(songs, {
+            const scanned = await songsIndex.scan(await songsFolderOf(osu), {
                 onProgress: ({ done, total }) => progress("stable", "scan", done, total),
                 isCancelled: () => Boolean(job?.cancelled),
             });
@@ -346,14 +481,18 @@ export function createLocalProfileService({
     // one import at a time; → its answer
     async function runImport(source, options) {
         if (job) return { ok: false, reason: "busy" };
-        job = { source, cancelled: false, progress: null };
+        let end = () => {};
+        job = { source, cancelled: false, progress: null, ended: new Promise((resolve) => { end = resolve; }) };
         try {
+            // the pass over the kept maps reads the same Songs index: once begun it finishes first (it is short)
+            if (vibroBusy) await vibroRun;
             return await IMPORTS[source](options);
         } catch (error) {
             log(`local profile: ${source} import failed: ${error?.message}`);
             return { ok: false, reason: "failed", message: String(error?.message ?? error) };
         } finally {
             job = null;
+            end();
             emit("local-profile-import", { source, phase: "end" });
         }
     }
@@ -370,6 +509,8 @@ export function createLocalProfileService({
             outcome: p.outcome, at: p.at, beatmapId: p.beatmapId, mapDan: map?.kind === "ok" ? map.numeric : null,
             mapLabel: map?.kind === "ok" ? map.label : null, unrated: !map || map.kind !== "ok", perf: perf?.dan ?? null,
             calcs: map?.kind === "ok" ? map.calcs : null,
+            // the map is vibro at this rate: listed, in no dan ({ share, peakGapMs } for the words)
+            vibro: map?.kind === "ok" && isVibroMap(map) ? { share: map.vibro.share, peakGapMs: map.vibro.peakGapMs } : null,
         };
     }
 
@@ -379,7 +520,8 @@ export function createLocalProfileService({
         const byId = new Map(plays.map((p) => [p.id, p]));
         const topOf = (est) => (est?.top ?? []).slice(0, top).map((x) => ({ ...describe(byId.get(x.playId)), eff: x.eff, weight: x.weight })).filter((x) => x.id);
         // lazer: every lazer play (recorded or imported); lazerDb: the ones its database import added
-        const counts = { plays: plays.length, rated: k.analyzedPlays, live: 0, stable: 0, interlude: 0, lazer: 0, lazerDb: 0 };
+        // vibro: passes left out of the dans because their map is vibro at the rate played
+        const counts = { plays: plays.length, rated: k.analyzedPlays, vibro: k.vibroPlays ?? 0, live: 0, stable: 0, interlude: 0, lazer: 0, lazerDb: 0 };
         for (const p of plays) {
             if (p.source === "live") counts.live += 1;
             if (p.source === "stable-db") counts.stable += 1;
@@ -458,11 +600,19 @@ export function createLocalProfileService({
             emit("local-profile-changed", { skill: await skill(), record: s.record });
             return { ok: true, record: s.record };
         },
+        // the pass over the maps kept before vibro was looked at (once a session; app/localProfileIpc.js asks a while
+        // after the window loads): → { checked, vibro, missing }
+        checkVibro,
         exportBundle: () => store.exportBundle(),
         importBundle: async (bundle) => {
             const r = await store.importBundle(bundle);
             rebuild();
             await changed();
+            // a backup made before vibro was looked at: its maps are looked at too (after a pass under way)
+            if (r?.ok) {
+                vibroWanted += 1;
+                void Promise.resolve(vibroRun).then(() => checkVibro());
+            }
             return r;
         },
         reset: async () => {

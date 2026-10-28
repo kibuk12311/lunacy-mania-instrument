@@ -110,4 +110,18 @@ export default {
     "rate.err.badSteps": { ru: "рейты — от 0.5 до 2, шаг от 0.01, не больше 31 за раз", en: "rates go from 0.5 to 2, a step of at least 0.01, at most 31 at a time" },
     "rate.err.badTarget": { ru: "выбери дан — от 1 дана до Kappa", en: "pick a dan — from Dan 1 to Kappa" },
     "rate.err.cancelled": { ru: "отменено", en: "cancelled" },
+    "rate.err.noOriginal": {
+        ru: "копии делаются только из настоящего оригинала — выбери его в osu!",
+        en: "copies are made only from the real original — select it in osu!",
+    },
+    // a rate map on the analysis card: the tab shows its original instead (app/rateIpc.js), found in the map's folder
+    // or rebuilt from the rate map
+    "rate.origin": {
+        ru: "Рейт-карта ×{rate}: тут её оригинал — дан и копии считаются от него, а не от рейт-карты.",
+        en: "Rate map ×{rate}: this is its original — dans and copies count from it, not from the rate map.",
+    },
+    "rate.originRebuilt": {
+        ru: "Рейт-карта ×{rate}: оригинала нет в папке карты, он восстановлен из рейт-карты — даны на рейтах считаются, а копии делаются только из настоящего оригинала (выбери его в osu!).",
+        en: "Rate map ×{rate}: its original isn't in the map's folder, so it's rebuilt from the rate map — dans at any rate work, but copies are made only from the real original (select it in osu!).",
+    },
 };

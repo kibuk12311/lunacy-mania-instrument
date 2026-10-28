@@ -23,8 +23,19 @@ function take(rng, pool, n, prefer = null) {
 // Spread chords across hands: a second note on the other hand is twice as likely.
 const otherHand = (c, chosen) => (chosen.length && chosen.every((x) => hand(x) === hand(c)) ? 0.5 : 1);
 
-// Rolling stream: never the column of either of the last two rows (that would read as trills).
-function stream(prev, prev2, rng) {
+// Rolling stream: never the column of either of the last two rows (that would read as trills). With `trills` (0.10.4)
+// the row before last's column comes back TRILL_CONTINUE of the time, as often as human maps continue a two-row
+// alternation, so the rule path makes minitrills too (before it made none) — but never inside a roll under way, so the
+// rolls stay as many as before.
+export const TRILL_CONTINUE = 0.14;
+// A roll under way (src/gen/flavourMetrics.js Rolls: four single notes sweeping 1 2 3 4 or 4 3 2 1): the last rows
+// (oldest first, column lists) are its first two or three notes.
+export function rollUnderWay(...rows) {
+    const s = rows.map((r) => (r?.length === 1 ? r[0] : "-")).join("");
+    return /(01|32)$/.test(s) || /(012|321)$/.test(s);
+}
+function stream(prev, prev2, rng, trills = false, prev3 = []) {
+    if (trills && prev2.length === 1 && prev.length && !prev.includes(prev2[0]) && !rollUnderWay(prev3, prev2, prev) && rng() < TRILL_CONTINUE) return [prev2[0]];
     const fresh = without(COLS, [...prev, ...prev2]);
     const pool = fresh.length ? fresh : without(COLS, prev);
     const weights = pool.map((c) => (prev.length && hand(c) !== hand(prev[0]) ? 2 : 1));
@@ -77,13 +88,14 @@ function tech(prev, rng, level) {
     return [...minijack, ...rest];
 }
 
-// `index` counts rows inside the current run of this pattern (used for alternating chord/single rows).
-export function nextRow(pattern, prevRows, rng, level, index) {
+// `index` counts rows inside the current run of this pattern (used for alternating chord/single rows); `trills`: streams
+// may continue a trill (stream above; off: the rows as before 0.10.4).
+export function nextRow(pattern, prevRows, rng, level, index, { trills = false } = {}) {
     const prev = prevRows.at(-1) ?? [];
     const prev2 = prevRows.at(-2) ?? [];
     let row;
     switch (pattern) {
-        case "Stream": row = stream(prev, prev2, rng); break;
+        case "Stream": row = stream(prev, prev2, rng, trills, prevRows.at(-3) ?? []); break;
         case "Jumpstream": row = jumpstream(prev, rng, level, index); break;
         case "Handstream": row = handstream(prev, rng, level, index); break;
         case "Chordjack": row = chordjack(prev, rng, level, prevRows); break;

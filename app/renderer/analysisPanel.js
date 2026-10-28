@@ -15,7 +15,9 @@ const validRate = (r) => typeof r === "number" && Number.isFinite(r) && r >= 0.5
 const rateKey = (r) => Math.round(Number(r) * 100) / 100;
 
 // The ladder's dans, one rate at a time (so the worker never has more than one of them waiting): 1.0x first, for
-// the deltas, then the rest from the lowest; the current rate comes from the card and rates in `have` are known.
+// the deltas, then the rest from the lowest; the current rate comes from the card and rates in `have` are known —
+// but for a rate map (askCurrent) the card's dan is the file's own, so its current rate is asked for right after 1.0x
+// (the ladder's rows, now included, are its original's).
 // start() again or stop() drops whatever is on its way; a stale answer (main has another map by now) ends the run.
 // onRow(key, rate, { state: "ok", numeric, label } | { state: "fail" }); onStale(key).
 export function createLadderRunner({ analysisRate, rates = LADDER_RATES, onRow, onStale = () => {} }) {
@@ -42,11 +44,14 @@ export function createLadderRunner({ analysisRate, rates = LADDER_RATES, onRow, 
     }
 
     return {
-        start({ key: chosen, currentRate = null, have = [] }) {
+        start({ key: chosen, currentRate = null, have = [], askCurrent = false }) {
             token += 1;
             const current = currentRate === null ? null : rateKey(currentRate);
             const known = new Set(have.map(rateKey));
-            const todo = rates.map(rateKey).filter((r) => r !== current && !known.has(r)).sort((a, b) => (b === 1) - (a === 1) || a - b);
+            const all = rates.map(rateKey);
+            if (askCurrent && validRate(current) && !all.includes(current)) all.push(current);
+            const first = (r) => (r === 1 ? 2 : askCurrent && r === current ? 1 : 0);
+            const todo = all.filter((r) => (askCurrent || r !== current) && !known.has(r)).sort((a, b) => first(b) - first(a) || a - b);
             key = todo.length ? chosen : null;
             if (todo.length) run(token, chosen, todo);
         },
@@ -87,7 +92,7 @@ export function createAnalysisPanel({
     setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
     const state = {
-        key: null, rate: null, details: null, sections: undefined, partSel: null, profile: profile.getProfile(), ladder: new Map(),
+        key: null, rate: null, rateMap: false, details: null, sections: undefined, partSel: null, profile: profile.getProfile(), ladder: new Map(),
         ...readOpen(storage),
     };
     const remember = () => saveOpen(storage, { ladderOpen: state.ladderOpen, partsOpen: state.partsOpen });
@@ -125,7 +130,7 @@ export function createAnalysisPanel({
         ladderTimer = null;
     }
 
-    const startLadder = () => runner.start({ key: state.key, currentRate: state.rate, have: [...state.ladder.keys()] });
+    const startLadder = () => runner.start({ key: state.key, currentRate: state.rate, have: [...state.ladder.keys()], askCurrent: state.rateMap });
 
     // starts the ladder when it is open, can be seen and is not done yet; a delay of 0 starts it at once
     function maybeLadder(delayMs) {
@@ -134,7 +139,8 @@ export function createAnalysisPanel({
             return;
         }
         if (runner.key === state.key || ladderTimer !== null) return;
-        if (LADDER_RATES.every((r) => r === rateKey(state.rate) || state.ladder.has(r))) return;
+        const nowKnown = !state.rateMap || state.rate === null || state.ladder.has(rateKey(state.rate));
+        if (nowKnown && LADDER_RATES.every((r) => r === rateKey(state.rate) || state.ladder.has(r))) return;
         if (delayMs <= 0) {
             startLadder();
             return;
@@ -149,11 +155,15 @@ export function createAnalysisPanel({
     function follow(view) {
         const result = view?.screen === "result" ? view.result : null;
         const key = result?.kind === "ok" && typeof view.key === "string" && view.key ? view.key : null;
-        if (key !== state.key) {
+        // a rate map's ladder is its original's, now row included: the same file shown as one or not is another ladder
+        const rateMap = key !== null && Boolean(view.rateMap);
+        if (key !== state.key || rateMap !== state.rateMap) {
             stopLadder();
             staleKey = null;
             state.key = key;
-            state.rate = key ? rateKey(result.rate ?? 1) : null;
+            state.rateMap = rateMap;
+            // past the ladder (view.rateMap.beyond) no row of the original is the one played
+            state.rate = key && !view.rateMap?.beyond ? rateKey(result.rate ?? 1) : null;
             state.ladder = new Map();
             state.details = key && lastDetails?.key === key ? lastDetails.details ?? null : null;
             state.sections = key && lastSections?.key === key ? lastSections.sections ?? null : undefined;

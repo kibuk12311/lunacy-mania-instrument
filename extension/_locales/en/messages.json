@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Lunacy mania: dans for osu!",
+    "description": "Name of the extension. Not osu!'s own: it is made by the Lunacy mania app."
+  },
+  "extDescription": {
+    "message": "Lunacy mania dans for every osu!mania 4K map on osu! beatmap pages, dans on rates and a demo to play. Not made by osu!.",
+    "description": "Store description, at most 132 characters."
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -9,12 +9,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test \"tests/**/*.test.js\"",
+    "test": "node tools/run-tests.mjs",
     "start": "electron .",
     "dist": "electron-builder --win --publish never",
     "build:reader": "powershell -NoProfile -ExecutionPolicy Bypass -File native/interlude-reader/build.ps1 -SkipFake",
     "extract": "node tools/extract-features.mjs",
-    "train": ".venv/Scripts/python -I tools/train.py --dump-parity tests/fixtures/model-parity.json"
+    "train": ".venv/Scripts/python -I tools/train.py --dump-parity tests/fixtures/model-parity.json",
+    "build:extension": "node tools/build-extension.mjs",
+    "smoke:extension": "node tools/smoke-extension.mjs"
   },
   "dependencies": {
     "electron-updater": "6.6.2",

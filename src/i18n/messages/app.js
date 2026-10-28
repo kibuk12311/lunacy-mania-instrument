@@ -121,5 +121,12 @@ export default {
     "app.remap.unknownMap": { ru: "Сначала выбери карту", en: "Pick a map first" },
     "app.remap.needOsu": { ru: "Нужен файл .osu", en: "This needs an .osu file" },
     "app.remap.notRice": { ru: "Переделка работает только для рисовых 4K-карт", en: "Remapping works only for 4K rice maps" },
+    // the remap changed nothing (src/gen/remap.js gave back the original): no file is written
+    "app.remap.unchanged": { ru: "Ближе к этому дану карту не сделать, файл не создан", en: "The map can't get closer to that dan, so no file was written" },
+    // …and with «Можно миниджеки и анкоры» it would have got there, or much closer
+    "app.remap.unchangedNoJacks": {
+        ru: "Без новых миниджеков и анкоров до этого дана не дойти, файл не создан. Попробуй с «Можно миниджеки и анкоры»",
+        en: "This dan can't be reached without new minijacks and anchors, so no file was written. Try turning on “Allow minijacks and anchors”",
+    },
     // <<< mapgen-C
 };

@@ -13,7 +13,7 @@ import { readMeta } from "../src/gen/osuMeta.js";
 import { toOsu } from "../src/gen/writer.js";
 import { makeChart } from "./fixtures/makeChart.js";
 import { readOsz, osuTexts } from "./fixtures/readOsz.js";
-import { t } from "../src/i18n/i18n.js";
+import { t, setLang, getLang } from "../src/i18n/i18n.js";
 
 const generated = (version) => toOsu({
     rows: Array.from({ length: 20 }, (_, i) => ({ t: 1000 + i * 250, cols: [i % 4] })),
@@ -218,6 +218,18 @@ test("remap-create only takes a map remap-load returned, and checks the range an
     assert.equal(calls.remap[0].osuText, await readFile(file, "utf8"));
 });
 
+test("remap-create: «Можно миниджеки и анкоры» goes to the worker as a boolean, only a true turning it on", async () => {
+    const { call, dir, calls } = await setup();
+    const { file } = await songFolder(dir);
+    await call("remap-load", { file });
+    const sent = [];
+    for (const allowJacks of [undefined, true, false, "true", 1, null, {}]) {
+        await call("remap-create", { path: file, range: { lo: 11.5, hi: 12.5 }, seed: 1, ...(allowJacks === undefined ? {} : { allowJacks }) });
+        sent.push(calls.remap.at(-1).allowJacks);
+    }
+    assert.deepEqual(sent, [false, true, false, false, false, false, false]);
+});
+
 test("remap-create writes the new difficulty next to the original and never overwrites", async () => {
     const remapped = (osuText) => ({
         kind: "remapped", osuText: osuText.replace("Version:Hard", "Version:Hard (Beta mid remap)"), version: "Hard (Beta mid remap)",
@@ -240,6 +252,67 @@ test("remap-create writes the new difficulty next to the original and never over
     assert.equal(readMeta(await readFile(b.file, "utf8")).version, "Hard (Beta mid remap) 2");
     assert.equal(await readFile(file, "utf8"), original, "the original is untouched");
     assert.equal((await readdir(folder)).length, 3);
+});
+
+test("remap-create writes nothing when the remap changed nothing, and says why", async () => {
+    // what remapChart gives back when no note could come out or go in without new minijacks and anchors
+    const same = (osuText, numeric) => ({
+        kind: "remapped", osuText: osuText.replace("Version:Hard", "Version:Hard (Beta mid remap)"), version: "Hard (Beta mid remap)",
+        result: { kind: "ok", label: "Beta mid", numeric }, reachable: false, removed: 0, added: 0, moved: 0,
+    });
+    // jacksWouldHelp: remapChart found that with the toggle on it would have changed the map
+    let helps = true;
+    const { call, dir } = await setup({ generatorClient: { remap: async (payload) => ({ ...same(payload.osuText, 12.04), jacksWouldHelp: helps && !payload.allowJacks }) } });
+    const { folder, file } = await songFolder(dir);
+    await call("remap-load", { file });
+    const before = await readdir(folder);
+    assert.deepEqual(await call("remap-create", { path: file, range: { lo: 12.5, hi: 13.5 }, seed: 1 }), { ok: false, message: t("app.remap.unchangedNoJacks") });
+    assert.deepEqual(await call("remap-create", { path: file, range: { lo: 12.5, hi: 13.5 }, seed: 1, allowJacks: true }), { ok: false, message: t("app.remap.unchanged") });
+    // the toggle would not help either: no advice to turn it on
+    helps = false;
+    assert.deepEqual(await call("remap-create", { path: file, range: { lo: 12.5, hi: 13.5 }, seed: 1 }), { ok: false, message: t("app.remap.unchanged") });
+    assert.deepEqual(await readdir(folder), before, "no file written");
+    // a miss that did change the map is still written (the panel says it is the closest it got)
+    const { call: call2, dir: dir2 } = await setup({ generatorClient: { remap: async (payload) => ({ ...same(payload.osuText, 12.3), removed: 0, added: 14 }) } });
+    const second = await songFolder(dir2);
+    await call2("remap-load", { file: second.file });
+    const written = await call2("remap-create", { path: second.file, range: { lo: 12.5, hi: 13.5 }, seed: 1 });
+    assert.equal(written.ok, true);
+    assert.equal(written.reachable, false);
+});
+
+test("remap-create: the advice to turn on «Можно миниджеки и анкоры» says the dan is out of reach without them", () => {
+    // it comes where the clean changes did not move the dan far enough, not only where there were none: no word of the
+    // map not changing
+    const was = getLang();
+    try {
+        for (const [lang, says] of [["ru", /без новых миниджеков и анкоров до этого дана не дойти/i], ["en", /dan can't be reached without new minijacks and anchors/i]]) {
+            setLang(lang);
+            assert.match(t("app.remap.unchangedNoJacks"), says, lang);
+            assert.doesNotMatch(t("app.remap.unchangedNoJacks"), /карту не изменить|map can't change/i, lang);
+        }
+    } finally {
+        setLang(was);
+    }
+});
+
+test("remap-create: a miss it wrote says when «Можно миниджеки и анкоры» would have got closer", async () => {
+    const closest = (osuText, helps) => ({
+        kind: "remapped", osuText: osuText.replace("Version:Hard", "Version:Hard (Beta mid remap)"), version: "Hard (Beta mid remap)",
+        result: { kind: "ok", label: "Beta mid", numeric: 12.3 }, reachable: false, removed: 0, added: 14, moved: 0, jacksWouldHelp: helps,
+    });
+    let helps = true;
+    const { call, dir } = await setup({ generatorClient: { remap: async (payload) => closest(payload.osuText, helps && !payload.allowJacks) } });
+    const { file } = await songFolder(dir);
+    await call("remap-load", { file });
+    const req = { path: file, range: { lo: 12.5, hi: 13.5 }, seed: 1 };
+    const a = await call("remap-create", req);
+    assert.equal(a.ok, true);
+    assert.equal(a.reachable, false);
+    assert.equal(a.jacksWouldHelp, true);
+    assert.equal((await call("remap-create", { ...req, allowJacks: true })).jacksWouldHelp, undefined, "the toggle is on already");
+    helps = false;
+    assert.equal((await call("remap-create", req)).jacksWouldHelp, undefined);
 });
 
 test("remap-create refuses a map that is not rice, even if it was loaded", async () => {

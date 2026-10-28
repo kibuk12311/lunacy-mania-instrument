@@ -12,3 +12,4 @@ models/mapper-nn2*.json
 models/mapper-xgb3.json
 models/critic.json
 models/archive/
+extension/build/

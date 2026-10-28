@@ -395,3 +395,97 @@ test("a ladder cancelled with rates asked ahead stops there and asks for nothing
     assert.equal(r.cancelled, true);
     assert.equal(analysis.calls.queued, 3, "the three asked ahead, no more");
 });
+
+// ---- a rate map on the analysis card: the tab works on its original, never on the sped-up copy ----
+
+const RATE_MAP_FILE = "C:/Songs/1 A - T/A - T (M) [Hard 1.2x (216bpm) Mirror].osu";
+const ORIGINAL_FILE = "C:/Songs/1 A - T/A - T (M) [Hard].osu";
+const REBUILT = makeChart({ kind: "stream", bpm: 180, seconds: 20 });
+
+// handlers whose card shows a rate map: `origin` as the selection controller's rateMap() gives it
+function withOrigin(origin, { source = { client: "stable", path: RATE_MAP_FILE } } = {}) {
+    const seen = { reads: [], made: [], analysed: [] };
+    const files = { [ORIGINAL_FILE]: TEXT, [RATE_MAP_FILE]: "the rate map itself", [source.path]: "the rate map itself" };
+    const handlers = createRateHandlers({
+        beatmapPath: async () => source.path,
+        beatmap: async () => source,
+        readText: async (file) => { seen.reads.push(file); return files[file]; },
+        stat: async () => ({ mtimeMs: 99 }),
+        analysis: {
+            analyze: async (text, rate) => { seen.analysed.push([text, rate]); return { kind: "ok", numeric: 12, label: "L" }; },
+            analyzeQueued: async (text, rate) => { seen.analysed.push([text, rate]); return { kind: "ok", numeric: 12, label: "L" }; },
+        },
+        createRateMap: async (req) => { seen.made.push(req); return { osuPath: `${req.rate}.osu`, version: `Hard ${req.rate}x`, reusedAudio: false }; },
+        ffmpegPath: async () => "ffmpeg.exe",
+        progress: () => {},
+        log: () => {},
+        rateMap: () => origin,
+    });
+    return { handlers, seen };
+}
+
+test("a rate map's original from its folder: the tab's map, its key, the rate map's Mirror told, copies made from it and its audio", async () => {
+    const origin = { rate: 1.2, path: ORIGINAL_FILE, file: RATE_MAP_FILE, client: "stable", virtual: false, mirror: true, noLn: false, text: "mirrored", version: "Hard 1.2x (216bpm) Mirror" };
+    const { handlers, seen } = withOrigin(origin);
+    const info = await handlers.info();
+    assert.equal(info.ok, true);
+    assert.equal(info.info.version, "jumpstream 180", "the original's own fields");
+    assert.equal(info.key, `${ORIGINAL_FILE}|99`, "the original's key, as when it is selected in osu!");
+    assert.deepEqual(info.origin, { rate: 1.2, virtual: false, mirror: true, noLn: false, version: "Hard 1.2x (216bpm) Mirror" });
+    await handlers.preview({ rate: 1.3 });
+    assert.deepEqual(seen.analysed.at(-1), [TEXT, 1.3], "the original's own file at ×1.3, the tab's options on top of it");
+    const made = await handlers.create({ rate: 1.3, pitch: false });
+    assert.equal(made.ok, true);
+    // the copy is the original's at ×1.3 with its own audio: the rate map's (already ×1.2) is never sped up again
+    assert.deepEqual([seen.made[0].beatmapPath, seen.made[0].osuText, seen.made[0].rate], [ORIGINAL_FILE, TEXT, 1.3]);
+    assert.ok(!seen.reads.includes(RATE_MAP_FILE), "the rate map's file is never read");
+});
+
+test("an original made back from a rate map: dans at any rate, no copies (its audio is the rate map's, already at ×1.2)", async () => {
+    const origin = { rate: 1.2, path: null, file: RATE_MAP_FILE, client: "stable", virtual: true, mirror: true, noLn: false, text: REBUILT, version: "Hard 1.2x (216bpm) Mirror" };
+    const { handlers, seen } = withOrigin(origin);
+    const info = await handlers.info();
+    assert.equal(info.info.version, "stream 180");
+    assert.equal(info.key, `${RATE_MAP_FILE}|99#original`, "not the rate map's own key");
+    assert.deepEqual(info.origin, { rate: 1.2, virtual: true, mirror: false, noLn: false, version: "Hard 1.2x (216bpm) Mirror" }, "its Mirror is in its chart already");
+    await handlers.preview(1.1);
+    assert.deepEqual(seen.analysed.at(-1), [REBUILT, 1.1]);
+    const dans = await handlers.batchDans({ from: 1, to: 1.1, step: 0.1 });
+    assert.deepEqual(dans.rows.map((r) => r.rate), [1, 1.1]);
+    assert.deepEqual(seen.analysed.slice(-2), [[REBUILT, 1], [REBUILT, 1.1]]);
+    const one = await handlers.create({ rate: 1.3 });
+    const many = await handlers.batchCreate({ rates: [1.1, 1.3] });
+    assert.equal(one.ok, false);
+    assert.equal(one.message, t("rate.err.noOriginal"));
+    assert.equal(many.ok, false);
+    assert.deepEqual(seen.made, [], "no copy, no audio rendered");
+    assert.deepEqual(seen.reads, []);
+});
+
+test("a rate map the finder had no file of (osu! lazer, or tosu's path unchecked): the made-back original, never the rate map", async () => {
+    const hashed = "C:/lazer/files/ab/abcdef";
+    for (const [client, source] of [["lazer", { client: "lazer", path: hashed }], ["stable", { client: "stable", path: RATE_MAP_FILE }]]) {
+        const origin = { rate: 1.2, path: null, file: null, client, virtual: true, mirror: false, noLn: false, text: REBUILT, version: "Hard 1.2x (216bpm)" };
+        const { handlers, seen } = withOrigin(origin, { source });
+        const info = await handlers.info();
+        assert.equal(info.info.version, "stream 180", `${client}: the original's fields`);
+        assert.equal(info.key, `${source.path}|99#original`, `${client}: not the rate map's own key`);
+        assert.equal(info.client, client);
+        assert.deepEqual(info.origin, { rate: 1.2, virtual: true, mirror: false, noLn: false, version: "Hard 1.2x (216bpm)" });
+        await handlers.preview({ rate: 1.3 });
+        assert.deepEqual(seen.analysed.at(-1), [REBUILT, 1.3], `${client}: the ladder's ×1.3 row, not the rate map at ×1.3`);
+        const made = await handlers.create({ rate: 1.3 });
+        assert.equal(made.ok, false);
+        assert.equal(made.message, t("rate.err.noOriginal"));
+        assert.deepEqual(seen.made, []);
+        assert.deepEqual(seen.reads, [], `${client}: the rate map's file is never read`);
+    }
+});
+
+test("without a rate map on the card the tab takes the selection as before", async () => {
+    const { handlers, seen } = withOrigin(null);
+    const info = await handlers.info();
+    assert.equal(info.origin, null);
+    assert.equal(info.key, `${RATE_MAP_FILE}|99`);
+    assert.deepEqual(seen.reads, [RATE_MAP_FILE]);
+});

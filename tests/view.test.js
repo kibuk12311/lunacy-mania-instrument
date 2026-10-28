@@ -216,3 +216,23 @@ test("index.html texts have English", () => inEnglish(() => {
     assert.equal(tr("html.mar.defaultTitle"), "My marathon");
     assert.equal(tr("html.rec.userPlaceholder"), "osu! name or id");
 }));
+
+test("a rate map's chip: its own rate, a tooltip saying where the ladder counts from, the mods' rate beside it", () => {
+    const at = (rate, rateMap) => renderView({ screen: "result", result: { ...OK, rate }, rateMap }, {});
+    const own = at(1.2, { rate: 1.2, virtual: false });
+    assert.ok(own.includes('<span class="chip an-ratemap" title="Рейт-карта: оригинал на ×1.2 отдельным файлом. Дан — её собственный, а «Дан на рейтах» считается от оригинала.">рейт-карта ×1.2</span>'), own);
+    assert.ok(!own.includes(">×1.2<"), "no second ×1.2 chip");
+    const withDt = at(1.8, { rate: 1.2, virtual: true });
+    assert.ok(withDt.includes('<span class="chip">×1.8</span><span class="chip an-ratemap"'), withDt);
+    assert.ok(withDt.includes("он восстановлен из рейт-карты"));
+    // DT past the ladder: the card is the file at the mods' rate, so that rate is a chip of its own
+    assert.ok(at(1.5, { rate: 1.5, beyond: true }).includes('<span class="chip">×1.5</span><span class="chip an-ratemap"'));
+    setLang("en");
+    try {
+        assert.ok(at(1.2, { rate: 1.2 }).includes(">rate map ×1.2</span>"));
+    } finally {
+        setLang("ru");
+    }
+    // a plain map at a rate: as before
+    assert.ok(at(1.5, undefined).includes('<span class="chip">×1.5</span></div>'));
+});

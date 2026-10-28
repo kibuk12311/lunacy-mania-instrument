@@ -83,6 +83,9 @@
 .prof-play { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 12px; min-width: 0; }
 .prof-play .rec-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prof-play.bad .prof-play-line { color: var(--red); }
+/* a play on a vibro map (profileViews.js playRow): kept, in no dan */
+.prof-play.vibro { border-left: 3px solid var(--orange); }
+.prof-play.vibro .prof-play-line { cursor: help; }
 .prof-play-line { font-size: 11px; }
 .prof-compare { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .prof-danger { color: var(--red) !important; }

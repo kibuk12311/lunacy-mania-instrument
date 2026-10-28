@@ -57,7 +57,7 @@ export async function generateMap(input, analyze, opts = {}) {
     let evaluations = 0;
     async function evaluate(lambda, seed) {
         onProgress({ phase: "search", i: evaluations++, n: 0 });
-        const rows = buildChart({ slots, intensity, assign, lambda, seed, bpm: sections[0].bpm, energy, flavour });
+        const rows = buildChart({ slots, intensity, assign, lambda, seed, bpm: sections[0].bpm, energy, flavour, trills: request.trills !== false });
         const result = await analyze(render(rows, ""), 1);
         return { rows, result, numeric: result?.kind === "ok" ? result.numeric : -Infinity };
     }

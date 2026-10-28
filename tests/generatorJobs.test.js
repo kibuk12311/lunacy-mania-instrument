@@ -149,6 +149,18 @@ test("remap passes the chart, the analyser, the model and progress", async () =>
     assert.equal(progress.length, 1);
 });
 
+test("remap hands «Можно миниджеки и анкоры» on as allowJacks, anything but true as false", async () => {
+    const seen = [];
+    const jobs = createGeneratorJobs({
+        load: fakeLoad({ "../src/gen/remap.js": { remapChart: async (req) => { seen.push(req); return { osuText: req.osuText }; } } }),
+        readModel: models({ "mapper.json": xgb }),
+        analyze: () => {},
+    });
+    for (const allowJacks of [true, undefined, "yes", false]) await jobs.run("remap", { osuText: "chart", range: { lo: 1, hi: 2 }, seed: 3, allowJacks }, () => {});
+    assert.deepEqual(seen.map((req) => req.allowJacks), [true, false, false, false]);
+    assert.deepEqual(seen[0], { osuText: "chart", range: { lo: 1, hi: 2 }, seed: 3, allowJacks: true });
+});
+
 test("only the create kinds are jobs", () => {
     const jobs = createGeneratorJobs({ readModel: models({}), analyze: () => {} });
     assert.deepEqual(["generate", "timing", "remap", "fit-personal", "analyze", undefined, "details"].map((k) => jobs.has(k)), [true, true, true, true, false, false, false]);

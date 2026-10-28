@@ -273,7 +273,7 @@
 
         <div id="prof-local-page" class="prof-page" hidden>
             <label class="check"><input id="prof-record" type="checkbox" checked> <span data-i18n="profile.html.record">Записывать мои игры</span></label>
-            <div class="muted prof-note" data-i18n="profile.html.recordNote">Каждая игра, дошедшая до экрана результатов в osu! (stable или lazer), записывается и анализируется. Всё хранится только на этом компьютере.</div>
+            <div class="muted prof-note" data-i18n="profile.html.recordNote">Каждая игра, дошедшая до экрана результатов в osu! (stable или lazer), записывается и анализируется. Игры на вибро-картах сохраняются, но на даны не влияют. Всё хранится только на этом компьютере.</div>
             <div id="prof-local-status" class="muted"></div>
             <div id="prof-local-card"></div>
             <div id="prof-local-counts" class="muted"></div>
@@ -388,6 +388,7 @@
     </section>
     <section id="rate-tab" hidden>
         <div class="row"><div id="rate-map" class="rate-map" data-i18n="html.rate.noMap">Карта не выбрана</div><span id="rate-ln" class="rate-ln" hidden></span><button id="rate-refresh" class="small" title="Взять карту, выбранную в osu!" data-i18n-title="html.rate.refreshTitle">⟳</button></div>
+        <div id="rate-origin-note" class="muted rate-origin-note" hidden></div>
 
         <div class="group">
             <div class="flabel" data-i18n="html.rate.rate">Рейт</div>

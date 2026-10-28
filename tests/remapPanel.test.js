@@ -61,6 +61,25 @@ test("osu!'s map: its dan is shown, −1 is the default, «Переделать�
     assert.notEqual(calls.create[1].seed, calls.create[0].seed, "again gives another layout");
 });
 
+test("«Можно миниджеки и анкоры» is off at first and goes with the remap", async () => {
+    const { dom, el, calls } = setup();
+    const box = el("remap-jacks");
+    assert.equal(box.type, "checkbox");
+    assert.equal(box.checked, false);
+    assert.ok(textOf(dom.$("remap-panel")).includes(t("create.remap.allowJacks")));
+    await fire(el("remap-current"));
+    await fire(el("remap-go"));
+    assert.equal(calls.create[0].allowJacks, false);
+    box.checked = true;
+    await fire(box, "change");
+    await fire(el("remap-go"));
+    assert.equal(calls.create[1].allowJacks, true);
+    box.checked = false;
+    await fire(box, "change");
+    await fire(el("remap-go"));
+    assert.equal(calls.create[2].allowJacks, false);
+});
+
 test("+1 and a custom dan", async () => {
     const { el, calls, chip } = setup({ create: { ok: true, file: "y.osu", version: "Hard (Delta low remap)", numeric: 13.66, label: "Delta low", reachable: false, removed: 0, added: 300 } });
     await fire(el("remap-current"));
@@ -77,6 +96,19 @@ test("+1 and a custom dan", async () => {
     assert.ok(Math.abs(r.lo - 11.3) < 1e-9 && Math.abs(r.hi - 11.5) < 1e-9, JSON.stringify(r));
     await fire(chip("easier"));
     assert.equal(el("remap-custom").hidden, true);
+});
+
+test("a miss «Можно миниджеки и анкоры» would have got closer to says to try it", async () => {
+    const answer = { ok: true, file: "y.osu", version: "Hard (Delta low remap)", numeric: 13.66, label: "Delta low", reachable: false, removed: 0, added: 30 };
+    const fields = { version: "Hard (Delta low remap)", numeric: "13.7", removed: 0, added: 30 };
+    const { el } = setup({ create: { ...answer, jacksWouldHelp: true } });
+    await fire(el("remap-current"));
+    await fire(el("remap-go"));
+    assert.equal(el("remap-result").textContent, `${t("create.remap.closest", fields)} ${t("create.remap.tryJacks")}`);
+    const plain = setup({ create: answer });
+    await fire(plain.el("remap-current"));
+    await fire(plain.el("remap-go"));
+    assert.equal(plain.el("remap-result").textContent, t("create.remap.closest", fields));
 });
 
 test("a picked .osu file is loaded by its path; a map that is not 4K rice cannot be remapped", async () => {
@@ -107,7 +139,7 @@ test("the remap mode speaks English when the language is English", async () => {
         const { dom, el } = setup();
         await fire(el("remap-current"));
         const all = textOf(dom.$("remap-panel"));
-        for (const text of ["Remake an existing map for another dan", "+ .osu file", "take from osu!", "−1 dan", "+1 dan", "custom dan", "Remap", "A - B [Hard] · now Gamma mid (13.0)"]) {
+        for (const text of ["Remake an existing map for another dan", "+ .osu file", "take from osu!", "−1 dan", "+1 dan", "custom dan", "Allow minijacks and anchors", "Remap", "A - B [Hard] · now Gamma mid (13.0)"]) {
             assert.ok(all.includes(text), text);
         }
         assert.ok(!/[А-Яа-яЁё]/.test(all), all);

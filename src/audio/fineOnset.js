@@ -110,11 +110,9 @@ function spreadMs(fine, beats, rangeMs) {
     return Math.round(median(devs) * 10) / 10;
 }
 
-// Where in the beat the attacks gather: the onsets of [fromMs, toMs) folded onto one beat (1 ms bins, smoothed over
-// ±2 ms), and the beat time at the strongest bin nearest `anchorMs`. With `withinMs` only bins that close to the
-// anchor's own place in the beat count. That is the phase of the beat in most music (kick and snare); off-beat
-// hi-hats are weaker.
-export function beatPhase(fine, { bpm, anchorMs, fromMs = 0, toMs = durationMs(fine), withinMs = null }) {
+// The onsets of [fromMs, toMs) folded onto one beat around anchorMs (1 ms bins, smoothed over ±2 ms): per bin its
+// shift from the anchor (−beat/2 … beat/2) and its value.
+function phaseFold(fine, { bpm, anchorMs, fromMs, toMs }) {
     const beatMs = 60000 / bpm;
     const bins = Math.max(1, Math.round(beatMs));
     const hist = new Float64Array(bins);
@@ -125,19 +123,50 @@ export function beatPhase(fine, { bpm, anchorMs, fromMs = 0, toMs = durationMs(f
         const d = ((((f + 0.5) * frameMs - anchorMs) % beatMs) + beatMs) % beatMs;
         hist[Math.floor((d / beatMs) * bins) % bins] += values[f];
     }
-    let best = 0;
-    let bestValue = -1;
+    const shifts = new Float64Array(bins);
+    const sums = new Float64Array(bins);
     for (let i = 0; i < bins; i += 1) {
         let v = 0;
         for (let k = -2; k <= 2; k += 1) v += hist[(i + k + bins) % bins] * (3 - Math.abs(k));
-        const shift = (((i + 0.5) / bins) * beatMs + beatMs / 2) % beatMs - beatMs / 2;
-        if (withinMs !== null && Math.abs(shift) > withinMs) continue;
-        if (v > bestValue) {
-            bestValue = v;
-            best = shift;
+        sums[i] = v;
+        shifts[i] = (((i + 0.5) / bins) * beatMs + beatMs / 2) % beatMs - beatMs / 2;
+    }
+    return { shifts, sums };
+}
+
+// Where in the beat the attacks gather: the onsets of [fromMs, toMs) folded onto one beat (1 ms bins, smoothed over
+// ±2 ms), and the beat time at the strongest bin nearest `anchorMs`. With `withinMs` only bins that close to the
+// anchor's own place in the beat count. That is the phase of the beat in most music (kick and snare); off-beat
+// hi-hats are weaker.
+export function beatPhase(fine, { bpm, anchorMs, fromMs = 0, toMs = durationMs(fine), withinMs = null }) {
+    const { shifts, sums } = phaseFold(fine, { bpm, anchorMs, fromMs, toMs });
+    let best = 0;
+    let bestValue = -1;
+    for (let i = 0; i < sums.length; i += 1) {
+        if (withinMs !== null && Math.abs(shifts[i]) > withinMs) continue;
+        if (sums[i] > bestValue) {
+            bestValue = sums[i];
+            best = shifts[i];
         }
     }
     return anchorMs + best;
+}
+
+// A red line the user placed («Подогнать по волне»): onto the strongest folded attacks within ±nearMs of it. Only
+// when the user's line is clearly off, that is the strongest attacks there fold under offRatio of the strongest
+// anywhere in the beat, onto those. A loud song often folds about as strongly half a beat away (an off-beat bass, a
+// pumping swell), so that alone never moves a line. → { timeMs, near } (near: it stayed within ±nearMs).
+export function hintPhase(fine, { bpm, anchorMs, fromMs = 0, toMs = durationMs(fine), nearMs, offRatio }) {
+    const { shifts, sums } = phaseFold(fine, { bpm, anchorMs, fromMs, toMs });
+    let local = { value: -1, shift: 0 };
+    let all = { value: -1, shift: 0 };
+    for (let i = 0; i < sums.length; i += 1) {
+        if (Math.abs(shifts[i]) <= nearMs && sums[i] > local.value) local = { value: sums[i], shift: shifts[i] };
+        if (sums[i] > all.value) all = { value: sums[i], shift: shifts[i] };
+    }
+    if (!(all.value > 0)) return { timeMs: anchorMs, near: true };
+    const near = local.value >= offRatio * all.value;
+    return { timeMs: anchorMs + (near ? local.shift : all.shift), near };
 }
 
 // Shift a section's red line by up to ±rangeMs so its beats sit on the attacks: the shift with the most onset on the

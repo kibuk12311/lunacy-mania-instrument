@@ -1,6 +1,7 @@
 // "Из готовой карты" mode of the create tab (mapgen v3, stream C): an existing 4K rice map (an .osu file, or the map
 // selected in osu!) made one dan easier or harder, or into a dan of your choice. Main reads the map, the worker
-// remaps it, and the new difficulty is written next to the original (remap-load / remap-create).
+// remaps it, and the new difficulty is written next to the original (remap-load / remap-create). «Можно миниджеки и
+// анкоры» (off at start) lets the remap make minijacks and anchors the map did not have (src/gen/remap.js allowJacks).
 // initRemapPanel({ root }) → {}
 import { fillDanSelects } from "./danSelect.js";
 import { danRange } from "../../src/gen/search.js";
@@ -35,7 +36,7 @@ function make(tag, { id, className, text, type } = {}) {
 }
 
 export function initRemapPanel({ root }) {
-    const state = { map: null, choice: "easier", busy: false };
+    const state = { map: null, choice: "easier", busy: false, allowJacks: false };
     let seed = Math.floor(Date.now() / 1000) % 100000;
 
     const head = make("div", { className: "flabel", text: t("create.remap.title") });
@@ -70,12 +71,19 @@ export function initRemapPanel({ root }) {
     const levelSel = make("select", { id: "remap-level" });
     const stepSel = make("select", { id: "remap-step" });
     customRow.append(levelSel, stepSel);
+    const jacksRow = make("label", { className: "check" });
+    const jacks = make("input", { id: "remap-jacks", type: "checkbox" });
+    jacks.checked = state.allowJacks;
+    jacks.addEventListener("change", () => {
+        state.allowJacks = Boolean(jacks.checked);
+    });
+    jacksRow.append(jacks, make("i", { text: t("create.remap.allowJacks") }));
     const go = make("button", { id: "remap-go", className: "primary", text: t("create.remap.go") });
     go.addEventListener("click", () => remap());
     const statusLine = make("div", { id: "remap-status", className: "muted" });
     const result = make("div", { id: "remap-result", className: "remap-result" });
     const interludeBox = make("div", { id: "remap-interlude" });
-    root?.append(head, hint, sources, mapLine, chips, customRow, go, statusLine, result, interludeBox);
+    root?.append(head, hint, sources, mapLine, chips, customRow, jacksRow, go, statusLine, result, interludeBox);
 
     const usable = () => Boolean(state.map?.ok4k && state.map?.rice);
     function status(text) {
@@ -127,7 +135,7 @@ export function initRemapPanel({ root }) {
         result.textContent = "";
         interludeBox.replaceChildren();
         try {
-            const answer = await window.danApi.remapCreate({ path: state.map.path, range, seed });
+            const answer = await window.danApi.remapCreate({ path: state.map.path, range, seed, allowJacks: state.allowJacks });
             if (!answer?.ok) {
                 status(t("create.remap.failed", { message: answer?.message ?? "?" }));
                 return;
@@ -139,6 +147,8 @@ export function initRemapPanel({ root }) {
             };
             result.className = answer.reachable ? "remap-result ok" : "remap-result warn";
             result.textContent = answer.reachable ? t("create.remap.done", fields) : t("create.remap.closest", fields);
+            // a miss «Можно миниджеки и анкоры» would have reached or come much closer to
+            if (!answer.reachable && answer.jacksWouldHelp === true) result.textContent += ` ${t("create.remap.tryJacks")}`;
             // osu! lazer: the difficulty went in as an .osz, not into a Songs folder
             if (answer.client === "lazer") result.textContent += ` ${t(answer.opened ? "create.remap.lazer" : "create.remap.lazerNotOpened", { file: answer.osz ?? "" })}`;
             // Interlude: the new difficulty as an .osz to drop onto it

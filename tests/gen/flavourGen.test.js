@@ -46,6 +46,10 @@ test("flavours ride along with their family; the shares drop unknown or foreign 
     assert.deepEqual(parts[0].patterns, [{ name: "Handstream", share: 1, flavours: ["ChordTrills"] }]);
     assert.throws(() => normalizeParts([{ startMs: 0, endMs: 5000, kind: "drop", patterns: [{ name: "Stream", share: 1, flavours: ["Gluts"] }] }], 5000),
         /patterns\.flavours/);
+    // the 2/4 chordjack is a Chordjack flavour, in the catalogue's order, and no other family's
+    assert.deepEqual(normalizeRequest({ target: 9, patterns: [{ name: "Chordjack", share: 1, flavours: ["Quadstream", "JumpQuad"] }] }, 1000).patterns,
+        [{ name: "Chordjack", share: 1, flavours: ["JumpQuad", "Quadstream"] }]);
+    assert.throws(() => normalizeRequest({ target: 9, patterns: [{ name: "Jack", share: 1, flavours: ["JumpQuad"] }] }, 1000), /patterns\[0\]\.flavours/);
 });
 
 // ---- the plan: variety ----
@@ -225,6 +229,26 @@ test("rule path: flavoured slots follow the motif, the others are untouched", ()
     assert.ok(shares.Trills > 0.6 && shares.Trills > 3 * before.Trills, `trills ${shares.Trills} vs ${before.Trills}`);
 });
 
+test("rule path: 2/4 chordjack slots are jumps and quads in turn, with a jack on every row", () => {
+    const slots = slotsOf(128);
+    const intensity = new Float64Array(slots.length).fill(1);
+    const assign = new Array(slots.length).fill("Chordjack");
+    const share = (rows, id) => flavourShares(rows.map((r) => ({ t: r.t, cols: r.cols }))).find((x) => x.id === id).share;
+    for (const lambda of [0.5, 1.2]) {
+        const base = buildChart({ slots, intensity, assign, lambda, seed: 4, bpm: 160 });
+        for (const phrase of [0, 1]) {
+            const rows = buildChart({ slots, intensity, assign, lambda, seed: 4, bpm: 160, flavour: new Array(slots.length).fill({ id: "JumpQuad", phrase }) });
+            assert.ok(share(rows, "JumpQuad") > 0.85 && share(base, "JumpQuad") < 0.1, `λ ${lambda}: ${share(rows, "JumpQuad")} vs ${share(base, "JumpQuad")}`);
+            const sizes = rows.map((r) => r.cols.length);
+            assert.ok(sizes.filter((n) => n === 2 || n === 4).length / sizes.length > 0.97);
+            // every jump of the six comes up, the quads about every other row
+            const jumps = new Set(rows.filter((r) => r.cols.length === 2).map((r) => r.cols.join("")));
+            assert.equal(jumps.size, 6, [...jumps].join(" "));
+            assert.ok(Math.abs(sizes.filter((n) => n === 4).length / sizes.length - 0.5) < 0.08);
+        }
+    }
+});
+
 const song = { timing: { bpm: PARTS_SONG_BPM, offsetMs: PARTS_SONG_OFFSET }, envelope: onsetEnvelope(partsSong(), 22050), durationMs: PARTS_SONG.at(-1).endMs };
 const stand = async (text) => ({ kind: "ok", numeric: Math.round((chartInfo(text, 1).noteCount / 150) * 100) / 100, top3: [{ name: "Jumpstream", share: 1 }] });
 
@@ -251,6 +275,24 @@ test("rule path end to end: a flavour shows and is scored", async () => {
     const r = await run([{ name: "Jack", share: 1, flavours: ["Longjacks"] }]);
     assert.ok(longjacks(r) > 0.25 && longjacks(r) > 3 * longjacks(plain), `${longjacks(r)} vs ${longjacks(plain)}`);
     assert.ok(r.flavourScore > 0.15 && plain.flavourScore === undefined, String(r.flavourScore));
+});
+
+test("both paths end to end: the 2/4 chordjack shows and is scored, Quadhand on the same song is another motif", async () => {
+    const chordjacks = async (text) => ({ kind: "ok", numeric: Math.round((chartInfo(text, 1).noteCount / 250) * 100) / 100, top3: [{ name: "Chordjacks", share: 1 }] });
+    const input = (flavours) => ({ ...song, request: { target: 9, range: { lo: 8.5, hi: 9.5 }, patterns: [{ name: "Chordjack", share: 1, ...(flavours ? { flavours } : {}) }], mix: "sections", stamina: 0.5, burst: 0.3, seed: 7 }, meta: { title: "t", audioFilename: "a.mp3" } });
+    const shares = (r) => Object.fromEntries(flavourShares(parseRows(r.osuText, 4)).map((x) => [x.id, x.share]));
+    for (const engine of ["rules", "learned"]) {
+        const run = (flavours) => (engine === "rules" ? generateMap(input(flavours), chordjacks)
+            : generateLearnedMap(input(flavours), chordjacks, goldenModel, { patternsOf: () => [{ name: "Chordjack", share: 1 }] }));
+        const plain = shares(await run(null));
+        const r = await run(["JumpQuad"]);
+        const quad = shares(await run(["Quadhand"]));
+        const mine = shares(r);
+        assert.ok(mine.JumpQuad > 0.6 && mine.JumpQuad > 3 * plain.JumpQuad, `${engine}: ${mine.JumpQuad} vs ${plain.JumpQuad}`);
+        assert.ok(r.flavourScore > 0.5, `${engine}: ${r.flavourScore}`);
+        assert.equal(r.flavours[0].id, "JumpQuad", engine);
+        assert.ok(quad.JumpQuad < 0.1 && mine.Quadhand < 0.1, `${engine}: the two motifs stay apart (${quad.JumpQuad}, ${mine.Quadhand})`);
+    }
 });
 
 test("families only, with a finder naming only Jumpstream and Chordjacks: both generators write exactly the maps they wrote before flavours existed", async () => {

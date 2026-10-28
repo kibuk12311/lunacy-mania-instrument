@@ -6,6 +6,10 @@
 // made from a copy of the map in Documents\<app>\lazer and handed to lazer as one .osz it imports (lazerMaps.js).
 // A chart picked from Interlude's library is a copy in Documents\<app>\interlude as well: the copies are made next to
 // it and go to Interlude as one .osz (sendInterlude, app/interludeClient.js), which is dropped onto its window.
+// A rate map on the analysis card (app/rateMapOrigin.js) is never rated again: the tab works on its original, the
+// difficulty in its folder (with the rate map's Mirror / No LN told to the tab), or, when that is nowhere, the original
+// made back from the rate map, whose dans and rates are worked out but which copies are never made of (its audio is
+// the rate map's, already at that rate).
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createRateMap, mapInfo } from "./rateCreate.js";
@@ -38,12 +42,34 @@ function batchRow(rate, bpm, result) {
 
 // beatmap() → tosu's { client, path, audioPath, backgroundPath } (with beatmapPath() alone the map is osu! stable's);
 // lazerRates(args) → createLazerRates() with its folders filled in; openPath(file) → "" or why it could not be opened.
+// rateMap() → the original of the rate map on the analysis card ({ rate, path, file, client, virtual, text, mirror,
+// noLn, version }, app/rateMapOrigin.js), or null.
 export function createRateHandlers({
     beatmapPath, beatmap = null, readText, stat: statFile, analysis, createRateMap: makeCopy, ffmpegPath, presets, progress, log,
-    rateForDan: findRate, lazerRates = null, openPath = async () => "", sendInterlude = null,
+    rateForDan: findRate, lazerRates = null, openPath = async () => "", sendInterlude = null, rateMap = null,
 }) {
     let current = null; // the running job: { cancelled }
-    const selected = async () => (beatmap ? await beatmap() : { client: "stable", path: await beatmapPath() });
+    const selection = async () => (beatmap ? await beatmap() : { client: "stable", path: await beatmapPath() });
+    // the map: a rate map's original ({ client, path, text?, rateMap }: text when it was made back, path then the rate
+    // map's own, for its key: the file the finder checked, else tosu's selection, as on lazer where there is no folder
+    // to check it in), else the selection
+    async function selected() {
+        const o = rateMap ? rateMap() : null;
+        if (o?.path) return { client: o.client ?? "stable", path: o.path, rateMap: o };
+        if (typeof o?.text === "string") {
+            const own = o.file ? { path: o.file } : await selection();
+            return { ...own, client: o.client ?? own?.client ?? "stable", path: own?.path ?? null, text: o.text, rateMap: o };
+        }
+        return selection();
+    }
+    const textOf = async (source) => source.text ?? await readText(source.path);
+    // what the tab is told of a rate map's original: its rate, whether it was made back, the chart options it carries
+    const originOf = (source) => {
+        const o = source.rateMap;
+        if (!o) return null;
+        return { rate: o.rate, virtual: o.virtual === true, mirror: o.virtual !== true && o.mirror === true, noLn: o.virtual !== true && o.noLn === true, version: o.version ?? "" };
+    };
+    const noCopies = (source) => source.rateMap?.virtual === true;
 
     // lazer: the copies made from the map copied out of lazer, packed into one .osz, opened so lazer imports it
     async function forLazer({ source, text, rates, opts, key, isCancelled }) {
@@ -70,6 +96,9 @@ export function createRateHandlers({
         }
     }
 
+    // a made-back original is another chart than the rate map whose path it keeps
+    const keyFor = async (source) => (source.text === undefined ? keyOf(source.path) : `${await keyOf(source.path)}#original`);
+
     // Runs one job with the map read once; a second job while one runs is told so.
     async function job(name, work) {
         if (current) return { ok: false, message: t("rate.err.busy") };
@@ -78,8 +107,8 @@ export function createRateHandlers({
         try {
             const source = await selected();
             const file = source.path;
-            const text = await readText(file);
-            const key = await keyOf(file);
+            const text = await textOf(source);
+            const key = await keyFor(source);
             return await work({ file, source, text, key, isCancelled: () => self.cancelled });
         } catch (error) {
             log(`rate ${name} failed: ${message(error)}`);
@@ -101,11 +130,11 @@ export function createRateHandlers({
         async info() {
             try {
                 const source = await selected();
-                const text = await readText(source.path);
+                const text = await textOf(source);
                 const mania = /^Mode:\s*3/m.test(text);
                 return {
                     ok: true, info: mapInfo(text), mania, keys: Number(/^CircleSize:\s*([\d.]+)/m.exec(text)?.[1]),
-                    lnShare: lnShare(text), key: await keyOf(source.path), client: source.client ?? "stable",
+                    lnShare: lnShare(text), key: await keyFor(source), client: source.client ?? "stable", origin: originOf(source),
                 };
             } catch (error) {
                 return { ok: false, message: message(error) };
@@ -117,7 +146,7 @@ export function createRateHandlers({
             const rate = typeof req === "number" ? req : req?.rate;
             if (!validRate(rate)) return { kind: "error", message: t("app.rate.range") };
             try {
-                const text = await readText(await beatmapPath());
+                const text = await textOf(await selected());
                 return await analysis.analyze(transformOsu(text, options(req)), rate);
             } catch (error) {
                 return { kind: "error", message: message(error) };
@@ -130,6 +159,7 @@ export function createRateHandlers({
             const hp = diffOf(req?.hp);
             if (!validRate(rate) || !validDiff(od) || !validDiff(hp)) return { ok: false, message: t("app.rate.checkInput") };
             return job("create", async ({ file, source, text, key, isCancelled }) => {
+                if (noCopies(source)) return { ok: false, message: t("rate.err.noOriginal") };
                 if (source.client === "lazer" && lazerRates) {
                     const out = await forLazer({ source, text, rates: [rate], opts: { pitch: Boolean(req.pitch), od, hp, ...options(req) }, key, isCancelled });
                     if (!out.file) return { ok: false, message: out.failed[0]?.message ?? t("rate.err.cancelled") };
@@ -221,6 +251,7 @@ export function createRateHandlers({
             if (!validDiff(od) || !validDiff(hp)) return { ok: false, message: t("app.rate.checkInput") };
             const opts = { pitch: req?.pitch === true, od, hp, ...options(req) };
             return job("create", async ({ file, source, text, key, isCancelled }) => {
+                if (noCopies(source)) return { ok: false, key, message: t("rate.err.noOriginal") };
                 const started = Date.now();
                 if (source.client === "lazer" && lazerRates) {
                     const out = await forLazer({ source, text, rates, opts, key, isCancelled });
@@ -282,7 +313,7 @@ export function createRateHandlers({
     };
 }
 
-export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, paths, send, log, interlude = null }) {
+export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, paths, send, log, interlude = null, card = null }) {
     // made on first use: registering touches nothing on disk
     let store = null;
     const presetStore = () => (store ??= createJsonStore({ file: path.join(paths.userData, "rate-presets.json"), normalize: normalizePresets, fallback: [] }));
@@ -292,6 +323,7 @@ export function registerRateIpc({ ipcMain, shell, tosu, analysis, ffmpegPath, pa
         lazerRates: (args) => createLazerRates({ ...args, lazerDir: lazerDirOf(paths.docsDir), outDir: paths.mapsDir, makeCopy: createRateMap }),
         openPath: async (file) => (shell ? shell.openPath(file) : ""),
         sendInterlude: interlude ? (files) => interlude.send(files) : null,
+        rateMap: card?.rateMap ? () => card.rateMap() : null,
         readText: (file) => readFile(file, "utf8"),
         stat: (file) => stat(file),
         analysis,

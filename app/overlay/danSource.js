@@ -6,8 +6,10 @@
 //   - a play of a map the card has not shown (a multiplayer pick, a map started from elsewhere) asks for it once:
 //     its .osu text (tosu's file, Interlude's library chart) goes through the same analysis and cache.
 // analyze({ text, rate, result }) → { result } (makeDanAnalyzer below: the shared cache, the worker's background
-// line); onChange(key) when an entry changed.
+// line); onChange(key) when an entry changed. Beside a result with a dan the entry keeps whether the map is vibro at
+// that rate (src/vibro/detect.js over the same .osu, not part of the analysis): the widget's "this play" says so.
 import { danKey, danStateOf } from "../../src/overlay/dan.js";
+import { detectVibro, vibroSummary } from "../../src/vibro/detect.js";
 
 const KEEP = 8; // maps kept
 export const RETRY_MS = 15_000; // a transient failure (the worker busy, a fetch that failed) is asked again after this
@@ -23,8 +25,18 @@ export const overlayChecksum = (checksum) => (typeof checksum === "string" && ch
     ? `interlude:${checksum.slice("external:".length)}`
     : checksum);
 
+// A result with a dan and its .osu at the rate → the vibro summary kept beside it, or null.
+function vibroFor(result, text, rate) {
+    if (result?.kind !== "ok" || typeof text !== "string" || !text) return null;
+    try {
+        return vibroSummary(detectVibro(text, rate));
+    } catch {
+        return null;
+    }
+}
+
 export function createDanSource({ analyze = null, log = () => {}, onChange = () => {}, now = () => Date.now(), keep = KEEP }) {
-    const entries = new Map(); // key → { state, result, failedAt, version }
+    const entries = new Map(); // key → { state, result, vibro, failedAt, version }
     let version = 0;
 
     function put(key, patch) {
@@ -51,7 +63,8 @@ export function createDanSource({ analyze = null, log = () => {}, onChange = () 
             if (typeof body !== "string" || !body) throw new Error("no map file");
             const out = await analyze({ text: body, rate, result });
             const transient = out?.result?.kind === "error" && out.result.transient;
-            put(key, { state: transient ? "failed" : "done", result: transient ? null : out?.result ?? null, failedAt: transient ? now() : null });
+            const got = transient ? null : out?.result ?? null;
+            put(key, { state: transient ? "failed" : "done", result: got, vibro: vibroFor(got, body, rate), failedAt: transient ? now() : null });
             log(`overlay dan ${key} ${out?.result?.kind ?? "?"}`);
         } catch (error) {
             log(`overlay dan ${key} failed: ${error?.message ?? error}`);
@@ -71,15 +84,16 @@ export function createDanSource({ analyze = null, log = () => {}, onChange = () 
             void work(key, { text, rate });
             return key;
         },
-        // a result the card has for its map ({ checksum, rate, result } of the "result" hook, checksum added): kept as it is
-        fromCard({ checksum, rate, result } = {}) {
+        // a result the card has for its map ({ checksum, rate, result, text } of the "result" hook, checksum added): kept
+        // as it is, with whether the map is vibro at that rate from the same text
+        fromCard({ checksum, rate, result, text = null } = {}) {
             const id = overlayChecksum(checksum);
             if (!id || !result) return;
             if (result.kind === "error" && result.transient) return;
             const key = danKey(id, rate);
             const e = entries.get(key);
             if (e?.state === "done" && e.result?.kind === result.kind && e.result?.numeric === result.numeric) return;
-            put(key, { state: "done", result, failedAt: null });
+            put(key, { state: "done", result, vibro: vibroFor(result, text, rate), failedAt: null });
         },
         get: (key) => entries.get(key) ?? null,
         // the widget's state for an entry: "counting" while there is no result yet

@@ -179,3 +179,18 @@ test("details run on the worker the background line gives (its pool), not on the
     assert.deepEqual(pool.calls, [["chart", 1.1]]);
     assert.deepEqual(sent, [{ key: "k1@1.000", details: DETAILS }]);
 });
+
+test("a rate map: the ladder's rates are of its original's chart, its details stay the file's own", async () => {
+    const { service, queued, timers, workerCalls, sent } = setup();
+    service.onResult({ key: "r", text: "rate map", rate: 1, result: OK, rateMap: { rate: 1.2, shown: 1.2, text: "original" } });
+    await service.rate({ key: "r", rate: 1 });
+    await service.rate({ key: "r", rate: 1.5 });
+    assert.deepEqual(queued, [{ text: "original", rate: 1 }, { text: "original", rate: 1.5 }]);
+    await timers.tick(300);
+    assert.deepEqual(workerCalls, [{ text: "rate map", rate: 1 }]);
+    assert.equal(sent.at(-1).key, "r");
+    // the next map is a plain one: its own chart again
+    service.onResult({ key: "p", text: "plain", rate: 1, result: OK });
+    await service.rate({ key: "p", rate: 1.1 });
+    assert.deepEqual(queued.at(-1), { text: "plain", rate: 1.1 });
+});

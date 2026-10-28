@@ -93,5 +93,7 @@ export default {
     "overlay.dan.confidence": { ru: "уверенность: {word}", en: "confidence: {word}" },
     "overlay.dan.forYou": { ru: "{delta} к твоему уровню", en: "{delta} vs your level" },
     "overlay.dan.play": { ru: "эта игра: {label}", en: "this play: {label}" },
+    // a vibro map's play (src/vibro/detect.js): the local profile leaves it out of the dans
+    "overlay.dan.vibro": { ru: "вибро — в даны профиля не идёт", en: "vibro — not counted in your dans" },
     "overlay.edit.badge": { ru: "тащи · уголок — размер", en: "drag · corner resizes" },
 };
