@@ -42,10 +42,19 @@ export function readerMissing(appOutDir, { exists = existsSync, list = (d) => re
     return dacs.length ? null : `${path.join(dir, "dac", "<version>", "mscordaccore.dll")} (run npm run build:reader first)`;
 }
 
+// The keyboard reader too (extraResources from native/key-reader/out): without it osu! stable's key lines would fall
+// back to the judgements for everyone. → the missing file's description, or null
+export function keyReaderMissing(appOutDir, { exists = existsSync } = {}) {
+    const exe = path.join(appOutDir, "resources", "key-reader", "key-reader.exe");
+    return exists(exe) ? null : `${exe} (run npm run build:keys first)`;
+}
+
 export default async function afterPack(context) {
     if (context.electronPlatformName !== "win32") return;
     const missing = readerMissing(context.appOutDir);
     if (missing) throw new Error(`afterPack: the Interlude reader is missing: ${missing}`);
+    const keysMissing = keyReaderMissing(context.appOutDir);
+    if (keysMissing) throw new Error(`afterPack: the keyboard reader is missing: ${keysMissing}`);
     const { appInfo } = context.packager;
 
     const exe = path.join(context.appOutDir, `${appInfo.productFilename}.exe`);

@@ -3,11 +3,15 @@
 // kind, own patterns (chips and share sliders), own dan (a level, or «Как у всей карты»; the step may be «любой»),
 // «Без нот», split at the cursor, merge with the next, reset, and the lock toggle once there is a result.
 // Edited parts carry a dot; the pure helpers return new lists and leave the ones given alone.
+// A part's own «Характер» (0.10.6): the whole map's two sliders (Выносливость, Всплески) again, in the part editor under
+// its patterns and dan. A part follows the whole map's sliders until one of them is moved there; then both values are
+// its own (the one not moved as the whole map has it then) and the part carries a mark on the timeline, two small bars
+// of its stamina and burst; «Как у всей карты» gives the part back to the whole map's sliders.
 // Wave 3 (stream U): the chosen variant's song structure on the curve — a thin tick at each phrase start and a
 // coloured underline under each repeated section, the same colour for sections that repeat each other — and
 // «Перегенерировать только эту часть» in the editor, which keeps every other part as it is.
 import { t } from "../../src/i18n/i18n.js";
-import { LEVELS, STEPS, normalizeShares } from "../../src/gen/request.js";
+import { LEVELS, STEPS, normalizeShares, hasOwnCharacter, characterOf } from "../../src/gen/request.js";
 import { danRange } from "../../src/gen/search.js";
 import { isDetailed } from "./patternMode.js";
 import { renderPatternChips, choiceOf, patternsOf, toggleFamily, toggleFlavour } from "./patternPicker.js";
@@ -29,6 +33,12 @@ const HEIGHT = 64;
 const WIDTH = 432; // until the canvas has a CSS width
 const MIN_SPLIT_MS = 1000;
 const ANY_STEP = "any";
+const CHARACTER_COLOR = "#ff9ad5"; // the mark of a part with its own character
+const WHOLE_CHARACTER = { stamina: 0.5, burst: 0.3 }; // the whole map's sliders when the tab gives none (request.js)
+const CHARACTER_SLIDERS = [
+    { key: "stamina", label: "html.create.stamina", hint: "html.create.staminaHint" },
+    { key: "burst", label: "html.create.burst", hint: "html.create.burstHint" },
+];
 
 export const kindText = (kind) => t(KIND_KEYS[kind] ?? KIND_KEYS.part);
 export const rangeText = (r) => `${numericToLabel(r.lo + 0.1).text} — ${numericToLabel(r.hi - 0.1).text}`;
@@ -115,6 +125,7 @@ export function energyFallback(envelope, durationMs, points) {
 
 // The timeline's parts → the generator's PartSpec[] (§2.2): only the fields it reads, shares normalised; a part's
 // flavours go only when `detailed` (the Detailed mode), else the part keeps them for later and sends families.
+// A part's own character goes as its stamina and burst (0..1); a part that follows the whole map sends neither.
 export function toPartSpecs(parts, { detailed = false } = {}) {
     return parts.map((p) => {
         const spec = { startMs: p.startMs, endMs: p.endMs, kind: p.kind };
@@ -122,6 +133,7 @@ export function toPartSpecs(parts, { detailed = false } = {}) {
         if (p.patterns?.length) spec.patterns = normalizeShares(detailed ? p.patterns : p.patterns.map(({ name, share }) => ({ name, share })));
         if (p.empty) spec.empty = true;
         if (Number.isSafeInteger(p.seed)) spec.seed = p.seed;
+        for (const { key } of CHARACTER_SLIDERS) if (Number.isFinite(p[key])) spec[key] = p[key];
         return spec;
     });
 }
@@ -141,8 +153,9 @@ function option(text, value) {
 }
 
 // getCursor() → ms; onSeek(ms); onChange(parts) after an edit; onReset() asks for the parts to be found again;
-// onToggleLock(index) locks / unlocks a part of the chosen variant; onOnlyThis(index) regenerates only that part.
-export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, onReset, onToggleLock, onOnlyThis }) {
+// onToggleLock(index) locks / unlocks a part of the chosen variant; onOnlyThis(index) regenerates only that part;
+// getCharacter() → the whole map's { stamina, burst } (0..1), what a part without its own character shows.
+export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, onReset, onToggleLock, onOnlyThis, getCharacter }) {
     let parts = [];
     let energy = null;
     let durationMs = 0;
@@ -154,6 +167,7 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
     let width = WIDTH;
     let dragging = false;
 
+    const wholeCharacter = () => ({ ...WHOLE_CHARACTER, ...(getCharacter?.() ?? {}) });
     const xOf = (ms) => (durationMs ? (ms / durationMs) * width : 0);
     const msOf = (x) => Math.max(0, Math.min(durationMs, (x / width) * durationMs));
 
@@ -203,6 +217,15 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
             if (locks.has(i)) {
                 ctx.fillStyle = "#f5c66b";
                 ctx.fillRect(xOf(p.endMs) - 8, 4, 5, 5);
+            }
+            // its own character: two small bars, stamina and burst, left of the lock's place
+            if (hasOwnCharacter(p) && room >= 30) {
+                const own = characterOf(p, wholeCharacter());
+                ctx.fillStyle = CHARACTER_COLOR;
+                [own.stamina, own.burst].forEach((v, k) => {
+                    const h = 2 + Math.round(8 * v);
+                    ctx.fillRect(xOf(p.endMs) - 18 + 4 * k, 14 - h, 2, h);
+                });
             }
             if (i === selected) {
                 ctx.strokeStyle = "#eeeeee";
@@ -313,6 +336,42 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
         return box;
     }
 
+    // the part's own «Характер»: the whole map's two sliders again; moving one gives the part both values as its own
+    // (the slider takes them when it is let go), «Как у всей карты» gives it back to the whole map's
+    function characterEditor(index) {
+        const p = parts[index];
+        const own = hasOwnCharacter(p);
+        const shown = characterOf(p, wholeCharacter());
+        const box = el("div", own ? "pe-character own" : "pe-character");
+        box.dataset.role = "character";
+        box.title = t("create.parts.characterHint");
+        const head = el("div", "row");
+        head.append(el("span", "flabel", t("html.create.character")), el("span", own ? "pe-own" : "muted", t(own ? "create.parts.characterOwn" : "create.parts.characterSame")));
+        if (own) {
+            const same = el("button", "small", t("create.parts.same"));
+            same.dataset.role = "character-same";
+            same.addEventListener("click", () => edit(index, { stamina: undefined, burst: undefined }));
+            head.append(same);
+        }
+        box.append(head);
+        for (const { key, label, hint } of CHARACTER_SLIDERS) {
+            const row = el("label", "slider-row");
+            const input = el("input");
+            input.type = "range";
+            input.min = "0";
+            input.max = "100";
+            input.value = String(Math.round(shown[key] * 100));
+            input.dataset.role = `part-${key}`;
+            input.addEventListener("change", () => {
+                const value = Math.max(0, Math.min(100, Number(input.value) || 0)) / 100;
+                edit(index, { ...characterOf(parts[index], wholeCharacter()), [key]: value });
+            });
+            row.append(el("span", "", t(label)), input, el("span", "muted", t(hint)));
+            box.append(row);
+        }
+        return box;
+    }
+
     function danEditor(index) {
         const p = parts[index];
         const row = el("div", "row");
@@ -387,7 +446,7 @@ export function createTimeline({ canvas, editor, getCursor, onSeek, onChange, on
                     buttons.append(only);
                 }
             }
-            kids.push(head, patternEditor(i), danEditor(i), emptyRow, buttons);
+            kids.push(head, patternEditor(i), danEditor(i), characterEditor(i), emptyRow, buttons);
         }
         editor.replaceChildren(...kids);
     }

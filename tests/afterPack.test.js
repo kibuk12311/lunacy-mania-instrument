@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import afterPack, { exeResources, readerMissing } from "../tools/after-pack.mjs";
+import afterPack, { exeResources, keyReaderMissing, readerMissing } from "../tools/after-pack.mjs";
 import { readerPath, READER_EXE } from "../app/interludeReader.js";
+import { keyReaderPath, KEY_READER_EXE } from "../app/keyReader.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
@@ -64,4 +65,20 @@ test("afterPack refuses a build without the reader or its DAC", () => {
     assert.match(readerMissing(out, have([])), /interlude-reader\.exe.*build:reader/);
     assert.match(readerMissing(out, have([path.join(dir, "interlude-reader.exe")])), /mscordaccore\.dll/);
     assert.equal(readerMissing(out, have([path.join(dir, "interlude-reader.exe"), path.join(dir, "dac", "9.0.22", "mscordaccore.dll")])), null);
+});
+
+test("the keyboard reader ships as an extra resource where the app looks for it, from where a dev run finds it", () => {
+    const keys = pkg.build.extraResources.find((r) => r.to === "key-reader");
+    assert.equal(keys.from, "native/key-reader/out");
+    assert.deepEqual(keys.filter, ["key-reader.exe"], "the exe alone");
+    assert.equal(keyReaderPath({ packaged: true, resourcesPath: "R:\app\resources", appDir: "x" }), path.join("R:\app\resources", "key-reader", KEY_READER_EXE));
+    assert.equal(path.resolve(keyReaderPath({ packaged: false, appDir: path.join(root, "app") })), path.resolve(root, keys.from, KEY_READER_EXE));
+    assert.match(pkg.scripts["build:keys"], /native\/key-reader\/build\.ps1/);
+});
+
+test("afterPack refuses a build without the keyboard reader", () => {
+    const out = "W:\win-unpacked";
+    const exe = path.join(out, "resources", "key-reader", "key-reader.exe");
+    assert.match(keyReaderMissing(out, { exists: () => false }), /key-reader\.exe.*build:keys/);
+    assert.equal(keyReaderMissing(out, { exists: (f) => f === exe }), null);
 });

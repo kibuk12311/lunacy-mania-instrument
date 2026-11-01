@@ -11,11 +11,33 @@
     <main>
         <h1 data-i18n="overlay.set.heading">Оверлей в игре</h1>
         <section class="general">
-            <label class="check"><input type="checkbox" id="enabled"> <span data-i18n="overlay.set.enabled">Показывать оверлей во время игры</span></label>
-            <label class="check"><input type="checkbox" id="results"> <span data-i18n="overlay.set.showOnResults">И на экране результатов</span></label>
+            <label class="check"><input type="checkbox" id="enabled"> <span data-i18n="overlay.set.enabled">Показывать оверлей</span></label>
+            <div class="sub">
+                <label class="check"><input type="checkbox" id="play"> <span data-i18n="overlay.set.showInPlay">Во время игры</span></label>
+                <label class="check" id="pauseLabel"><input type="checkbox" id="pause"> <span data-i18n="overlay.set.showInPause">На паузе</span></label>
+                <label class="check"><input type="checkbox" id="results"> <span data-i18n="overlay.set.showOnResults">На экране результатов</span></label>
+            </div>
+            <div class="fields">
+                <label class="field"><span data-i18n="overlay.set.lang">Язык оверлея</span><select id="lang"></select></label>
+                <label class="field"><span data-i18n="overlay.set.grid">Сетка при перетаскивании</span><select id="grid"></select></label>
+            </div>
+            <label class="check"><input type="checkbox" id="snap"> <span data-i18n="overlay.set.snap">Прилипать к краям экрана</span></label>
             <button id="edit" class="edit"></button>
             <p class="hint" id="hint"></p>
         </section>
+        <section class="keyboard">
+            <h2 data-i18n="overlay.kbd.heading">Клавиши в osu! stable</h2>
+            <label class="check"><input type="checkbox" id="kbdOn"> <span data-i18n="overlay.kbd.enabled">Читать клавиши с клавиатуры</span></label>
+            <div class="kbd-row">
+                <select id="kbdCount"></select>
+                <div class="kbd-lanes" id="kbdLanes"></div>
+                <button id="kbdReset" class="edit" data-i18n="overlay.kbd.reset">Взять из osu!</button>
+            </div>
+            <p class="kbd-from" id="kbdFrom"></p>
+            <p class="hint" data-i18n="overlay.kbd.note">Читаются только эти клавиши и только во время игры. Нигде не сохраняются.</p>
+            <p class="hint" id="kbdHint"></p>
+        </section>
+        <p class="hint size-note" data-i18n="overlay.set.sizeNote"></p>
         <div id="widgets"></div>
         <h2 data-i18n="overlay.set.styles">Все стили (пример с выдуманными числами)</h2>
         <div id="gallery"></div>

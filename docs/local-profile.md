@@ -47,8 +47,9 @@ pressing it again later only adds new scores.
   import of the same play, a replay of one's own score).
 - `maps.json` — the analysis summary per map and rate (`<md5>@1.10`): our combined dan, every calculator's dan, the
   pattern shares, the tech flag, the length, and beside it `vibro` (`{ v, vibro, share, longestRows, peakGapMs,
-  confidence }`, see [Vibro](#vibro); not part of the analysis, so the shared result cache is untouched). A map is
-  analysed once per rate (through the shared analysis line and its cache too).
+  confidence }`, see [Vibro](#vibro)) and `od` (the OD its `.osu` declares; `null`: the text has none; no `od` at all: its
+  `.osu` was not read yet). Neither is part of the analysis, so the shared result cache is untouched. A map is analysed
+  once per rate (through the shared analysis line and its cache too).
 - `settings.json` — the record switch, the osu! folder, the last imports.
 - Export writes all of it into one JSON file; import merges a backup into the profile (plays already there are kept
   once); reset clears plays and maps (the record switch stays).
@@ -66,7 +67,7 @@ pressing it again later only adds new scores.
   - above: **+0.08 per %**, at most **+0.25** (reached near 99.6 %) — near-perfect on a map is a little more than
     "can play it", but not a different dan;
   - 93 – 96.5 %: **−0.2 per %** (95 % → −0.3, 93 % → −0.7);
-  - below 93 % (**KNEE_ACC**): **−0.35 per %** more, floored at **−2.5**.
+  - below 93 % (**KNEE_ACC**): **−0.35 per %** more, floored at **−6** (reached near 78 %). See [the floor](#the-floor).
   - Why 96.5 %: the common reading of "a map at your level" in 4K rice is one you can play at 96–97 % (v1). The
     tracker fixture (`tests/fixtures/mt/plays.json`) agrees: a player whose Speed tile is 14.28 has their top stream
     plays at 94.8–97.3 % (lazer weights, median ≈ 96.2 %), i.e. right around full credit — so the best plays land on
@@ -80,6 +81,69 @@ pressing it again later only adds new scores.
   own dan, and `skill.vibroPlays` counts it (shown beside the play counts), but it is in no axis, pattern or overall
   dan, nor in the best plays, the history, the Picks' level or the Dan widget's «эта игра». A map without an answer
   (its `.osu` gone) counts as it always did.
+- A pass **judged below OD 7** (`MODEL.MIN_OD = 7`; OD 7 itself counts) is no evidence either, the same way: kept,
+  listed with the map's own dan and just the mark «<OD7» (the same in both languages, no explanation), counted in
+  `skill.lowOdPlays`, in no dan. That is a map below OD 7 and any pass with EZ. A play that is both is counted as vibro,
+  once. See [OD](#od).
+
+### The floor
+
+`MODEL.FLOOR` was −2.5 and is **−6**. With −2.5 plus the most misses can cost (`MISS_MAX`, 0.4) a pass lost at most 2.9
+dan however it went, so a pass on a map of dan 18 read 15.1 or more at any accuracy, and the warm-up rule then let a few
+such passes throw out everything else. A score that low says the map was over the player's head, not that they are three
+dan below it. Only passes under about 88 % change: they go on down the same line, to −6 near 78 %. It is not fitted to a
+fine point: −8 gives the same, because nothing that low reaches the top anyway. The floor is not what lifted the Jack axis
+in [the case behind it](#the-case-behind-these-two), though: that was the EZ passes, and the floor alone leaves that axis
+where it was. What it takes away is what stays once those are gone.
+
+### OD
+
+A map below OD 7 has windows wide enough that its accuracy says little (the 300 is ±49 ms at OD 5, ±40 ms at OD 8), and
+OD 0 rate maps are where a dan can be had for nothing: a fast chordjack marathon at OD 0, with EZ, can be passed near
+99 % at a dan far above the player's, and is no vibro by the detector. The line also takes in vibro the detector misses.
+Of the 74268 unique 4K charts measured only 8446 come from a Songs folder, and 40051 are Etterna and Malody charts, none
+of them below OD 7, so the 3.5 % of the whole set reads lower than osu! maps are: over the 33695 charts of that Songs
+folder and the two big collections of osu! sets it is 7.8 %. Against that stand 263 of the 376 maps with vibro in their
+name (a name regex, not a ground truth), and the line catches 41 of the 75 of those the detector misses. It drops 23 of
+the 1972 dan-course maps.
+
+- **Where the OD comes from:** the `.osu` text (`osuOverallDifficulty` in `src/localProfile/model.js`), which every
+  path already has: stable reads the file, live gets tosu's file, lazer its files store. It is kept beside the map in
+  `maps.json` (`withMapFacts` in `app/localProfileService.js`). None of the 74268 charts lacks the field.
+- **By the windows the play was judged with** (`judgedLoose`), so the mods count: **EZ** multiplies the windows by 1.4,
+  which is looser than OD 7 even on OD 10 (47.6 ms against 43), so any pass with EZ is left out, whatever is known about
+  the map. **HR** divides them by 1.4, so a play with HR is read by its tighter window: on OD 1.27 and up it is at least
+  as tight as OD 7 and counts, below that it is left out. The numbers are lazer's source (`ManiaHitWindows`: 300 at
+  64 − 3·OD; `ManiaModEasy`, `ManiaModHardRock`). Rate does not enter: in lazer's source the windows do not depend on
+  track speed (osu! stable's is not confirmed).
+- **Lazer's Difficulty Adjust** overrides the map's OD (`ModDifficultyAdjust.OverallDifficulty`, −15 to 15 in mania).
+  A score keeps it in the mod's settings as `overall_difficulty`, there only when it was changed (`APIMod` names it),
+  and tosu's `mods.array` has the same shape. `lazerOdSet` (`src/lazer/realmDump.js`) reads it, the play keeps it as
+  `odSet`, and it goes before the map's OD, either way: DA can put a play below the line or lift one over it.
+- **The `.osu` gone:** the OD a difficulty name states ("OD0", "OD 6.5", `namedOverallDifficulty`) stands in for it. Old
+  rate maps are often deleted and a backup restores without them, and that is exactly where the name helps. The name is
+  read from the play, never stored as the map's OD, and an OD read from the `.osu` goes first.
+- **An unknown OD counts:** with no `.osu` and no OD in the name nothing is held against the map; the pass over the kept
+  maps says in the log how many it could read, how many went by their name and how many stayed unknown.
+- **Interlude keeps counting** (`leftOutWhy`, the Dan widget too): its charts have no OD of their own (a converted
+  chart carries the original's, or `SourceOD`, or a made-up 8), and it judges by the player's ruleset. A made-up 8 is
+  never kept as the map's OD (`statesOd`): a stable or lazer play on the same map goes by that map's own `.osu`, or by the
+  rules above when it is gone, and a map only Interlude played is not read for its OD at all.
+
+### The case behind these two
+
+A profile read a Jack axis far above the level its player plays at. No vibro answer was at fault: every top play was
+flagged not vibro, and rightly by the detector's own rules. It was two things, each tried alone on that profile through
+the real store and service, with no `.osu` at all (the numbers stay out of the repo; `tests/localProfile/lowOd.test.js`
+has the same case with a made-up player):
+
+- **EZ passes on OD 0 rate maps** took the whole top of the jack keys. They were few, and the floor alone leaves the Jack
+  axis where it was.
+- **DT at a low accuracy on very high dans** came next under them, and sat on Speed and Stamina too. The OD line alone
+  brings the Jack axis most of the way and leaves it over the player's level; it takes the floor as well to bring it back.
+
+Taking all DT out on top of that gains little, and leaving NF out changes nothing, so neither was added. On the other
+local profiles checked the floor moves nothing and the OD line a little; it costs a beginner the most.
 
 ### Vibro
 
@@ -108,11 +172,28 @@ dan maps and many ordinary played ones (that same chordjack); a gap of 100 ms in
 The card shows a «вибро» / "vibro" chip with how much of the map and how fast (`app/renderer/view.js vibroChip`); the
 map's dan itself never changes.
 
-**Saved profiles.** Maps kept before vibro was looked at (or by another `VIBRO.VERSION`) are looked at once a
-session, a few seconds after the window loads (`checkVibro`): their `.osu` is found again where the plays came from
-(the last live plays' texts, Interlude's library, the Songs folder index, lazer's files store), the answer is written
-to `maps.json` and the skill worked out again. No play is changed or removed. A live play or an import of a map met
-again does the same on the spot.
+**Measured again on 74268 unique 4K charts** the rules give about what was fitted (48 of 52 maps of vibro packs), and
+nothing here changed, so `VIBRO.VERSION` stays 1. What was tried and rejected, for the record: a rule for fast rows at
+1.3x and up (a run of 8 rows within 75 ms, whatever its chords do) would flag about a quarter of the dan-course maps at
+1.5x and was not needed once [the OD line and the floor](#the-case-behind-these-two) were in; at 1.0x it would flag 63
+dan-course maps. Runs per key find runs broken by interleaved rows, but add dan-course flags and flagged a real played
+map. `GAP_MS` 100 and `MIN_SHARE` 0.05 add more dan and jack maps for little gain.
+
+**Saved profiles.** A profile an older version wrote updates by itself, with no button. The floor and the mods work from
+the plays, so they apply as soon as the skill is first worked out. A few seconds after the window loads (`checkVibro`,
+once a session, again after a backup is imported) every played map with a dan that has no OD yet, or no answer of this
+`VIBRO.VERSION`, gets them: the missing OD is what triggers it, a `VIBRO.VERSION` bump is not needed. Its `.osu` is found
+again where the plays came from (the last live plays' texts, Interlude's library, the Songs folder index, lazer's files
+store), the facts go to `maps.json` (50 maps at a write, so a stopped pass goes on where it stopped) and the skill is
+worked out again once. Nothing is analysed again, and no play is changed or removed. The window stays free: the pass
+reads between other work (some hundreds of maps take seconds, and the event loop is never held for long). The next
+session has nothing to do but look for the maps still missing. A live play or an import of a map met again does the same
+on the spot; a backup goes through the same path.
+
+**A map whose `.osu` is gone** stays as it was in `maps.json`: its vibro answer stays in force, it gets no OD, and it is
+logged and looked for again each session. Its plays go by the OD in their difficulty name; with none named they count,
+even if the map is really below OD 7. A play with EZ is left out either way. The day the `.osu` is back the map gets its
+facts, and what the file says beats the name.
 
 ### 2. Attribution
 
@@ -155,7 +236,7 @@ are always consistent with the plays and survive a model change.
 ## Where it is used
 
 The skill object has the tracker's shape (`readSkill`: `overall`, `overallLabel`, `tiles`, `msd`, `ready`,
-`analyzedPlays`) plus `local: true`, `axes`, `patterns`, `partial`, `totalPlays`, `vibroPlays`. Picks' source «Мой профиль» (`rec-settings.source =
+`analyzedPlays`) plus `local: true`, `axes`, `patterns`, `partial`, `totalPlays`, `vibroPlays`, `lowOdPlays`. Picks' source «Мой профиль» (`rec-settings.source =
 "local"`) makes it the profile in use everywhere (`app/renderer/profile.js`): the window sends only `{ local: true }`
 and main takes its own copy of the skill — picks, the plan, the auto-marathon "by profile", «для тебя» on the card;
 Picks' Progress shows the local daily skill and joins the picks journal with the local plays. The local plays' beatmap
@@ -175,4 +256,10 @@ record switch, and a comparison with the tracker profile when one is loaded).
 - osu! stable's Songs folder must be the one the scores were made with; maps deleted since are skipped and counted.
 - Vibro is a line drawn on numbers: a map just under it counts in full, one just over it not at all; very dense
   Zeta-level chordjack is on the vibro side. mania-tracker's own dans (the tracker profile) are worked out by the site
-  and can't leave vibro plays out.
+  and can't leave vibro or low-OD plays out.
+- Vibro the detector misses still counts when the map is OD 7 or more, and so does a real DT pass on chordjack that
+  reads dan 18 at 1.5x: a 96 % there is a dan 18 play by this model.
+- A map below OD 7 with its `.osu` gone and no OD in its name counts.
+- The OD line costs a beginner the most: easy maps are often below OD 7, so a good part of their rated plays can go.
+- A Difficulty Adjust play imported or recorded before `odSet` was kept stays by the map's OD (the setting was not
+  stored, and plays are never rewritten), and the Dan widget's «эта игра» reads the map's OD on any such play.

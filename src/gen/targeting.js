@@ -25,7 +25,12 @@ const RUNG_BY_GAP = [[1.5, 0], [4, 1], [Infinity, 2]];
 // the rates the ceiling note may suggest (the rate tab's ladder)
 export const SUGGEST_RATES = Object.freeze([1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]);
 
-const numericOf = (r) => (r?.result?.kind === "ok" && Number.isFinite(r.result.numeric) ? r.result.numeric : null);
+// (plainNumeric: a map with parts of their own «Характер» is judged as it was before they were drawn in: making the whole
+// map again for what those parts did would change the rest of it, which they must not)
+const numericOf = (r) => {
+    if (Number.isFinite(r?.plainNumeric)) return r.plainNumeric;
+    return r?.result?.kind === "ok" && Number.isFinite(r.result.numeric) ? r.result.numeric : null;
+};
 const inside = (n, range) => n !== null && n >= range.lo && n < range.hi;
 // how far a dan is from the range (0 inside)
 export function rangeGap(n, range) {

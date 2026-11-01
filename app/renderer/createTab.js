@@ -524,7 +524,21 @@ function basePartsOf(card) {
         if (same?.patterns) spec.patterns = same.patterns;
         if (same?.empty ?? r.empty) spec.empty = true;
         if (Number.isSafeInteger(same?.seed)) spec.seed = same.seed;
+        for (const key of ["stamina", "burst"]) if (Number.isFinite(same?.[key])) spec[key] = same[key];
         return spec;
+    });
+}
+
+// The base parts with the «Характер» the timeline shows now on the parts that are redrawn (moving a part's sliders and
+// redoing just that part is the way to use them); the locked parts keep what they were made with.
+function withTimelineCharacter(base, locks) {
+    const now = ui.timeline.parts;
+    if (now.length !== base.length) return base;
+    return base.map((part, i) => {
+        if (locks.includes(i)) return part;
+        const { stamina, burst, ...rest } = part;
+        for (const key of ["stamina", "burst"]) if (Number.isFinite(now[i][key])) rest[key] = now[i][key];
+        return rest;
     });
 }
 
@@ -534,9 +548,10 @@ function regenerateKeeping(d, id, keep, shown = keep) {
     const diff = state.diffs[d];
     const card = diff?.cards.find((c) => c.id === id);
     if (state.running || !card || !state.song) return undefined;
-    const parts = basePartsOf(card);
-    const locks = [...new Set(keep)].filter((i) => Number.isInteger(i) && i >= 0 && i < parts.length).sort((a, b) => a - b);
+    const base = basePartsOf(card);
+    const locks = [...new Set(keep)].filter((i) => Number.isInteger(i) && i >= 0 && i < base.length).sort((a, b) => a - b);
     if (!locks.length) return undefined;
+    const parts = withTimelineCharacter(base, locks);
     const planSeed = Number.isSafeInteger(card.answer.planSeed) ? card.answer.planSeed : newSeed();
     return runJobs([{
         d, range: diff.range, planSeed, noteSeed: newSeed(), parts, base: card, keepLocks: shown.filter((i) => i < parts.length),
@@ -672,6 +687,8 @@ export function initCreateTab({
     });
     ui.timeline = createTimeline({
         canvas: $("timeline"), editor: $("part-editor"), getCursor: () => ui.player.now(),
+        // what a part without its own «Характер» shows: the whole map's sliders
+        getCharacter: () => ({ stamina: Number($("stamina").value) / 100, burst: Number($("burst").value) / 100 }),
         onSeek: (ms) => ui.player.seek(ms),
         onChange: () => ui.exportPanel?.onSelectionChanged?.(),
         onReset: () => {
@@ -723,6 +740,8 @@ export function initCreateTab({
         redrawResults();
         ui.timeline.refresh();
     });
+    // a part that follows the whole map's «Характер» shows the sliders as they are now
+    for (const id of ["stamina", "burst"]) $(id).addEventListener("change", () => ui.timeline.refresh());
     for (const chip of $("mix").children) {
         chip.addEventListener("click", () => {
             state.mix = chip.dataset.mix;

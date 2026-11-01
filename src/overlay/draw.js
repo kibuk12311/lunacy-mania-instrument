@@ -11,16 +11,32 @@ export const PALETTE = {
 };
 
 export const paletteFor = (style) => PALETTE[style] ?? PALETTE.card;
+
+// The judgement colours each style gives (app/overlay/overlay.css --max, --c300 …), for the settings window's pickers.
+const BASE_JUDGEMENTS = { max: "#ffffff", n300: "#f5c66b", n200: "#7be08f", n100: "#8fd3ff", n50: "#b7b7c7", miss: "#ff6b6b" };
+export const JUDGEMENT_COLORS = {
+    minimal: BASE_JUDGEMENTS,
+    card: BASE_JUDGEMENTS,
+    neon: { max: "#ffffff", n300: "#ffe14d", n200: "#4dff9a", n100: "#4dc3ff", n50: "#b48cff", miss: "#ff3d71" },
+    classic: { max: "#fffbe0", n300: "#ffcc22", n200: "#33dd55", n100: "#2299ff", n50: "#aaaaaa", miss: "#ee2222" },
+    compact: BASE_JUDGEMENTS,
+};
+// the corner radius each style gives its panel (px; the compact key lines' is 12)
+export const STYLE_RADIUS = { minimal: 0, card: 12, neon: 10, classic: 0, compact: 20 };
 export const laneColor = (style, col) => {
     const lanes = paletteFor(style).lanes;
     return lanes[col % lanes.length];
 };
+// a lane's colour with the ones set by hand (settings: { [keys]: [colour | null per lane] }), else the style's
+export const laneColorFor = (style, col, keys, own = null) => own?.[keys]?.[col] ?? laneColor(style, col);
 
 // Press bars → rectangles in a box width × height: the newest presses at the bottom, moving up as time goes on.
-// bars: [{ col, start, end }] in map ms (end null: still held), clock: map ms now, spanMs: map ms from bottom to top.
-export function laneRects(bars, { clock, spanMs, keys, width, height, gap = 3, minHeight = 2 }) {
+// bars: [{ col, start, end }] in map ms (end null: still held), clock: map ms now, spanMs: map ms from bottom to top;
+// fill: how much of its lane (less the gap) a bar takes, in the lane's middle.
+export function laneRects(bars, { clock, spanMs, keys, width, height, gap = 3, minHeight = 2, fill = 1 }) {
     const laneWidth = width / Math.max(1, keys);
     const px = height / Math.max(1, spanMs);
+    const barWidth = Math.max(1, (laneWidth - gap) * Math.min(1, Math.max(0.05, fill)));
     const rects = [];
     for (const b of bars) {
         if (b.col < 0 || b.col >= keys || b.start > clock) continue;
@@ -31,9 +47,9 @@ export function laneRects(bars, { clock, spanMs, keys, width, height, gap = 3, m
         if (bottom - top < minHeight) bottom = top + minHeight;
         rects.push({
             col: b.col,
-            x: b.col * laneWidth + gap / 2,
+            x: b.col * laneWidth + (laneWidth - barWidth) / 2,
             y: Math.max(0, top),
-            w: Math.max(1, laneWidth - gap),
+            w: barWidth,
             h: Math.min(height, bottom) - Math.max(0, top),
         });
     }

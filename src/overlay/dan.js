@@ -6,7 +6,7 @@
 // tab's own block (src/analysis/sections.js), not the overlay's.
 import { t } from "../i18n/i18n.js";
 import { confidenceWord, labelBeside, labelKey, numericToLabel } from "../core/labels.js";
-import { performanceDan } from "../localProfile/model.js";
+import { leftOutWhy, performanceDan } from "../localProfile/model.js";
 import { fitForSkill } from "../analysis/mapFit.js";
 
 // the payload's states: a dan, still being worked out, or why there is none
@@ -26,14 +26,18 @@ export function danStateOf(result) {
     return "none";
 }
 
+// The widget's map and play as the local profile's model reads them (an Interlude play is judged by its own ruleset).
+const danMap = (payload) => ({ kind: "ok", numeric: payload.numeric, vibro: payload.vibro ? { v: 1, vibro: true } : null, od: payload.od ?? null });
+const danPlay = (payload, hits, mods, odSet) => ({ outcome: "pass", hits, mods, odSet, client: String(payload.checksum).startsWith("interlude:") ? "interlude" : null });
+
 // The play's performance dan (the local profile's model) from the results screen's judgements, or null: no map dan,
-// no judgements, autoplay-like mods, a map that is vibro at this rate (the profile leaves such a play out of its dans).
-export function playDanOf(payload, hits, mods = []) {
+// no judgements, autoplay-like mods, a map vibro at this rate, a play judged looser than OD 7 (the profile leaves such
+// a play out of its dans). odSet: the OD the play set itself, if it did.
+export function playDanOf(payload, hits, mods = [], odSet = null) {
     if (payload?.state !== "ok" || finite(payload.numeric) === null || !hits) return null;
     const total = ["max", "n300", "n200", "n100", "n50", "miss"].reduce((s, k) => s + (Number(hits[k]) || 0), 0);
     if (!total) return null;
-    const vibro = payload.vibro ? { v: 1, vibro: true } : null;
-    return performanceDan({ outcome: "pass", hits, mods }, { kind: "ok", numeric: payload.numeric, vibro })?.dan ?? null;
+    return performanceDan(danPlay(payload, hits, mods, odSet), danMap(payload))?.dan ?? null;
 }
 
 // +0.4, −0.7 (a minus sign), ±0.0
@@ -96,7 +100,8 @@ export function danView(payload, snapshot) {
     }
     const head = danHead(payload.numeric);
     const ownPlay = (results || payload.preview) && payload.recording;
-    const playDan = ownPlay ? playDanOf(payload, snapshot?.hits, snapshot?.mods) : null;
+    const playDan = ownPlay ? playDanOf(payload, snapshot?.hits, snapshot?.mods, snapshot?.odSet) : null;
+    const lowOd = ownPlay && leftOutWhy(danPlay(payload, null, snapshot?.mods ?? [], snapshot?.odSet), danMap(payload)) === "lowOd";
     return {
         state,
         number: head.number,
@@ -106,8 +111,8 @@ export function danView(payload, snapshot) {
         pattern: patternText(payload),
         forYou: forYouText(payload.fit),
         band: payload.fit?.band ?? null,
-        // a vibro map's play has no dan of its own: it says so instead
-        play: ownPlay && payload.vibro ? vibroText(payload) : playText(playDan),
+        // a play left out of the dans has none of its own: it says so instead
+        play: ownPlay && payload.vibro ? vibroText(payload) : lowOd ? t("overlay.dan.lowOd") : playText(playDan),
         playDan,
         results,
     };
@@ -145,5 +150,7 @@ export function buildDanPayload({ checksum, rate = 1, mode = 3, entry = null, sk
         recording: recording === true,
         // the map is vibro at this rate (app/overlay/danSource.js looks at its .osu): the play goes in no dan
         ...(entry?.vibro?.vibro === true ? { vibro: { share: entry.vibro.share, peakGapMs: entry.vibro.peakGapMs ?? null } } : {}),
+        // the map's OD (entry.od): with the play's mods it says whether the play goes in the dans
+        ...(finite(entry?.od) !== null ? { od: entry.od } : {}),
     };
 }

@@ -111,6 +111,13 @@ export function lazerRate(mods) {
     return Math.round(rate * 100) / 100;
 }
 
+// The OD a play set itself (the JSON column, parseMods' list, or tosu's mods.array, which has the same shape): Difficulty
+// Adjust's settings.overall_difficulty, there only when it was changed; null when the map's own stands.
+export function lazerOdSet(mods) {
+    const od = parseMods(mods)?.find((m) => m.acronym === "DA")?.settings.overall_difficulty;
+    return typeof od === "number" && Number.isFinite(od) ? od : null;
+}
+
 // The Statistics column (JSON or already parsed) → { max, n300, n200, n100, n50, miss }; other judgements are left out.
 // null when it isn't a JSON object (the row is broken).
 export function hitsOf(statistics) {
@@ -182,6 +189,7 @@ function scoreOf(score) {
     const hits = hitsOf(read(score, "Statistics"));
     if (!hash || !id || at == null || !mods || !hits) return null;
     const accuracy = Number(read(score, "Accuracy"));
+    const odSet = lazerOdSet(mods);
     return {
         id,
         hash,
@@ -190,6 +198,7 @@ function scoreOf(score) {
         player: text(read(read(score, "User"), "Username")),
         at,
         mods: mods.map((m) => m.acronym),
+        ...(odSet === null ? {} : { odSet }),
         rate: lazerRate(mods),
         hits,
         maxCombo: count(read(score, "MaxCombo")),

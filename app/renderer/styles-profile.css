@@ -86,6 +86,8 @@
 /* a play on a vibro map (profileViews.js playRow): kept, in no dan */
 .prof-play.vibro { border-left: 3px solid var(--orange); }
 .prof-play.vibro .prof-play-line { cursor: help; }
+/* a play judged below OD 7: kept, in no dan */
+.prof-play.low-od { border-left: 3px solid var(--muted); }
 .prof-play-line { font-size: 11px; }
 .prof-compare { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .prof-danger { color: var(--red) !important; }

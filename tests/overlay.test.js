@@ -142,6 +142,19 @@ test("a frame with nothing in it reads as zeros and nulls; results fall back to 
     assert.equal(r.hits.n300, 3);
 });
 
+test("a tosu v2 frame: a play that is not the player's own (autoplay, cinema, someone else's) is watching", () => {
+    const own = (playerName, name = "PlayerOne", mods = { name: "HD" }) =>
+        readPlayFrame(playFrame({ play: { ...playFrame().play, playerName, mods }, profile: { name } })).watching;
+    assert.equal(own("PlayerOne"), false);
+    assert.equal(own(" playerone "), false, "case and spaces aside");
+    assert.equal(own("SomeoneElse"), true, "spectating or their replay");
+    assert.equal(own("PlayerOne", "PlayerOne", { name: "HDAT" }), true, "autoplay");
+    assert.equal(own("PlayerOne", "PlayerOne", { array: [{ acronym: "CN" }] }), true, "cinema");
+    assert.equal(own(undefined), false, "no player name: taken as the player's own");
+    assert.equal(own("SomeoneElse", ""), false, "no profile: taken as the player's own");
+    assert.equal(readPlayFrame({}).watching, false);
+});
+
 test("a precise frame: K1 K2 M1 M2 today, K1–K4 if tosu ever sends them, null without keys", () => {
     const p = readPreciseFrame({ currentTime: 1234, keys: { k1: { isPressed: true, count: 5 }, k2: { isPressed: false, count: 3 }, m1: { count: 0 }, m2: { count: 1 } } });
     assert.equal(p.timeMs, 1234);
@@ -348,7 +361,7 @@ test("settings: defaults, every widget, broken values cleaned", () => {
     assert.equal(d.showOnResults, true);
     assert.deepEqual(Object.keys(d.widgets), WIDGETS);
     for (const w of WIDGETS) {
-        assert.equal(d.widgets[w].enabled, true);
+        assert.equal(d.widgets[w].enabled, w !== "map", "only the map panel is off until turned on");
         assert.ok(STYLES.includes(d.widgets[w].style));
         assert.equal(d.widgets[w].scale, 1);
         assert.equal(d.widgets[w].x, null);
@@ -357,7 +370,8 @@ test("settings: defaults, every widget, broken values cleaned", () => {
     const bad = normalizeOverlaySettings({ enabled: "yes", widgets: { kps: { style: "x", opacity: 7, scale: -1, x: "a", show: { graph: false } } } });
     assert.equal(bad.enabled, false);
     assert.equal(bad.widgets.kps.style, "card");
-    assert.equal(bad.widgets.kps.opacity, 1);
+    assert.equal(bad.widgets.kps.bgOpacity, 1, "an old opacity out of range: the default");
+    assert.equal(bad.widgets.kps.textOpacity, 1);
     assert.equal(bad.widgets.kps.scale, 0.5);
     assert.equal(bad.widgets.kps.x, null);
     assert.deepEqual(bad.widgets.kps.show, { now: true, max: true, graph: false });
@@ -420,8 +434,10 @@ test("every style has lane colours; the fake snapshot is shaped like a real one"
     assert.equal(laneColor("nope", 5), PALETTE.card.lanes[1]);
     const fake = fakeSnapshot(5000);
     const real = createOverlaySession().snapshot(0);
-    // the made-up one carries the Dan widget's made-up payload too (main's comes with the config)
-    assert.deepEqual(Object.keys(fake).filter((k) => k !== "dan").sort(), Object.keys(real).sort());
+    // the made-up one carries the Dan widget's made-up payload too (main's comes with the config), and the map panel's
+    // state (main's comes on its own)
+    const own = ["dan", "map", "progress", "elapsedMs"];
+    assert.deepEqual(Object.keys(fake).filter((k) => !own.includes(k)).sort(), Object.keys(real).sort());
     assert.equal(fake.dan.checksum, fake.checksum);
     assert.deepEqual(Object.keys(fake.lanes).sort(), Object.keys(real.lanes).sort());
     assert.ok(fake.lanes.bars.length > 0);
@@ -464,7 +480,7 @@ const npsNotes = (from, to, stepMs, hold = false) => {
 
 test("NPS: the map's density at the play position, its peak and its whole profile; a hold note counts once", () => {
     const nps = createNpsTrack();
-    assert.deepEqual(nps.at(1000), { ready: false, now: 0, peak: 0, profile: [], progress: 0 });
+    assert.deepEqual(nps.at(1000), { ready: false, now: 0, peak: 0, profile: [], progress: 0, top: 0 });
     // 5 a second for 10 s, then 10 a second (holds) for 10 s
     nps.setMap([...npsNotes(0, 10_000, 200), ...npsNotes(10_000, 20_000, 100, true)]);
     const calm = nps.at(5000);

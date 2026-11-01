@@ -1,4 +1,5 @@
 // How busy the music is at each grid slot, shaped by the "Выносливость" (stamina) and "Всплески" (burst) sliders.
+import { hasOwnCharacter, characterOf } from "./request.js";
 
 const BREAK_LEVEL = 0.05;
 const BREAK_WINDOW = 8; // slots = 2 beats
@@ -91,4 +92,68 @@ export function slotEnergy(envelope, slots) {
 export function shapeEnergy(energy, { stamina = 0.5 } = {}) {
     const floor = 0.25 + 0.75 * stamina ** 2;
     return Float64Array.from(energy, (e) => floor + (1 - floor) * e);
+}
+
+// A song part's own «Характер» (request.js: a part's stamina / burst): `values`, shaped by the whole map's sliders over
+// the whole song, take shape(that part's character) — over the whole song too, so its scale stays the song's — at that
+// part's slots only (partOf: the part of each slot); the other parts keep the whole map's. No part with a character of
+// its own: `values` as they are, the same array.
+export function withPartCharacter(values, { parts, partOf, request, shape }) {
+    const shaped = new Map(); // one shape per distinct character
+    parts.forEach((part, k) => {
+        if (!hasOwnCharacter(part)) return;
+        const character = characterOf(part, request);
+        const key = `${character.stamina}/${character.burst}`;
+        if (!shaped.has(key)) shaped.set(key, shape({ ...request, ...character }));
+        const own = shaped.get(key);
+        for (let i = 0; i < values.length; i += 1) if (partOf[i] === k) values[i] = own[i];
+    });
+    return values;
+}
+
+const ACTIVITY_BEATS = 2; // ±2 beats: a quiet bar or a rush in the music, not the single hits
+const ACTIVITY_LOW = 0.1;
+const ACTIVITY_HIGH = 0.9;
+
+// How busy each slot is against the rest of its own part: the onset strength over ±2 beats of that part, 0 at the part's
+// calmest tenth … 1 at its busiest. A part's own «Характер» on the learned generator works on this scale: slotEnergy is
+// the song's, and a drop sits at ≈ 1 from end to end (real songs: p10–p90 of 0.68–1.0 and 0.91–1.0), so on it the sliders
+// had nothing to tell apart. A part with no such difference: 0.5 all over.
+export function partActivity(strengths, slots, partOf) {
+    const n = slots.length;
+    const prefix = new Float64Array(n + 1);
+    for (let i = 0; i < n; i += 1) prefix[i + 1] = prefix[i] + strengths[i];
+    const busy = new Float64Array(n);
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < n; i += 1) {
+        const reach = ACTIVITY_BEATS * slots[i].beatMs;
+        while (a < i && (slots[i].t - slots[a].t > reach || partOf[a] !== partOf[i])) a += 1;
+        b = Math.max(b, i + 1);
+        while (b < n && slots[b].t - slots[i].t <= reach && partOf[b] === partOf[i]) b += 1;
+        while (b > i + 1 && (slots[b - 1].t - slots[i].t > reach || partOf[b - 1] !== partOf[i])) b -= 1;
+        busy[i] = (prefix[b] - prefix[a]) / (b - a);
+    }
+    const out = new Float64Array(n).fill(0.5);
+    for (let i0 = 0; i0 < n;) {
+        let i1 = i0 + 1;
+        while (i1 < n && partOf[i1] === partOf[i0]) i1 += 1;
+        const own = busy.slice(i0, i1);
+        const low = percentile(own, ACTIVITY_LOW);
+        const span = percentile(own, ACTIVITY_HIGH) - low;
+        if (span > 0) for (let i = i0; i < i1; i += 1) out[i] = Math.min(1, Math.max(0, (busy[i] - low) / span));
+        i0 = i1;
+    }
+    return out;
+}
+
+// The mean of `values` over each of `count` parts (partOf: the part of each slot); a part with no slots: 0.5.
+export function partMeans(values, partOf, count) {
+    const sum = new Float64Array(count);
+    const n = new Int32Array(count);
+    for (let i = 0; i < values.length; i += 1) {
+        sum[partOf[i]] += values[i];
+        n[partOf[i]] += 1;
+    }
+    return Float64Array.from(sum, (v, k) => (n[k] ? v / n[k] : 0.5));
 }

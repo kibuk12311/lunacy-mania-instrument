@@ -27,6 +27,11 @@
 #part-editor { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 #part-editor .row { gap: 6px; }
 #part-editor select { padding: 3px 6px; font-size: 12px; }
+/* a part's own «Характер»: the whole map's two sliders again; a part with its own is outlined in the timeline mark's pink */
+#part-editor .pe-character { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border-left: 2px solid transparent; border-radius: 4px; }
+#part-editor .pe-character.own { border-left-color: #ff9ad5; background: #ff9ad50d; }
+#part-editor .pe-character .slider-row input[type=range] { min-width: 0; }
+#part-editor .pe-own { color: #ff9ad5; font-size: 12px; }
 .cr-locked { color: var(--gold) !important; border-color: var(--gold) !important; }
 
 /* the playfield and its controls side by side */

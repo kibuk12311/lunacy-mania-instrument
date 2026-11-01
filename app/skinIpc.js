@@ -97,6 +97,49 @@ async function loadPicture(dir, value, fs = nodeFs) {
     return null;
 }
 
+// Every file under dir as a relative path with "/" (capped like an archive).
+export async function walkSkin(dir, fs = nodeFs) {
+    const out = [];
+    let total = 0;
+    const visit = async (sub) => {
+        for (const entry of await fs.readdir(path.join(dir, sub), { withFileTypes: true })) {
+            const rel = sub ? `${sub}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) await visit(rel);
+            else if (entry.isFile()) {
+                if (out.length >= MAX_FILES) throw new Error(t("skin.err.tooBig"));
+                total += (await fs.stat(path.join(dir, rel))).size;
+                if (total > MAX_TOTAL_BYTES) throw new Error(t("skin.err.tooBig"));
+                out.push(rel);
+            }
+        }
+    };
+    await visit("");
+    return out;
+}
+
+// values of skin.ini → { value: { url, hd, file } | null }: the file each one loads in a skin folder, best candidate first.
+export async function skinImages(dir, files, values, fs = nodeFs) {
+    const byLower = new Map(files.map((f) => [f.toLowerCase(), f]));
+    const out = {};
+    for (const value of (Array.isArray(values) ? values : []).slice(0, 200)) {
+        if (typeof value !== "string" || !value.trim()) continue;
+        const hit = imageCandidates(value).map((c) => byLower.get(c.toLowerCase())).find(Boolean);
+        if (!hit) {
+            out[value] = null;
+            continue;
+        }
+        const full = path.join(dir, ...hit.split("/"));
+        const { size } = await fs.stat(full);
+        if (size > MAX_IMAGE_BYTES) {
+            out[value] = null;
+            continue;
+        }
+        const type = /\.jpe?g$/i.test(hit) ? "image/jpeg" : "image/png";
+        out[value] = { url: `data:${type};base64,${(await fs.readFile(full)).toString("base64")}`, hd: /@2x\.(png|jpe?g)$/i.test(hit), file: hit };
+    }
+    return out;
+}
+
 export function createSkinService({
     userData, docsDir, env = process.env, port = null, fs = nodeFs, shell = null, dialog = null, window = () => null,
     log = () => {}, gameFolder = () => osuGameFolder(port), now = () => Date.now(),
@@ -124,25 +167,7 @@ export function createSkinService({
         return null;
     }
 
-    // every file under dir as a relative path with "/" (capped like an archive)
-    async function walk(dir) {
-        const out = [];
-        let total = 0;
-        const visit = async (sub) => {
-            for (const entry of await fs.readdir(path.join(dir, sub), { withFileTypes: true })) {
-                const rel = sub ? `${sub}/${entry.name}` : entry.name;
-                if (entry.isDirectory()) await visit(rel);
-                else if (entry.isFile()) {
-                    if (out.length >= MAX_FILES) throw new Error(t("skin.err.tooBig"));
-                    total += (await fs.stat(path.join(dir, rel))).size;
-                    if (total > MAX_TOTAL_BYTES) throw new Error(t("skin.err.tooBig"));
-                    out.push(rel);
-                }
-            }
-        };
-        await visit("");
-        return out;
-    }
+    const walk = (dir) => walkSkin(dir, fs);
 
     // the skin.ini of a working copy (found whatever its case), or null
     async function iniPath(dir) {
@@ -297,25 +322,7 @@ export function createSkinService({
     // values of skin.ini → { value: { url, hd } | null }: the file each one loads, best candidate first
     async function images({ id, values } = {}) {
         const dir = workDir(id);
-        const files = await walk(dir).catch(() => []);
-        const byLower = new Map(files.map((f) => [f.toLowerCase(), f]));
-        const out = {};
-        for (const value of (Array.isArray(values) ? values : []).slice(0, 200)) {
-            if (typeof value !== "string" || !value.trim()) continue;
-            const hit = imageCandidates(value).map((c) => byLower.get(c.toLowerCase())).find(Boolean);
-            if (!hit) {
-                out[value] = null;
-                continue;
-            }
-            const full = path.join(dir, ...hit.split("/"));
-            const { size } = await fs.stat(full);
-            if (size > MAX_IMAGE_BYTES) {
-                out[value] = null;
-                continue;
-            }
-            const type = /\.jpe?g$/i.test(hit) ? "image/jpeg" : "image/png";
-            out[value] = { url: `data:${type};base64,${(await fs.readFile(full)).toString("base64")}`, hd: /@2x\.(png|jpe?g)$/i.test(hit), file: hit };
-        }
+        const out = await skinImages(dir, await walk(dir).catch(() => []), values, fs);
         return { ok: true, images: out };
     }
 

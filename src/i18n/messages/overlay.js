@@ -4,12 +4,12 @@
 export default {
     // tray: the «Оверлей» submenu
     "overlay.tray.menu": { ru: "Оверлей", en: "Overlay" },
-    "overlay.tray.enabled": { ru: "Показывать во время игры", en: "Show while playing" },
+    "overlay.tray.enabled": { ru: "Показывать оверлей", en: "Show the overlay" },
     "overlay.tray.edit": { ru: "Двигать окошки ({hotkey})", en: "Move the widgets ({hotkey})" },
     "overlay.tray.settings": { ru: "Настройки оверлея…", en: "Overlay settings…" },
 
     // the main window: the OV button in the footer and its panel (app/renderer/overlayPanel.js)
-    "overlay.main.enabled": { ru: "Показывать во время игры", en: "Show while playing" },
+    "overlay.main.enabled": { ru: "Показывать оверлей", en: "Show the overlay" },
     "overlay.main.move": { ru: "Двигать окна ({hotkey})", en: "Move windows ({hotkey})" },
     "overlay.main.moveDone": { ru: "Готово, закрепить", en: "Done, lock them" },
     "overlay.main.settings": { ru: "Все настройки…", en: "All settings…" },
@@ -17,8 +17,65 @@ export default {
     // the settings window
     "overlay.window.title": { ru: "Оверлей — Lunacy mania", en: "Overlay — Lunacy mania" },
     "overlay.set.heading": { ru: "Оверлей в игре", en: "In-game overlay" },
-    "overlay.set.enabled": { ru: "Показывать оверлей во время игры", en: "Show the overlay while playing" },
-    "overlay.set.showOnResults": { ru: "И на экране результатов", en: "Also on the results screen" },
+    "overlay.set.enabled": { ru: "Показывать оверлей", en: "Show the overlay" },
+    "overlay.set.showInPlay": { ru: "Во время игры", en: "While playing" },
+    "overlay.set.showInPause": { ru: "На паузе", en: "In a pause" },
+    "overlay.set.showOnResults": { ru: "На экране результатов", en: "On the results screen" },
+    "overlay.set.pauseTip": {
+        ru: "В osu! пауза — это когда время карты стоит дольше полутора секунд; как только игра пошла дальше, паузы уже нет.",
+        en: "In osu! a pause is the map's time standing still for more than a second and a half; it is over as soon as the play goes on.",
+    },
+    "overlay.set.lang": { ru: "Язык оверлея", en: "Overlay language" },
+    "overlay.set.langApp": { ru: "Как в приложении", en: "Same as the app" },
+    "overlay.set.snap": { ru: "Прилипать к краям экрана", en: "Snap to the screen edges" },
+    "overlay.set.grid": { ru: "Сетка при перетаскивании", en: "Drag grid" },
+    "overlay.set.gridOff": { ru: "нет", en: "none" },
+    "overlay.set.px": { ru: "{n} пикс.", en: "{n} px" },
+    "overlay.set.sizeNote": {
+        ru: "Пока это окно открыто, окошки в игре не меняют размер и не залезают на него: новый размер видно в превью, а в игре он появится, когда закроешь окно. Раньше — если отодвинуть окошко так, чтобы оно с новым размером не задевало это окно, или потянуть его за уголок.",
+        en: "While this window is open, the widgets over the game keep their size and never cover it: the preview shows the new size, and the widgets take it when you close this window. Sooner if you move a widget so that at its new size it stays clear of this window, or drag its corner.",
+    },
+    "overlay.set.previewSize": { ru: "На экране: {w}×{h} пикс.", en: "On screen: {w}×{h} px" },
+    "overlay.set.previewSmaller": { ru: "здесь показано мельче", en: "shown smaller here" },
+    "overlay.set.previewHeld": { ru: "применится, когда закроешь это окно", en: "takes effect when you close this window" },
+    "overlay.set.bgOpacity": { ru: "Фон", en: "Background" },
+    "overlay.set.textOpacity": { ru: "Текст", en: "Text" },
+    "overlay.set.more": { ru: "Ещё настройки", en: "More settings" },
+    "overlay.set.font": { ru: "Шрифт", en: "Font" },
+    "overlay.set.styleOwn": { ru: "как в стиле", en: "the style's" },
+    "overlay.set.weight": { ru: "Толщина цифр", en: "Digit weight" },
+    "overlay.set.w400": { ru: "обычные", en: "regular" },
+    "overlay.set.w600": { ru: "полужирные", en: "semibold" },
+    "overlay.set.w700": { ru: "жирные", en: "bold" },
+    "overlay.set.w800": { ru: "очень жирные", en: "extra bold" },
+    "overlay.set.w900": { ru: "самые жирные", en: "black" },
+    "overlay.set.radius": { ru: "Скругление углов", en: "Corner radius" },
+    "overlay.set.reset": { ru: "Сбросить", en: "Reset" },
+    "overlay.set.resetTip": { ru: "Вернуть как в стиле", en: "Back to the style's" },
+    "overlay.set.applyAll": { ru: "Такой же вид у всех окошек", en: "Give every widget this look" },
+    "overlay.set.applyAllTip": {
+        ru: "Стиль, фон, текст, шрифт, толщина цифр и скругление этого окошка — для всех остальных",
+        en: "This widget's style, background, text, font, digit weight and corner radius for all the others",
+    },
+    "overlay.set.graphColor": { ru: "Цвет графика", en: "Graph colour" },
+    "overlay.set.graphSec": { ru: "Длина графика", en: "Graph length" },
+    "overlay.set.wholeMap": { ru: "вся карта", en: "whole map" },
+    "overlay.set.sec": { ru: "{n} с", en: "{n} s" },
+    "overlay.set.smooth": { ru: "Сглаживание", en: "Smoothing" },
+    "overlay.set.smoothNote": {
+        ru: "Сглаживание — окно, по которому считается число в секунду: короче — живее, но дёрганее; длиннее — спокойнее.",
+        en: "Smoothing is the window the per-second number is counted over: shorter is livelier but jumpier, longer is calmer.",
+    },
+    "overlay.set.speed": { ru: "Скорость линий", en: "Line speed" },
+    "overlay.set.thickness": { ru: "Толщина линий", en: "Line thickness" },
+    "overlay.set.laneColors": { ru: "Цвета колонок", en: "Column colours" },
+    "overlay.set.mapBlur": { ru: "Размытие картинки", en: "Picture blur" },
+    "overlay.set.mapDim": { ru: "Затемнение картинки", en: "Picture dim" },
+    "overlay.set.barColor": { ru: "Цвет полоски", en: "Bar colour" },
+    "overlay.set.mapSelect": { ru: "И при выборе карты", en: "Also while choosing a map" },
+    "overlay.set.keysCount": { ru: "{n}K", en: "{n}K" },
+    "overlay.set.rows": { ru: "Какие попадания показывать и их цвета", en: "Which judgements to show, and their colours" },
+    "overlay.set.colorTip": { ru: "Свой цвет", en: "Own colour" },
     "overlay.set.edit": { ru: "Двигать и менять размер", en: "Move and resize" },
     "overlay.set.editDone": { ru: "Готово, закрепить", en: "Done, lock them" },
     "overlay.set.hint": {
@@ -26,8 +83,34 @@ export default {
         en: "These are separate windows over the game, nothing is injected into osu!. osu! must be in windowed or borderless mode (in lazer, “Borderless” or “Windowed”): they can't be seen over a fullscreen game. While you play, clicks go through them. {hotkey} turns moving on or off: drag a widget with the mouse, its bottom-right corner resizes it.",
     },
     "overlay.set.keysNote": {
-        ru: "В mania osu! stable не отдаёт нажатия клавиш, поэтому линии строятся по попаданиям и нотам карты. osu! lazer отдаёт счётчики клавиш — тогда берутся настоящие нажатия.",
-        en: "In mania osu! stable doesn't report key presses, so the lines are rebuilt from the judgements and the map's notes. osu! lazer does report its key counters — then the real presses are used.",
+        ru: "В osu! stable нажатия берутся с клавиатуры (настройка «Читать клавиши с клавиатуры» выше); если она выключена, линии строятся по попаданиям и нотам карты. osu! lazer и Interlude отдают нажатия сами.",
+        en: "In osu! stable the presses come from the keyboard (the “Read keys from the keyboard” setting above); with it off, the lines are rebuilt from the judgements and the map's notes. osu! lazer and Interlude report their presses themselves.",
+    },
+    // the keyboard (osu! stable's lane keys, app/overlay/settings.js)
+    "overlay.kbd.heading": { ru: "Клавиши в osu! stable", en: "Keys in osu! stable" },
+    "overlay.kbd.enabled": { ru: "Читать клавиши с клавиатуры", en: "Read keys from the keyboard" },
+    "overlay.kbd.note": {
+        ru: "Читаются только эти клавиши и только во время игры. Нигде не сохраняются.",
+        en: "Only these keys are read, and only during a play. They are never saved.",
+    },
+    "overlay.kbd.fromOsu": { ru: "из настроек osu!", en: "from osu!'s settings" },
+    "overlay.kbd.fromOsuDefault": { ru: "стандартные osu!", en: "osu!'s defaults" },
+    "overlay.kbd.fromDefault": { ru: "osu! не найден — стандартные", en: "osu! not found — the defaults" },
+    "overlay.kbd.fromManual": { ru: "заданы вручную", en: "set by hand" },
+    "overlay.kbd.unknown": { ru: "не известны — задай их вручную", en: "unknown — set them by hand" },
+    "overlay.kbd.press": { ru: "жми…", en: "press…" },
+    "overlay.kbd.reset": { ru: "Взять из osu!", en: "Use osu!'s" },
+    "overlay.kbd.rebind": {
+        ru: "Нажми на клавишу линии и потом нужную клавишу, чтобы поменять. Esc — отмена.",
+        en: "Click a lane's key, then press the key you want. Esc cancels.",
+    },
+    "overlay.kbd.missing": {
+        ru: "Нет файла key-reader.exe — линии строятся по попаданиям.",
+        en: "key-reader.exe is missing — the lines are rebuilt from the judgements.",
+    },
+    "overlay.kbd.failed": {
+        ru: "Не получилось читать клавиатуру — линии строятся по попаданиям.",
+        en: "Couldn't read the keyboard — the lines are rebuilt from the judgements.",
     },
     "overlay.set.npsNote": {
         ru: "NPS — плотность самой карты (ноты в секунду), не твоих нажатий: сколько нот сейчас под позицией игры, пик карты и график всей карты с бегунком. Лонг считается одной нотой. С DT, HT и рейтами — в реальном времени.",
@@ -35,7 +118,6 @@ export default {
     },
     "overlay.set.show": { ru: "Показывать это окошко", en: "Show this widget" },
     "overlay.set.style": { ru: "Стиль", en: "Style" },
-    "overlay.set.opacity": { ru: "Видимость", en: "Opacity" },
     "overlay.set.scale": { ru: "Размер", en: "Size" },
     "overlay.set.styles": { ru: "Все стили (пример с выдуманными числами)", en: "All styles (a sample with made-up numbers)" },
 
@@ -44,12 +126,18 @@ export default {
         en: "The map's overall dan is the card's (our combined estimate) for this play's map and rate, worked out once while the map is selected. The rest is optional and off out of the box: the main pattern and how sure; “for you”, the gap to your level for the main pattern (the profile source is the one in Picks); “this play”, your play's dan by the My profile model on the results screen, when recording plays is on. The dan of each part of a map is in the Analysis tab, the “Dan by part” block.",
     },
 
-    // the five widgets
+    "overlay.set.mapNote": {
+        ru: "Панель как у стримеров: выбранная или запущенная карта в osu! stable, lazer и Interlude. Выключена сразу после установки. Звёзды даёт tosu; у Interlude своя шкала сложности, поэтому там их нет. Рейт уже учтён в BPM и длине. Дан — тот же, что на карточке. Панель перерисовывается только когда меняются данные, а полоска — пару раз в секунду.",
+        en: "A panel like streamers have: the map selected or being played in osu! stable, lazer and Interlude. Off out of the box. The stars come from tosu; Interlude has a difficulty scale of its own, so it shows none. BPM and length already include the rate. The dan is the card's. The panel redraws only when its data changes, and its bar a couple of times a second.",
+    },
+
+    // the widgets
     "overlay.widget.judgements": { ru: "Попадания", en: "Judgements" },
     "overlay.widget.kps": { ru: "KPS", en: "KPS" },
     "overlay.widget.nps": { ru: "NPS карты", en: "Map NPS" },
     "overlay.widget.keys": { ru: "Линии нажатий", en: "Key lines" },
     "overlay.widget.dan": { ru: "Дан", en: "Dan" },
+    "overlay.widget.map": { ru: "Инфо о карте", en: "Map info" },
 
     // what each widget can show
     "overlay.show.counts": { ru: "Счёт: MAX, 300, 200, 100, 50, мимо", en: "Counts: MAX, 300, 200, 100, 50, miss" },
@@ -58,16 +146,29 @@ export default {
     "overlay.show.ur": { ru: "UR (разброс попаданий)", en: "UR (unstable rate)" },
     "overlay.show.now": { ru: "KPS сейчас (за последнюю секунду)", en: "KPS now (over the last second)" },
     "overlay.show.max": { ru: "Максимум KPS за игру", en: "Max KPS this play" },
-    "overlay.show.graph": { ru: "График за 10 секунд", en: "Graph of the last 10 seconds" },
+    "overlay.show.graph": { ru: "График за последние {n} с", en: "Graph of the last {n} s" },
     "overlay.show.npsNow": { ru: "NPS сейчас (у позиции игры)", en: "NPS now (at the play position)" },
     "overlay.show.peak": { ru: "Пик NPS карты", en: "The map's peak NPS" },
     "overlay.show.npsGraph": { ru: "График всей карты с бегунком", en: "Graph of the whole map with a playhead" },
+    "overlay.show.npsWindow": { ru: "График карты вокруг бегунка ({n} с)", en: "Graph of the map around the playhead ({n} s)" },
     "overlay.show.lines": { ru: "Линии нажатий", en: "Press lines" },
     "overlay.show.keyCounts": { ru: "Нажатия на каждую клавишу", en: "Presses per key" },
     "overlay.show.danMap": { ru: "Общий дан карты на этом рейте", en: "The map's overall dan at this rate" },
     "overlay.show.danPattern": { ru: "Главный паттерн и уверенность", en: "Main pattern and how sure" },
     "overlay.show.danForYou": { ru: "Для тебя: разница с твоим уровнем", en: "For you: the gap to your level" },
     "overlay.show.danPlay": { ru: "После игры: дан этой игры (Мой профиль)", en: "After the play: this play's dan (My profile)" },
+    "overlay.show.mapBackground": { ru: "Картинка карты на фоне", en: "The map's picture behind it" },
+    "overlay.show.mapTitle": { ru: "Название", en: "Title" },
+    "overlay.show.mapArtist": { ru: "Исполнитель", en: "Artist" },
+    "overlay.show.mapDifficulty": { ru: "Сложность", en: "Difficulty" },
+    "overlay.show.mapMapper": { ru: "Маппер", en: "Mapper" },
+    "overlay.show.mapStars": { ru: "Звёзды (из tosu)", en: "Star rating (from tosu)" },
+    "overlay.show.mapDan": { ru: "Дан Lunacy", en: "Lunacy dan" },
+    "overlay.show.mapBpm": { ru: "BPM (с рейтом)", en: "BPM (with the rate)" },
+    "overlay.show.mapLength": { ru: "Длина (с рейтом)", en: "Length (with the rate)" },
+    "overlay.show.mapRate": { ru: "Рейт", en: "Rate" },
+    "overlay.show.mapMods": { ru: "Моды", en: "Mods" },
+    "overlay.show.mapProgress": { ru: "Полоска прогресса", en: "Progress bar" },
 
     // the styles
     "overlay.style.minimal": { ru: "Минимал", en: "Minimal" },
@@ -83,6 +184,8 @@ export default {
     "overlay.label.kpsNow": { ru: "KPS", en: "KPS" },
     "overlay.label.npsNow": { ru: "NPS", en: "NPS" },
     "overlay.label.peak": { ru: "пик", en: "peak" },
+    // the map panel
+    "overlay.map.by": { ru: "от {name}", en: "by {name}" },
     // the Dan widget (src/overlay/dan.js)
     "overlay.dan.counting": { ru: "считаем…", en: "working out…" },
     "overlay.dan.notMania": { ru: "не mania", en: "not mania" },
@@ -95,5 +198,7 @@ export default {
     "overlay.dan.play": { ru: "эта игра: {label}", en: "this play: {label}" },
     // a vibro map's play (src/vibro/detect.js): the local profile leaves it out of the dans
     "overlay.dan.vibro": { ru: "вибро — в даны профиля не идёт", en: "vibro — not counted in your dans" },
+    // a play judged below OD 7: the local profile leaves it out of the dans too
+    "overlay.dan.lowOd": { ru: "<OD7", en: "<OD7" },
     "overlay.edit.badge": { ru: "тащи · уголок — размер", en: "drag · corner resizes" },
 };

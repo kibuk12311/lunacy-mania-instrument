@@ -1,10 +1,13 @@
-// Presses per lane for the key-lines widget, from one of two sources (times are map milliseconds):
+// Presses per lane for the key-lines widget, from one of three sources (times are map milliseconds):
+// "kbd"  — the keyboard itself (osu! stable: native/key-reader hears the lanes' keys, keyDown() / keyUp() with the
+//          real press and release times); once a real key comes in it has the lanes for the rest of the play;
 // "keys" — tosu's key overlay counters, when they move (osu! stable has no key overlay in mania, so there they don't;
 //          osu! lazer reports its play's key counters, in 4K the four lanes), or Interlude's own presses (press(),
 //          release(), keysDown(): its per-note events and the columns it holds down);
 // "map"  — rebuilt from the judgements: each new judgement takes the next note of the map near the live time
 //          (osu!stable judges a hold note twice, on press and on release), and a hit note becomes a press in its lane.
 // Misses are given to the oldest notes taken; a note left far behind (a missed frame, a count that drifted) is dropped.
+// Priority: kbd over keys over map. A new play (reset()) gives the lanes back to the map until a key comes again.
 
 export const TAP_MS = 45; // how long a tap is drawn
 const EARLY_MS = 250; // a note can be judged this long before its time
@@ -17,15 +20,18 @@ export function createLaneTracker({ keys = 4 } = {}) {
     let next = 0;
     let bars = []; // { col, start, end } (end null: still held)
     let counts = new Array(lanes).fill(0);
-    let source = "none"; // "map" once a map is set, "keys" once the counters move
+    let source = "none"; // "map" once a map is set, "keys" once the counters move, "kbd" once a real key comes
     let base = null; // key counters at the start of the play
     let open = [];
+    let mapLanes = keys; // the map's own key count (the keyboard's may differ: osu!'s key mods)
+    const real = () => source === "keys" || source === "kbd";
 
     function setMap({ keys: k, notes }) {
         const before = lanes;
-        lanes = Math.max(1, k || lanes);
+        mapLanes = Math.max(1, k || mapLanes);
+        if (source !== "kbd") lanes = mapLanes;
         // real presses already counted are kept when the map's notes come in late
-        if (source !== "keys" || lanes !== before) counts = new Array(lanes).fill(0);
+        if (!real() || lanes !== before) counts = new Array(lanes).fill(0);
         events = [];
         for (const note of notes ?? []) {
             events.push({ t: note.t, col: note.col, head: true, note });
@@ -33,7 +39,7 @@ export function createLaneTracker({ keys = 4 } = {}) {
         }
         events.sort((a, b) => a.t - b.t);
         next = 0;
-        if (source !== "keys") source = events.length ? "map" : "none";
+        if (!real()) source = events.length ? "map" : "none";
     }
 
     const prune = (now) => {
@@ -69,7 +75,7 @@ export function createLaneTracker({ keys = 4 } = {}) {
 
     // tosu's key counters [{ pressed, count }] at map time timeMs → presses [{ t, col }]
     function keysFrame(list, timeMs) {
-        if (!Array.isArray(list) || !Number.isFinite(timeMs)) return [];
+        if (!Array.isArray(list) || !Number.isFinite(timeMs) || source === "kbd") return [];
         if (!base) {
             base = list.map((k) => k.count);
             return [];
@@ -108,9 +114,9 @@ export function createLaneTracker({ keys = 4 } = {}) {
         return source === "keys" ? presses : [];
     }
 
-    // the real presses take over from the map's guesses (once)
+    // the real presses take over from the map's guesses (once); the keyboard's are never given up for them
     function takeKeys() {
-        if (source === "keys") return;
+        if (source === "keys" || source === "kbd") return;
         source = "keys";
         counts = new Array(lanes).fill(0);
         bars = [];
@@ -130,6 +136,67 @@ export function createLaneTracker({ keys = 4 } = {}) {
         if (hold) open[col] = bar;
         prune(t);
         return { t, col };
+    }
+
+    // The keyboard (osu! stable, src/overlay/session.js onKey): lane col went down at map time t, out of `keys` lanes
+    // (the play's key count). The first one takes the lanes over from any other source. A bar is open until keyUp().
+    // → { t, col, took } (took: this press took the lanes over), or null for a lane past the last
+    function keyDown(col, t, keys = lanes) {
+        if (!Number.isFinite(t) || !Number.isInteger(col) || col < 0) return null;
+        let took = false;
+        if (source !== "kbd") {
+            source = "kbd";
+            lanes = Math.max(1, keys || lanes);
+            counts = new Array(lanes).fill(0);
+            bars = [];
+            open = [];
+            took = true;
+        }
+        if (col >= lanes) return null;
+        if (open[col]) keyUp(col, t);
+        counts[col] += 1;
+        const bar = { col, start: t, end: null };
+        bars.push(bar);
+        open[col] = bar;
+        prune(t);
+        return { t, col, took };
+    }
+
+    // lane col came up at map time t: its bar ends there (its real length, however short)
+    function keyUp(col, t) {
+        if (source !== "kbd") return;
+        const bar = open[col];
+        if (!bar) return;
+        bar.end = Math.max(bar.start, Number.isFinite(t) ? t : bar.start);
+        open[col] = null;
+    }
+
+    // every lane held down lets go at map time t (the keyboard stopped being heard)
+    function releaseAll(t) {
+        for (let col = 0; col < open.length; col += 1) {
+            if (!open[col]) continue;
+            open[col].end = Math.max(open[col].start, Number.isFinite(t) ? t : open[col].start);
+            open[col] = null;
+        }
+    }
+
+    // The keyboard's presses after map time t were none (keys taken in what turned out to be a pause, the clock
+    // resuming from t): their bars and counts go; a bar let go after t ends at t; a key still held from before stays
+    // held. → how many presses went
+    function dropKeysAfter(t) {
+        if (source !== "kbd" || !Number.isFinite(t)) return 0;
+        let dropped = 0;
+        bars = bars.filter((b) => {
+            if (b.start <= t) {
+                if (b.end !== null && b.end > t) b.end = Math.max(b.start, t);
+                return true;
+            }
+            if (b.col < counts.length) counts[b.col] = Math.max(0, counts[b.col] - 1);
+            if (open[b.col] === b) open[b.col] = null;
+            dropped += 1;
+            return false;
+        });
+        return dropped;
     }
 
     function release(col, t) {
@@ -152,6 +219,10 @@ export function createLaneTracker({ keys = 4 } = {}) {
         press,
         release,
         keysDown,
+        keyDown,
+        keyUp,
+        releaseAll,
+        dropKeysAfter,
         source: () => source,
         lanes: () => lanes,
         counts: () => [...counts],
@@ -161,6 +232,11 @@ export function createLaneTracker({ keys = 4 } = {}) {
         pressed: (now) => Array.from({ length: lanes }, (_, col) =>
             bars.some((b) => b.col === col && b.start <= now && (b.end === null || b.end >= now))),
         reset() {
+            // a new play: the keyboard has to take the lanes again (its reader may not be there this time)
+            if (source === "kbd") {
+                source = events.length ? "map" : "none";
+                lanes = mapLanes;
+            }
             next = 0;
             bars = [];
             counts = new Array(lanes).fill(0);

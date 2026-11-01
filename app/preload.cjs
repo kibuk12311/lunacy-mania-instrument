@@ -208,6 +208,29 @@ contextBridge.exposeInMainWorld("danApi", {
     skinRecent: () => ipcRenderer.invoke("skin-recent"),
     skinShow: (request) => ipcRenderer.invoke("skin-show", request),
     // <<< skin
+    // >>> replay
+    // the Replay tab (app/replayIpc.js): replays of osu!mania, their maps' audio, the skin set in osu! (read only)
+    replayStatus: () => ipcRenderer.invoke("replay-status"),
+    replayList: (request) => ipcRenderer.invoke("replay-list", request),
+    replayOpen: (request) => ipcRenderer.invoke("replay-open", request),
+    replayAudio: (request) => ipcRenderer.invoke("replay-audio", request),
+    replaySkin: (request) => ipcRenderer.invoke("replay-skin", request),
+    replayDetails: (request) => ipcRenderer.invoke("replay-details", request),
+    replayEarlier: (request) => ipcRenderer.invoke("replay-earlier", request),
+    replayAfterPlay: (request) => ipcRenderer.invoke("replay-after-play", request),
+    replayPickFolder: () => ipcRenderer.invoke("replay-pick-folder"),
+    replayResetFolder: () => ipcRenderer.invoke("replay-reset-folder"),
+    onReplayProgress: (cb) => {
+        const listener = (_e, p) => cb(p);
+        ipcRenderer.on("replay-progress", listener);
+        return () => ipcRenderer.removeListener("replay-progress", listener);
+    },
+    onReplayEnded: (cb) => {
+        const listener = (_e, p) => cb(p);
+        ipcRenderer.on("replay-ended", listener);
+        return () => ipcRenderer.removeListener("replay-ended", listener);
+    },
+    // <<< replay
     // >>> overlay
     // the in-game overlay's own channels (app/overlay/overlayManager.js), the same ones its settings window uses
     overlayGet: () => ipcRenderer.invoke("overlay-get"),

@@ -221,6 +221,9 @@ const BAD = [
     ["an unknown pattern in a part", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "drop", patterns: [{ name: "Gluts", share: 1 }] }] } }), "request.parts[0].patterns[0].name"],
     ["empty not a flag", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "break", empty: 1 }] } }), "request.parts[0].empty"],
     ["a fractional part seed", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "drop", seed: 0.5 }] } }), "request.parts[0].seed"],
+    ["a part's stamina past 1", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "drop", stamina: 1.2 }] } }), "request.parts[0].stamina"],
+    ["a part's burst below 0", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "drop", burst: -0.1 }] } }), "request.parts[0].burst"],
+    ["a part's stamina as text", () => request({ over: { parts: [{ startMs: 0, endMs: 4000, kind: "drop", stamina: "1" }] } }), "request.parts[0].stamina"],
     ["a lock without an id", () => request({ over: { parts: PARTS, lock: { parts: [1] } } }), "request.lock"],
     ["a lock on a part that is not there", () => request({ over: { parts: PARTS, lock: { fromId: "x", parts: [3] } } }), "request.lock.parts"],
     ["a lock without parts", () => request({ over: { lock: { fromId: "x", parts: [0] } } }), "request.lock.parts"],
@@ -243,7 +246,7 @@ test("the good optional fields pass", async () => {
     const parts = [
         { startMs: 0, endMs: 30_000, kind: "intro", range: { lo: 0, hi: 4 }, patterns: [{ name: "Stream", share: 1 }], seed: 9 },
         { startMs: 30_000, endMs: 60_000, kind: "break", empty: true },
-        { startMs: 60_000, endMs: 120_000, kind: "drop", range: { lo: 20.5, hi: 21 } },
+        { startMs: 60_000, endMs: 120_000, kind: "drop", range: { lo: 20.5, hi: 21 }, stamina: 1, burst: 0 },
     ];
     const answer = await generate(request({ over: { snaps: [4, 3, 6, 8], normalizeSv: false, planSeed: 5, noteSeed: 6, parts } }));
     assert.equal(answer.ok, true);

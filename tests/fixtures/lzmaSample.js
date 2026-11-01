@@ -1,0 +1,4 @@
+// One LZMA stream made by the reference encoder (Python's lzma, FORMAT_ALONE, unknown size + end marker) from made-up
+// frames, so the decoder is tested on real matches and repeats: frames i = 0…3999 of "(7·i mod 17)|(i mod 16)|0|0".
+export const LZMA_SAMPLE = "XQAAgAD//////////wAYHx8EWDc192f+hbExZydDM9B3/l+zdYSDPmBuPJKblxS6N3hVAPa9FNWDFbhgStrSdgV5e8LYT1vnsw0BjUDCpy/QhTwVykiA0zatrrPorjL+CGx5g6Km+6I109Fb/02nk2w3WoazJrS7gVked4aFSGC9//hULmjABoCZG98B1s6EsrN/oiYrioJN8ahPVTBQV6hs++hgwzPBA5bUbuInthD/gUa1toT6z025WstNdGqvNXiugCA7sGljsS0A+OgIQuIiJpOLbW2KmwtjYUUNW3LHC6bPdy5URMXTfS7n4bTyMpM69VzJiHgEFj3kD9+Wl49sxc3E75SbrNMz0je/AdbuKgeU23wDhaMRpKxfmBC+Tnl+Vr1Dj/PSX+IRmFPD8wdod9A7v73YFqMckmv7W+7ldn9kPyXu6NfCv7CMKXaJVPm4LYvc6VOQpOqDXyHrA1ZK7S/4eSs2Ya/3awPhCD5mLOZdKWmtn4GlaCjiIsfSvDRcWq7j6gMwQCCc4xl9F4wryf//9Hej8Q==";
+export const lzmaSampleText = () => Array.from({ length: 4000 }, (_, i) => `${(i * 7) % 17}|${i % 16}|0|0`).join(",");

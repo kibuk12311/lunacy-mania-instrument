@@ -52,6 +52,15 @@ const frame = (state, checksum, h) => ({
     play: { playerName: "TestPlayer", mode: { number: 3 }, mods: { name: "", array: [], rate: 1 }, hits: h, combo: { max: 100 } },
 });
 const settle = () => new Promise((r) => setTimeout(r, 30));
+// a play is kept in the background after the frames that end it, on a loaded machine later than any fixed wait
+async function storedPlays(store, count, timeoutMs = 10_000) {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+        const plays = await store.plays();
+        if (plays.length >= count || Date.now() > until) return plays;
+        await new Promise((r) => setTimeout(r, 20));
+    }
+}
 
 async function playLive(s, checksum, katu = 30, t0 = 0) {
     s.onTosuJson(frame(2, checksum, hitsJson(10)), t0 + 100);
@@ -87,6 +96,26 @@ test("live: a pass on the results screen is kept with its map analysed once per 
     const played = await s.playedBeatmaps();
     assert.deepEqual([...played.keys()], [900]);
     assert.equal(played.get(900).local, true);
+});
+
+test("live: whoever listens hears of every play that ends, kept or not, with what finds its replay", async () => {
+    const { s, text, store } = await service();
+    const checksum = md5(text);
+    const heard = [];
+    s.onPlayEnded(() => { throw new Error("a listener's mistake"); });
+    const stop = s.onPlayEnded((play) => heard.push(play));
+    await playLive(s, checksum, 30, 0);
+    assert.equal(heard.length, 1);
+    assert.deepEqual([heard[0].md5, heard[0].outcome, heard[0].startedAt, heard[0].at], [checksum, "pass", 100, 300]);
+    assert.equal(heard[0].title, "Synthetic");
+    assert.equal((await storedPlays(store, 1)).length, 1, "and the play is kept all the same");
+    await s.setRecord(false);
+    await playLive(s, checksum, 30, 1000);
+    assert.equal(heard.length, 2, "the record switch is about keeping plays, not about the Replay tab");
+    assert.equal((await store.plays()).length, 1);
+    stop();
+    await playLive(s, checksum, 30, 2000);
+    assert.equal(heard.length, 2);
 });
 
 test("live: a map tosu changed under the play is not analysed from the wrong .osu; record off keeps nothing", async () => {

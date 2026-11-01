@@ -2,7 +2,7 @@
 // A page that is not on screen draws nothing: a hidden widget window (background throttling off) would otherwise go on
 // painting at the screen's refresh rate, 500 times a second on a 500 Hz monitor, for nothing.
 // On screen it draws every animation frame only while live() says the picture moves by itself (a play's key lines on
-// the play's clock, the edit mode's made-up numbers). Otherwise it draws one frame per wake() (a new snapshot or
+// the play's clock, the settings window's previews). Otherwise it draws one frame per wake() (a new snapshot or
 // config) and, while paint() says something is still easing (a big number, a graph's scale), one more about every
 // EASE_MS, then rests.
 // requestFrame / cancelFrame: requestAnimationFrame and cancelAnimationFrame; setTimer / clearTimer: the timers.

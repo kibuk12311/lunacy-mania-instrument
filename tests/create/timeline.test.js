@@ -76,7 +76,7 @@ test("helpers: the part under a time, an energy curve from the envelope, the spe
     ]);
 });
 
-function setup() {
+function setup({ getCharacter } = {}) {
     const dom = fakeDom({});
     const seeks = [];
     const changes = [];
@@ -85,7 +85,7 @@ function setup() {
     const tl = createTimeline({
         canvas: dom.$("timeline"), editor: dom.$("part-editor"),
         getCursor: () => cursor, onSeek: (ms) => seeks.push(ms), onChange: (parts) => changes.push(parts),
-        onReset: () => changes.push("reset"), onToggleLock: (i) => locks.push(i),
+        onReset: () => changes.push("reset"), onToggleLock: (i) => locks.push(i), getCharacter,
     });
     tl.setSong({ durationMs: 90000, energy: new Float32Array(432).fill(0.5) });
     tl.setParts(PARTS.map((p) => ({ ...p })), { detected: true });
@@ -101,7 +101,7 @@ test("the editor: a click picks the part and seeks; kind, no notes and the dan e
         const { $, tl, seeks, changes } = setup();
         const editor = $("part-editor");
         assert.ok(textOf(editor).includes("3 parts found · 1 drop"), textOf(editor));
-        assert.ok(textOf(editor).includes("Click a part to give it its own pattern and dan"));
+        assert.ok(textOf(editor).includes("Click a part to give it its own pattern, dan and character"));
 
         const width = tl.width;
         await fire($("timeline"), "pointerdown", { offsetX: width * 0.5, button: 0 });
@@ -147,6 +147,108 @@ test("the editor: a click picks the part and seeks; kind, no notes and the dan e
     } finally {
         setLang("ru");
     }
+});
+
+test("a part's own character: sent as stamina and burst, also 0; a part that follows the whole map sends neither", () => {
+    const specs = toPartSpecs([
+        { startMs: 0, endMs: 1000, kind: "drop", stamina: 0, burst: 1, edited: true },
+        { startMs: 1000, endMs: 2000, kind: "drop", stamina: undefined, burst: undefined, edited: true },
+        { startMs: 2000, endMs: 3000, kind: "drop", burst: 0.25 },
+    ]);
+    assert.deepEqual(specs, [
+        { startMs: 0, endMs: 1000, kind: "drop", stamina: 0, burst: 1 },
+        { startMs: 1000, endMs: 2000, kind: "drop" },
+        { startMs: 2000, endMs: 3000, kind: "drop", burst: 0.25 },
+    ]);
+    assert.ok(!("stamina" in specs[1]) && !("burst" in specs[1]));
+});
+
+test("split gives both halves the character, merge keeps the first part's", () => {
+    const own = [{ startMs: 0, endMs: 30000, kind: "drop", stamina: 0.9, burst: 0.1 }, { startMs: 30000, endMs: 60000, kind: "drop", stamina: 0.2 }];
+    const split = splitPart(own, 0, 15000);
+    assert.deepEqual(split.slice(0, 2).map((p) => [p.stamina, p.burst]), [[0.9, 0.1], [0.9, 0.1]]);
+    const merged = mergeParts(own, 0);
+    assert.deepEqual([merged[0].stamina, merged[0].burst], [0.9, 0.1]);
+    assert.equal(mergeParts([own[1], own[0]], 0)[0].burst, undefined, "the second one's burst does not come along");
+});
+
+test("the editor's «Character»: follows the whole map until a slider moves, then the part's own with a dot and a mark; the button gives it back", async () => {
+    setLang("en");
+    try {
+        let whole = { stamina: 0.5, burst: 0.3 };
+        const { $, tl, changes } = setup({ getCharacter: () => whole });
+        const editor = $("part-editor");
+        const role = (name) => find(editor, (n) => n.dataset?.role === name);
+        const marks = () => $("timeline").getContext("2d").calls.filter((c) => c[0] === "fillRect" && c[3] === 2 && c[4] >= 2 && c[4] <= 10);
+        await fire($("timeline"), "pointerdown", { offsetX: tl.width * 0.5, button: 0 });
+        await fire($("timeline"), "pointerup", { offsetX: tl.width * 0.5 });
+
+        assert.ok(textOf(editor).includes("Character"));
+        assert.ok(textOf(editor).includes("Stamina") && textOf(editor).includes("Bursts"));
+        assert.ok(textOf(role("character")).includes("as the whole map"), textOf(role("character")));
+        assert.equal(role("character-same"), undefined, "nothing to give back yet");
+        assert.equal(role("part-stamina").value, "50");
+        assert.equal(role("part-burst").value, "30");
+        assert.equal(marks().length, 0);
+
+        // the whole map's sliders move: a part that follows them shows that
+        whole = { stamina: 0.7, burst: 0.2 };
+        tl.refresh();
+        assert.equal(role("part-stamina").value, "70");
+        assert.equal(tl.parts[1].edited, undefined, "and that is no edit of the part");
+        assert.equal(tl.edited, false);
+
+        const stamina = role("part-stamina");
+        stamina.value = "100";
+        await fire(stamina, "change");
+        assert.equal(tl.parts[1].stamina, 1);
+        assert.equal(tl.parts[1].burst, 0.2, "the slider not moved: as the whole map has it then");
+        assert.equal(tl.parts[1].edited, true, "the part gets the dot");
+        assert.equal(tl.parts[0].stamina, undefined, "the other parts follow the whole map");
+        assert.equal(changes.length, 1);
+        assert.ok(role("character").className.split(" ").includes("own"));
+        assert.ok(textOf(role("character")).includes("this part's own"));
+        assert.ok(textOf(editor).includes(" •"), "the dot in the editor's head");
+        assert.equal(role("part-stamina").value, "100");
+
+        const x = (432 * 60000) / 90000;
+        assert.deepEqual(marks().slice(-2).map((c) => [c[1], c[3], c[4]]), [[x - 18, 2, 10], [x - 14, 2, 4]], "two small bars: its stamina and its burst");
+
+        // from now on it keeps its own, whatever the whole map's sliders do
+        whole = { stamina: 0.1, burst: 0.9 };
+        tl.refresh();
+        assert.equal(role("part-burst").value, "20");
+        assert.deepEqual(toPartSpecs(tl.parts)[1], { startMs: 30000, endMs: 60000, kind: "drop", range: { lo: 13.5, hi: 14.5 }, stamina: 1, burst: 0.2 });
+
+        // the part's other settings are left alone, as before
+        const burst = role("part-burst");
+        burst.value = "65";
+        await fire(burst, "change");
+        assert.deepEqual([tl.parts[1].stamina, tl.parts[1].burst], [1, 0.65]);
+        assert.deepEqual(tl.parts[1].range, { lo: 13.5, hi: 14.5 });
+
+        await fire(role("character-same"));
+        assert.deepEqual([tl.parts[1].stamina, tl.parts[1].burst], [undefined, undefined]);
+        assert.ok(!role("character").className.split(" ").includes("own"));
+        assert.equal(role("part-stamina").value, "10", "the whole map's again");
+        assert.equal(role("character-same"), undefined);
+        const specs = toPartSpecs(tl.parts);
+        assert.ok(!("stamina" in specs[1]) && !("burst" in specs[1]));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("the part's character reads in Russian too, and setParts gives it back from a variant", async () => {
+    setLang("ru");
+    const { $, tl } = setup();
+    tl.setParts([{ ...PARTS[0] }, { ...PARTS[1], stamina: 0.8, burst: 0.1 }]);
+    await fire($("timeline"), "pointerdown", { offsetX: tl.width * 0.5, button: 0 });
+    const box = find($("part-editor"), (n) => n.dataset?.role === "character");
+    assert.ok(textOf(box).includes("Характер") && textOf(box).includes("Выносливость") && textOf(box).includes("Всплески"), textOf(box));
+    assert.ok(textOf(box).includes("свой у этой части") && textOf(box).includes("Как у всей карты"));
+    assert.equal(find(box, (n) => n.dataset?.role === "part-stamina").value, "80");
+    assert.equal(find(box, (n) => n.dataset?.role === "part-burst").value, "10");
 });
 
 test("the editor: split at the cursor, merge, reset; the lock toggle only once there is a result", async () => {

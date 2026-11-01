@@ -72,9 +72,9 @@ test("main window overlay block: on/off, a box per widget (NPS among them), the 
     assert.equal(perWidget.length, WIDGETS.length);
     assert.deepEqual(perWidget.map((b) => b.dataset.widget), WIDGETS);
     assert.equal(enabled.checked, false, "the overlay starts off");
-    assert.ok(perWidget.every((b) => b.checked));
+    assert.ok(perWidget.every((b) => b.checked === (b.dataset.widget !== "map")), "the map panel is off until turned on");
     const text = textOf(panel);
-    for (const word of ["Показывать во время игры", "Дан", "NPS карты", "Линии нажатий", "Двигать окна (Ctrl+Shift+O)", "Все настройки…"]) {
+    for (const word of ["Показывать оверлей", "Дан", "NPS карты", "Линии нажатий", "Двигать окна (Ctrl+Shift+O)", "Все настройки…"]) {
         assert.ok(text.includes(word), word);
     }
     enabled.checked = true;

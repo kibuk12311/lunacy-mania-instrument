@@ -40,14 +40,15 @@
 // source without a batch, or a batch that failed: every build on prep, one after another, as before.
 import { timingSections, sectionsToPoints, beatsFromTiming, slotsForBeats } from "./grid.js";
 import { slotFeatures, AUDIO_FEATURES } from "./slotFeatures.js";
-import { slotEnergy, slotStrengths } from "./intensity.js";
+import { slotEnergy, slotStrengths, partActivity, partMeans } from "./intensity.js";
 import { assignByParts, assignFlavours } from "./assign.js";
 import { toOsu, beatDivisorFor } from "./writer.js";
 import { mulberry32, deriveSeed } from "./rng.js";
 import { patternScore, flavourAwareScore, planShares } from "./search.js";
-import { searchKnob, searchRange } from "./searchSteps.js";
+import { searchKnob, searchRange, backInRange } from "./searchSteps.js";
+import { rangeGap } from "./targeting.js";
 import { detectedFlavours } from "./flavourMetrics.js";
-import { normalizeRequest, normalizeParts } from "./request.js";
+import { normalizeRequest, normalizeParts, characterOf, ownCharacterParts } from "./request.js";
 import { detectParts, partIndexOfSlots } from "./songParts.js";
 import { chooseBeatDivs, gridShares, denserGridsFor } from "./snap.js";
 import { createGuard, rowStats, findIssues } from "./playability.js";
@@ -98,6 +99,59 @@ const SAMPLE = Symbol("sample"); // echoCopy's answer when the slot is to be sam
 // boost.chord: how many notes over one a family's rows gain weight for (a stream becomes at most a jumpstream)
 export const CHORD_ROOM = Object.freeze({ Stream: 1, Jumpstream: 1, Handstream: 2, Tech: 1, Chordjack: 3, Jack: 2 });
 const STREAM_CHORD = 0.5; // streams take half the chord boost: single notes are what makes them streams
+// a part's own «Характер» reaches the chords too (log-weight per extra note, per unit of its term): where the grid is
+// already full, as in most drops, a row more or less is not to be had and the chords are what can still change. Bursts
+// and rests only: more chords for more stamina cost rows at speed, the guard vetoing what follows them (a part at 232 BPM
+// came out with no more notes and more gaps), and a full grid has no rest to fill anyway.
+const CHARACTER_CHORD = 0.35;
+// log-odds per unit of a part's own burst over the whole map's, on its own scale (twice the map's: its search makes room
+// for the map's bursts by the density of all of it, a part's have to show at the density found), around the part's mean
+// activity: it is there to move a part's notes to its busy phrases, and only the term balances. What comes of it does not:
+// over ten parts of six held-out songs a part's notes at bursts 1 came out -27% … +87%, a sparse part gaining the most.
+const CHARACTER_BURST = 6;
+// the neural nets' rows follow the offset more steeply than the trees' (at 1, bursts of 1 left a drop at 232 BPM a fifth
+// of its notes), and at 0.6 a slider no longer tells from a fresh draw of the part (three held-out songs)
+const CHARACTER_NN2 = 0.8;
+// how far the knob of parts with their own character may move to keep the map in its range: past this a map stays out of
+// it by however much it is, and says so (reachable false). A part that is most of its song can take the map far out: 2.4
+// dan on a held-out song at stamina 1. (The dan reads ±0.3 from one draw to the next, and a map at the top of its range,
+// with the knob free, once came back with its edited part cut by 78%.)
+const CHARACTER_KNOB_SPAN = 1.5;
+// a slot of such a part still copies a repeated bar's row from another part while its term stays under this (log-odds): a
+// row there is near what its own draw would be
+const CHARACTER_ECHO_TERM = 0.25;
+// The terms above read the music, and a model gets past them: it leaves rests where the music is busy, or goes sparse and
+// stays so. So the two ends of «Выносливость» also go by what the part has drawn so far.
+// More stamina than the map's: from this long after the part's last row (beats) the row's log-odds rise by CHARACTER_FILL
+// per beat, all of it at stamina 1 whatever the map's. A push and not a bound: what it came to, on ten parts of six held-out
+// songs, was a longest rest of 3 beats on the trees and 2 on the neural S, a part's edges counted.
+const CHARACTER_FILL_FROM = 0.5;
+const CHARACTER_FILL = 6;
+// Less stamina than the map's: at stamina 0 a part is pushed to this share of the rows it has without it, and proportionally
+// more at a stamina nearer the map's. Once it runs short of them, counted from the part's start, the log-odds rise by
+// CHARACTER_OWED per row owed. A neural net's rows feed its next ones, so no size of push down is safe: a break of the S at
+// stamina 0 kept 18 notes of 266, and on a drop at 232 BPM a weaker push took more than the full one (-85%, -39%).
+const CHARACTER_KEEP = 0.4;
+const CHARACTER_OWED = 1;
+// bursts away from the map's are to move a part's rows, so they aim higher, at the slider's end this share (and more nearer
+// the map's), either way: the push down went on its own on the calm phrases of more bursts (the S at bursts 1 took a drop at
+// 232 BPM down by 95%) and on the busy ones of fewer (the S at bursts 0 took a drop of 27 s at 232 BPM down by 59%, its
+// longest rest from 12 beats to 31)
+const CHARACTER_BURST_KEEP = 0.7;
+// Counted from the part's start, those shares steer the count and not where the rows go: what a busy phrase made up for paid
+// for a hole in the next calm one (bursts 1 left 56 beats without a note in a drop of 155 s, stamina 0 as much). So they go
+// by what is near too. Of the rows the map without it had over the last CHARACTER_NEAR_BEATS, a part owes this share of its
+// share (rounded up: one row or more), at CHARACTER_NEAR_OWED per row owed, and past that long a rest is pushed to end as
+// stamina's are. All of it, the count from the start as well, only on a slot where the map without it has a row: the rests
+// that map has stay, however long, and a row owed goes back where it was.
+// None of these numbers bounds anything: they say when a push starts and how hard it is. The model can pass it by, the guard
+// can veto the row, and a rest runs on to that map's next row, so a part can come out under its share and over those beats.
+// What a redo may not do is add to that: a block with next to no rows goes unscored and so beats any other, and the guard shut
+// the push out of the holes that won (xgb3: a rest of 15.5 beats through 34 of the map's rows, from draws that had 7.6;
+// the neural S: 28.5 through 88), so a polish takes no candidate that runs the part's rests further (restsPastCap).
+const CHARACTER_NEAR_BEATS = 6;
+const CHARACTER_NEAR_SHARE = 0.5;
+const CHARACTER_NEAR_OWED = 2;
 
 const popcount = (m) => ((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1));
 
@@ -349,6 +403,79 @@ async function learnedMap(input, analyze, model, opts, held) {
     const burst = request.burst - 0.3;
     const adjustOf = (i, scale) => -contrast * scale * (1 - energy[i]) ** 1.3 + 3 * burst * (energy[i] - 0.5);
 
+    // ---- a part's own «Характер» (stamina, burst): none of the search below sees it ----
+    // withOwnCharacter draws such a part last, so the rest of the map is the one made without it, note for note. Its term
+    // is what its sliders add to the whole map's, on the part's own scale (partActivity: on the song's, a drop is flat), so
+    // one left where the map has it changes nothing. A slider moved a little is not a small change: the first row it turns
+    // sends the rest of the part down another draw, and that alone moved a drop of the neural S by 18% of its notes.
+    // Asked for by hand, the term holds on every rung of the ladder (a boost's contrast of 0, or the second search's half,
+    // are the whole map's).
+    const characterParts = new Set(ownCharacterParts(parts, request).filter((k) => !lockedParts.has(k) && blocks.some((b) => b.part === k)));
+    const activity = characterParts.size ? partActivity(slotStrengths(envelope, slots), slots, partOf) : null;
+    const characterGaps = parts.map((part) => {
+        const own = characterOf(part, request);
+        const towardOne = (value, whole) => (value > whole ? (value - whole) / (1 - whole) : 0);
+        const towardZero = (value, whole) => (value < whole ? 1 - value / whole : 0);
+        const burstMoved = Math.max(towardOne(own.burst, request.burst), towardZero(own.burst, request.burst));
+        const given = Math.max((1 - CHARACTER_KEEP) * towardZero(own.stamina, request.stamina), (1 - CHARACTER_BURST_KEEP) * burstMoved);
+        return {
+            contrast: CONTRAST_MAX * (request.stamina - own.stamina), burst: own.burst - request.burst,
+            fill: towardOne(own.stamina, request.stamina),
+            keep: given > 0 ? 1 - given : 0,
+        };
+    });
+    const activityMean = activity ? partMeans(activity, partOf, parts.length) : null;
+    // the rows before each slot of a map (rows, and one more entry for the song's end)
+    const rowsBefore = (rows) => {
+        const count = new Int32Array(slots.length + 1);
+        for (const r of rows) if (Number.isInteger(r.i)) count[r.i + 1] += 1;
+        for (let i = 0; i < slots.length; i += 1) count[i + 1] += count[i];
+        return count;
+    };
+    const partFirstSlot = characterParts.size ? parts.map((_, k) => partOf.indexOf(k)) : null;
+    // where each slot's last CHARACTER_NEAR_BEATS start, within its part
+    const nearFrom = new Int32Array(characterParts.size ? slots.length : 0);
+    for (let i = 0, j = 0; i < nearFrom.length; i += 1) {
+        while (partOf[j] !== partOf[i] || slots[i].t - slots[j].t > CHARACTER_NEAR_BEATS * slots[i].beatMs) j += 1;
+        nearFrom[i] = j;
+    }
+    // slot i of a part with a character of its own, `quiet` beats after that part's last row, with `made` rows so far and
+    // `near` of them over the last CHARACTER_NEAR_BEATS; plainBefore: rowsBefore of the map without it
+    const characterTerms = (i, quiet, made, near, plainBefore) => {
+        const gap = characterGaps[partOf[i]];
+        const k = nn2 ? CHARACTER_NN2 : 1;
+        const plain = plainBefore[i] - plainBefore[partFirstSlot[partOf[i]]];
+        const onPlainRow = gap.keep > 0 && plainBefore[i + 1] > plainBefore[i];
+        const owedNear = onPlainRow ? Math.max(0, Math.ceil(CHARACTER_NEAR_SHARE * gap.keep * (plainBefore[i] - plainBefore[nearFrom[i]])) - near) : 0;
+        const owed = onPlainRow ? CHARACTER_OWED * Math.max(0, gap.keep * plain - made) + CHARACTER_NEAR_OWED * owedNear + CHARACTER_FILL * Math.max(0, quiet - CHARACTER_NEAR_BEATS) : 0;
+        return {
+            rest: k * -gap.contrast * (1 - activity[i]) ** 1.3,
+            // a rest to end: one gone on too long, or a part short of its rows
+            fill: gap.fill * CHARACTER_FILL * Math.max(0, quiet - CHARACTER_FILL_FROM) + owed,
+            peak: k * CHARACTER_BURST * gap.burst * (activity[i] - activityMean[partOf[i]]),
+        };
+    };
+
+    // The beats that part p's rests in `rows` run past CHARACTER_NEAR_BEATS, each counted up to its last row of the map without
+    // it (plainBefore: its rowsBefore), the last one its push asked for: past that it is that map's own rest. 0 in a part that
+    // keeps no share of that map's rows, where nothing pushes.
+    const restsPastCap = (rows, p, plainBefore) => {
+        if (!characterGaps[p].keep) return 0;
+        let past = 0;
+        let from = partFirstSlot[p] - 1; // the slot of the row before the rest
+        let fromT = parts[p].startMs;
+        for (const end of [...rows.filter((r) => partOf[r.i] === p), null]) {
+            let last = (end ? end.i : partOf.lastIndexOf(p) + 1) - 1;
+            while (last > from && plainBefore[last + 1] === plainBefore[last]) last -= 1;
+            if (last > from) past += Math.max(0, (slots[last].t - fromT) / slots[last].beatMs - CHARACTER_NEAR_BEATS);
+            if (end) {
+                from = end.i;
+                fromT = end.t;
+            }
+        }
+        return past;
+    };
+
     const breaks = parts.filter((p, k) => p.empty && !lockedParts.has(k)).map((p) => [p.startMs, p.endMs]);
     const patternNames = request.patterns.map((p) => p.name).join(" + ");
     const render = (rows, label) => toOsu({
@@ -376,17 +503,22 @@ async function learnedMap(input, analyze, model, opts, held) {
     // fixed in this plan its rows are known and the guard sees them.
     // echoSeed: the build's note seed for the echo plan (repeats; null = no echo rows). resume: { k0, snap, fedTo }
     // from snapshotAt (infill sources): the source restarts from the snapshot at block k0 instead of decoding again.
+    // character (rowsBefore of the map without it): the parts with their own «Характер» take it (withOwnCharacter), and a
+    // slot there that it really changes copies no echo from another part, whose rows were made without it.
     // An infill source starts each build with prep.begin() and gets the kept rows that come before a drawn block as
     // step(i, …, fixed), so its decoder reads every row of the map; slots it is not asked about count as their known
     // mask, else as empty.
     // The build runs over src: prep (build(), as always), or one stream of a GPU batch (buildMany), whose step may
     // answer WAIT; the build then yields, and the batch resumes it with the row once its beat is decoded.
-    function* buildSteps({ knobOf, fixed = new Map(), seedOf, scale = 1, only = null, echoSeed = null, resume = null }, src) {
+    function* buildSteps({ knobOf, fixed = new Map(), seedOf, scale = 1, only = null, echoSeed = null, resume = null, character = null }, src) {
         const out = [];
         let guard = null;
         let ctx = null;
         let lastT = null;
         let part = -1;
+        let restFrom = 0; // when this part last had a row (its start before the first): a character's rest clock
+        const partSlots = []; // and the slots of its rows (with a character)
+        let nearRow = 0; // the first of them over the last CHARACTER_NEAR_BEATS
         const decided = echo ? new Uint8Array(slots.length).fill(UNDECIDED) : null;
         const echoRun = echo && echoSeed !== null ? echo.forBuild(echoSeed, { infill }) : null;
         let lastDrawn = -1;
@@ -412,6 +544,8 @@ async function learnedMap(input, analyze, model, opts, held) {
             ctx.prev2 = ctx.prev;
             ctx.prev = row.mask;
             lastT = row.t;
+            restFrom = row.t;
+            if (character) partSlots.push(row.i);
         };
         const freshContext = () => {
             ctx = { prev: 0, prev2: 0, recent: [], trillRun: 0 };
@@ -427,6 +561,9 @@ async function learnedMap(input, analyze, model, opts, held) {
                 if (before >= 0 && before === part - 1 && isFixedPart(before)) {
                     for (const r of out.filter((x) => partOf[x.i] === before).slice(-64)) pushRow(r);
                 }
+                restFrom = parts[part].startMs;
+                partSlots.length = 0;
+                nearRow = 0;
             }
             const kept = fixed.get(block.index);
             if (kept) {
@@ -456,7 +593,15 @@ async function learnedMap(input, analyze, model, opts, held) {
                 const ahead = next?.length ? aheadOf(next, slot) : null;
                 const before = guard.forced;
                 const chordW = chordWeights(family);
-                const base = chordW ? (m) => guard.weight(m, i, family, ahead, fl) * chordW[popcount(m)] : (m) => guard.weight(m, i, family, ahead, fl);
+                let own = null;
+                if (character && characterParts.has(partOf[i])) {
+                    while (nearRow < partSlots.length && partSlots[nearRow] < nearFrom[i]) nearRow += 1;
+                    own = characterTerms(i, (slot.t - restFrom) / slot.beatMs, partSlots.length, partSlots.length - nearRow, character);
+                }
+                // (none on a flavoured slot: its motif decides the row there)
+                const chordLift = own && !fl ? CHARACTER_CHORD * (family === "Stream" ? STREAM_CHORD : 1) * (Math.min(0, own.rest) + own.peak) : 0;
+                const allowed = chordW ? (m) => guard.weight(m, i, family, ahead, fl) * chordW[popcount(m)] : (m) => guard.weight(m, i, family, ahead, fl);
+                const base = chordLift ? (m) => allowed(m) * Math.exp(chordLift * Math.min(Math.max(0, popcount(m) - 1), CHORD_ROOM[family] ?? 1)) : allowed;
                 // the trill momentum (none on a flavoured slot: its motif decides the columns there)
                 const chance = trills && !fl ? trillMomentum(ctx, lastT === null ? Infinity : slot.t - lastT, slot.beatMs, family, trillSeen, trillHeld) : null;
                 const push = chance && chance.beta > 1 ? chance : null;
@@ -464,11 +609,12 @@ async function learnedMap(input, analyze, model, opts, held) {
                     push ? (m) => (m === push.mask ? base(m) * push.beta : base(m)) : base,
                     { fallback: () => guard.fallback(i, family, ahead, fl) },
                 );
-                const offset = knob + adjustOf(i, scale);
+                const offset = knob + adjustOf(i, scale) + (own ? own.rest + own.fill + own.peak : 0);
                 let mask;
                 if (echoRun) {
                     // a repeated bar: the source bar's row of this build, through the guard (a veto is re-sampled)
-                    const copy = echoCopy(echoRun.copyAt(i, decided), weightOf, () => SAMPLE);
+                    const foreign = own && Math.abs(own.rest + own.peak) > CHARACTER_ECHO_TERM && echo.echoSlot[i] >= 0 && partOf[echo.echoSlot[i]] !== partOf[i];
+                    const copy = echoCopy(foreign ? null : echoRun.copyAt(i, decided), weightOf, () => SAMPLE);
                     if (copy.echoed) echoRun.stats.copied += 1;
                     if (copy.vetoed) echoRun.stats.vetoed += 1;
                     if (copy.mask === SAMPLE) {
@@ -620,15 +766,14 @@ async function learnedMap(input, analyze, model, opts, held) {
     // ---- parts with their own dan range: searched on their own excerpt, then frozen ----
     const frozen = new Map(); // part → { knob, rows }
     const ownParts = parts.map((p, k) => k).filter((k) => parts[k].range && !parts[k].empty && !lockedParts.has(k) && blocks.some((b) => b.part === k));
-    for (let n = 0; n < ownParts.length; n += 1) {
-        const p = ownParts[n];
+    // part p on its own, in its own range → { knob, rows }. extra: added to the build plan (character: its own «Характер»)
+    const searchOwnPart = async (p, extra = {}) => {
         const part = parts[p];
-        onProgress({ phase: "partSearch", i: n, n: ownParts.length, kind: part.kind });
         const families = familiesOfPart(p);
         // an infill source decodes the song up to the part once; every attempt restarts from there
         const k0 = blocks.findIndex((b) => b.part === p);
         const resume = snapshots ? snapshotAt(k0) : null;
-        const builds = searchBuilds((knob, seed) => ({ knobOf: () => knob, only: new Set([p]), seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), echoSeed: seed, resume }));
+        const builds = searchBuilds((knob, seed) => ({ knobOf: () => knob, only: new Set([p]), seedOf: (b) => deriveSeed(seed, partSeed(b.part), b.inPart), echoSeed: seed, resume, ...extra }));
         const evaluate = async (knob, seed) => {
             const rows = builds.rows(knob, seed).filter((r) => partOf[r.i] === p);
             const result = rows.length ? await analyze(excerptOsu(rows, part, timing), 1) : null;
@@ -645,7 +790,11 @@ async function learnedMap(input, analyze, model, opts, held) {
             score, budget: nn2 ? NN2_BUDGET : PART_BUDGET, prefetch: builds.prefetch,
         });
         dropResume(resume);
-        frozen.set(p, { knob: best.knob, rows: best.rows });
+        return { knob: best.knob, rows: best.rows };
+    };
+    for (let n = 0; n < ownParts.length; n += 1) {
+        onProgress({ phase: "partSearch", i: n, n: ownParts.length, kind: parts[ownParts[n]].kind });
+        frozen.set(ownParts[n], await searchOwnPart(ownParts[n]));
     }
     const baseFixed = new Map(lockedFixed);
     for (const [p, { rows }] of frozen) for (const b of blocks) if (b.part === p) baseFixed.set(b.index, blockRowsOf(rows, b));
@@ -760,9 +909,7 @@ async function learnedMap(input, analyze, model, opts, held) {
 
     // ---- weak blocks are redone: low pattern score or an awkward spot; candidates judged by the pattern finder ----
     // (with candidates, also by the critic's stage 1 at RETRY_CRITIC_WEIGHT; the seeds follow the picked candidate's)
-    let rows = picked.rows;
     const replaced = new Set();
-    const retryable = (b) => !baseFixed.has(b.index);
     const blockValue = (all, b) => {
         const score = scoreBlock(all, b, { patternsOf, render: (r) => render(r, ""), ...(anyFlavour ? { assign } : {}) });
         const near = all.filter((r) => r.t >= b.startMs - 2000 && r.t < b.endMs + 2000);
@@ -770,49 +917,57 @@ async function learnedMap(input, analyze, model, opts, held) {
         return { score, issues, value: (score ?? 1) - ISSUE_PENALTY * issues.length };
     };
     const criticTerm = (all) => (scoreRows ? RETRY_CRITIC_WEIGHT * scoreRows(all).score : 0);
-    for (let round = 0; round < RETRY_ROUNDS; round += 1) {
-        onProgress({ phase: "retry", i: round, n: RETRY_ROUNDS });
-        const bad = blocks.filter((b) => {
-            if (!retryable(b)) return false;
-            const { score, issues } = blockValue(rows, b);
-            return (score !== null && score < BAD_BLOCK_SCORE) || issues.some((x) => BAD_KINDS.has(x.kind));
-        });
-        if (!bad.length) break;
-        let changed = false;
-        for (const b of bad) {
-            const fixed = new Map(blocks.filter((x) => x.index !== b.index).map((x) => [x.index, blockRowsOf(rows, x)]));
-            let bestValue = blockValue(rows, b).value + criticTerm(rows);
-            let bestRows = null;
-            // an infill source decodes up to the block once; each candidate re-decodes only the block
-            const resume = snapshots ? snapshotAt(blocks.indexOf(b), rows.filter((r) => r.i < b.i0).sort((x, y) => x.i - y.i)) : null;
-            const plans = Array.from({ length: RETRY_CANDIDATES }, (_, k) => {
-                const seed = deriveSeed(picked.seed, partSeed(b.part), b.inPart, round + 1, k);
-                return { knobOf, fixed, seedOf: () => seed, scale: chosenScale, echoSeed: picked.echoSeed, resume };
+    // → the rows with the weak blocks among the retryable ones redone; plan: what their builds add (knobOf, character)
+    async function redoWeakBlocks(start, retryable, plan) {
+        let rows = start;
+        for (let round = 0; round < RETRY_ROUNDS; round += 1) {
+            onProgress({ phase: "retry", i: round, n: RETRY_ROUNDS });
+            const bad = blocks.filter((b) => {
+                if (!retryable(b)) return false;
+                const { score, issues } = blockValue(rows, b);
+                return (score !== null && score < BAD_BLOCK_SCORE) || issues.some((x) => BAD_KINDS.has(x.kind));
             });
-            // with a GPU batch the candidates are built together (D4); without one each is built just before it is judged
-            const together = batchOn(plans.length) ? await buildMany(plans) : null;
-            dropResume(resume);
-            for (let k = 0; k < RETRY_CANDIDATES; k += 1) {
-                const candidate = together ? together[k] : build(plans[k]);
-                const value = blockValue(candidate, b).value + criticTerm(candidate);
-                if (value > bestValue) {
-                    bestValue = value;
-                    bestRows = candidate;
+            if (!bad.length) break;
+            let changed = false;
+            for (const b of bad) {
+                const fixed = new Map(blocks.filter((x) => x.index !== b.index).map((x) => [x.index, blockRowsOf(rows, x)]));
+                let bestValue = blockValue(rows, b).value + criticTerm(rows);
+                let bestRows = null;
+                const pastCap = plan.character ? restsPastCap(rows, b.part, plan.character) : 0;
+                // an infill source decodes up to the block once; each candidate re-decodes only the block
+                const resume = snapshots ? snapshotAt(blocks.indexOf(b), rows.filter((r) => r.i < b.i0).sort((x, y) => x.i - y.i)) : null;
+                const plans = Array.from({ length: RETRY_CANDIDATES }, (_, k) => {
+                    const seed = deriveSeed(picked.seed, partSeed(b.part), b.inPart, round + 1, k);
+                    return { ...plan, fixed, seedOf: () => seed, scale: chosenScale, echoSeed: picked.echoSeed, resume };
+                });
+                // with a GPU batch the candidates are built together (D4); without one each is built just before it is judged
+                const together = batchOn(plans.length) ? await buildMany(plans) : null;
+                dropResume(resume);
+                for (let k = 0; k < RETRY_CANDIDATES; k += 1) {
+                    const candidate = together ? together[k] : build(plans[k]);
+                    if (plan.character && restsPastCap(candidate, b.part, plan.character) > pastCap) continue;
+                    const value = blockValue(candidate, b).value + criticTerm(candidate);
+                    if (value > bestValue) {
+                        bestValue = value;
+                        bestRows = candidate;
+                    }
+                }
+                if (bestRows) {
+                    rows = bestRows;
+                    replaced.add(b.index);
+                    changed = true;
                 }
             }
-            if (bestRows) {
-                rows = bestRows;
-                replaced.add(b.index);
-                changed = true;
-            }
+            if (!changed) break;
         }
-        if (!changed) break;
+        return rows;
     }
+    let rows = await redoWeakBlocks(picked.rows, (b) => !baseFixed.has(b.index), { knobOf });
     let result = searched.result;
     let reverted = false;
+    const inside = (n) => range && n >= range.lo && n < range.hi;
     if (replaced.size) {
         result = await analyze(render(rows, ""), 1);
-        const inside = (n) => range && n >= range.lo && n < range.hi;
         if (range && searched.reachable && !inside(numericOf(result))) {
             rows = searched.rows;
             result = searched.result;
@@ -820,6 +975,67 @@ async function learnedMap(input, analyze, model, opts, held) {
             reverted = true;
         }
     }
+
+    // ---- the parts with their own «Характер», last of all: only their rows change ----
+    // The chosen map's plan is built once more with the character on and only those parts' rows are taken from it, so up to
+    // a part its chain is the map's, row and context and trill momentum (a build over fixed rows is not: it counts no trills
+    // for them and goes down another chain from the part's first row), and the part is the map's until the first row its
+    // sliders turn. That costs a whole build per draw, no snapshot. A part with its own dan is searched in that range again.
+    // When the redrawn parts take a map out of its range, their knob moves just far enough to bring it back, within
+    // CHARACTER_KNOB_SPAN (it often cannot: a map's dan is its hardest stretches, and the span ends short of them); their
+    // weak blocks are redone as above (undone if that loses the range).
+    async function withOwnCharacter(baseRows, baseResult) {
+        const chainFixed = new Map(baseFixed);
+        const searchedRows = [];
+        for (const p of characterParts) {
+            if (!parts[p].range) continue;
+            const { rows: own } = await searchOwnPart(p, { character: rowsBefore(frozen.get(p).rows) });
+            searchedRows.push(...own);
+            for (const b of blocks) if (b.part === p) chainFixed.set(b.index, blockRowsOf(own, b));
+        }
+        const others = baseRows.filter((r) => !characterParts.has(partOf[r.i]));
+        const redrawn = (b) => characterParts.has(b.part) && !parts[b.part].range;
+        // what the report counts as redone: the blocks of the rest of the map, and those of the draw that is kept (polish).
+        // The rows the first pass redid in a redrawn part are gone, as are those of a draw the walk went past
+        const redoneElsewhere = blocks.filter((b) => replaced.has(b.index) && !redrawn(b)).map((b) => b.index);
+        const redoneOnlyElsewhere = () => {
+            replaced.clear();
+            for (const index of redoneElsewhere) replaced.add(index);
+        };
+        // the seed the chosen rows were built with (the search's reseed, or the candidate's): picked.seed is the request's
+        // note seed for the first candidate
+        const seedOf = (b) => deriveSeed(picked.echoSeed, partSeed(b.part), b.inPart);
+        const character = rowsBefore(baseRows);
+        const draw = async (knob) => {
+            tick("search");
+            const chain = build({ knobOf: (p) => (characterParts.has(p) ? knob : knobOf(p)), fixed: chainFixed, seedOf, scale: chosenScale, echoSeed: picked.echoSeed, character });
+            const own = chain.filter((r) => Number.isInteger(r.i) && characterParts.has(partOf[r.i]) && !parts[partOf[r.i]].range);
+            const drawnRows = [...others, ...searchedRows, ...own].sort((a, b) => a.t - b.t);
+            const res = await analyze(render(drawnRows, ""), 1);
+            return { knob, rows: drawnRows, result: res, numeric: numericOf(res) };
+        };
+        // a draw with its weak blocks redone (undone if that loses the range it was in)
+        const polish = async (one) => {
+            redoneOnlyElsewhere();
+            const polished = await redoWeakBlocks(one.rows, redrawn, { knobOf: () => one.knob, character });
+            if (polished === one.rows) return one;
+            const res = await analyze(render(polished, ""), 1);
+            // (a map at the very top of its range is outside it, at a gap of 0)
+            const lost = inside(one.numeric) && !inside(numericOf(res));
+            if (range && (lost || rangeGap(numericOf(res), range) > rangeGap(one.numeric, range))) {
+                redoneOnlyElsewhere();
+                return one;
+            }
+            return { knob: one.knob, rows: polished, result: res, numeric: numericOf(res) };
+        };
+        // judged polished, as the map it stands for is: a raw draw reads lower, and the walk would move the part for nothing
+        const first = await polish(await draw(best.knob));
+        if (!blocks.some(redrawn) || !inside(numericOf(baseResult)) || inside(first.numeric)) return first;
+        const back = await backInRange({ draw, start: first, range, span: CHARACTER_KNOB_SPAN });
+        return back === first ? first : polish(back);
+    }
+    const plainNumeric = numericOf(result);
+    if (characterParts.size) ({ rows, result } = await withOwnCharacter(rows, result));
     const final = { rows, result };
     const numeric = numericOf(result);
     const inRange = range ? numeric >= range.lo && numeric < range.hi : searched.reachable;
@@ -881,6 +1097,7 @@ async function learnedMap(input, analyze, model, opts, held) {
         ...(structure ? { structure: structureToResponse(structure) } : {}),
         ...(styleUsed ? { style } : {}),
         ...(boost ? { boost } : {}),
+        ...(characterParts.size ? { plainNumeric } : {}),
     };
 }
 

@@ -31,9 +31,52 @@ button.edit.on { border-color: var(--gold); color: var(--gold); }
     background: radial-gradient(circle at 30% 20%, #3a3157 0%, #1d1830 55%, #0d0b15 100%);
     overflow: hidden;
 }
-.stage .frame { flex: none; }
+.stage > .ov { flex: none; }
 #gallery { display: flex; flex-direction: column; gap: 10px; }
 .grow { display: flex; flex-direction: column; gap: 4px; }
 .grow .name { color: var(--gold); font-weight: 600; }
 .grow .stage { justify-content: flex-start; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+.keyboard { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px; border-bottom: 1px solid var(--line); }
+.keyboard h2 { margin: 10px 0 2px; }
+.kbd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kbd-row select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; }
+.kbd-lanes { display: flex; flex-wrap: wrap; gap: 4px; }
+.kbd-lanes button { min-width: 38px; height: 34px; padding: 0 8px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-bottom-width: 3px; border-radius: 6px; cursor: pointer; font: 600 14px "Segoe UI", system-ui, sans-serif; }
+.kbd-lanes button:hover { border-color: var(--muted); }
+.kbd-lanes button.wait { border-color: var(--gold); color: var(--gold); font-weight: 400; font-size: 12px; }
+.kbd-from { margin: 0; color: var(--muted); }
+.keyboard.off .kbd-row, .keyboard.off .kbd-from { opacity: 0.4; }
 @media (max-width: 520px) { .wcard { grid-template-columns: 1fr; } }
+/* the general block's second line, its fields; a widget's "more settings" under its card, across it */
+.general .sub { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-left: 22px; }
+.fields { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.field { display: flex; align-items: center; gap: 8px; }
+select, .more button, button.small {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: inherit;
+}
+.more button, button.small { cursor: pointer; padding: 3px 10px; }
+.more button:hover, button.small:hover { border-color: var(--muted); }
+.wcard .more { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 6px; }
+.wcard.off .more { opacity: 0.4; }
+.more summary { cursor: pointer; color: var(--gold); user-select: none; }
+.more-body { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+.more .slider, .more .field { grid-template-columns: 132px minmax(0, 1fr) 84px; }
+.more .slider.with-reset { grid-template-columns: 132px minmax(0, 1fr) 84px 30px; }
+.more .slider span:last-of-type { text-align: right; color: var(--muted); }
+.more .field { display: grid; align-items: center; gap: 6px; }
+.more .field > :nth-child(2) { min-width: 0; }
+.colors { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+input[type="color"] { width: 30px; height: 22px; padding: 0 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); cursor: pointer; }
+input[type="color"].own { border-color: var(--gold); }
+.jrows { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px 10px; }
+.jrow { display: flex; align-items: center; gap: 6px; }
+.jrow .name { min-width: 34px; font-weight: 600; }
+.lane-pick { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 11px; color: var(--muted); }
+.more .sub-head { color: var(--muted); margin-top: 2px; }
+.size-note { margin-top: 12px; }
+/* a card's preview and the size it stands for; a big one takes the card's whole width */
+.view { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wcard.wide { grid-template-columns: minmax(0, 1fr); }
+.view-note { color: var(--muted); font-size: 12px; text-align: right; }
+.wcard.off .view-note { opacity: 0.4; }

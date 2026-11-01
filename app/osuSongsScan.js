@@ -50,7 +50,15 @@ export function createSongsMd5Index({ indexFile, fs = nodeFs }) {
 
     // Scans songsDir (only what changed) → Map md5 → { path, beatmapId, beatmapsetId, artist, title, version }.
     // onProgress({ done, total }) per folder; isCancelled() stops between folders (what was read is kept).
-    async function scan(songsDir, { onProgress = () => {}, isCancelled = () => false } = {}) {
+    // Two scans never run at once: the second waits for the first (the Profile import and the Replay tab share an index).
+    let running = Promise.resolve();
+    function scan(songsDir, options) {
+        const run = running.then(() => scanNow(songsDir, options));
+        running = run.catch(() => {});
+        return run;
+    }
+
+    async function scanNow(songsDir, { onProgress = () => {}, isCancelled = () => false } = {}) {
         const dir = path.resolve(songsDir);
         await load(dir);
         const names = (await fs.readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
@@ -102,4 +110,11 @@ export function createSongsMd5Index({ indexFile, fs = nodeFs }) {
     }
 
     return { scan };
+}
+
+// The one index of a file: whoever needs it (the local profile, the Replay tab) shares its scans and its memory.
+const shared = new Map();
+export function songsIndexAt(indexFile) {
+    if (!shared.has(indexFile)) shared.set(indexFile, createSongsMd5Index({ indexFile }));
+    return shared.get(indexFile);
 }

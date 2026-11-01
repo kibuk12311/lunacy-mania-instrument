@@ -159,6 +159,14 @@ export function initSettingsPage({
 
     // ---- folders ----
     const folders = $("st-folders");
+    const replayPath = el("div", "st-path", t("replay.settings.auto"));
+    const replayActions = el("div", "st-actions");
+    const showReplayFolder = (r) => { if (r?.ok) replayPath.textContent = r.picked ?? t("replay.settings.auto"); };
+    const afterPlay = checkRow(t("replay.settings.afterPlay"), (on) => { void api.replayAfterPlay?.({ on }); });
+    replayActions.append(
+        button(t("replay.settings.pick"), "small", async () => showReplayFolder(await api.replayPickFolder?.())),
+        button(t("replay.settings.reset"), "small", async () => showReplayFolder(await api.replayResetFolder?.())),
+    );
     const docsPath = el("div", "st-path muted");
     const songsPath = el("div", "st-path muted");
     const folderAnswer = el("div", "muted st-note");
@@ -168,6 +176,7 @@ export function initSettingsPage({
         el("div", "st-label", t("settings.folders.docs")), docsPath, docsActions,
         el("div", "st-label", t("settings.folders.songs")), songsPath, songsActions,
         el("div", "st-label", t("settings.folders.osu")), osuActions,
+        el("div", "st-label", t("replay.settings.label")), replayPath, replayActions, afterPlay.label,
         folderAnswer,
         el("div", "muted st-note", t("settings.folders.skinsNote")),
     );
@@ -289,6 +298,13 @@ export function initSettingsPage({
             songsPath.textContent = s?.songsDir || t("settings.folders.songsAuto");
         } catch {
             songsPath.textContent = t("settings.folders.songsAuto");
+        }
+        try {
+            const replay = await api.replayStatus?.();
+            showReplayFolder(replay);
+            afterPlay.box.checked = replay?.afterPlay !== false;
+        } catch {
+            // stays as it was
         }
         render();
     }

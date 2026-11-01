@@ -105,6 +105,9 @@ function checkParts(parts, durationMs) {
         if (p.patterns !== undefined && p.patterns !== null) checkPatterns(p.patterns, `${at}.patterns`);
         optional(p.empty, (v) => typeof v === "boolean", `${at}.empty`);
         optional(p.seed, isInt, `${at}.seed`);
+        // the part's own «Характер»: as the whole map's sliders, 0..1
+        optional(p.stamina, (v) => isNumber(v) && v >= 0 && v <= 1, `${at}.stamina`);
+        optional(p.burst, (v) => isNumber(v) && v >= 0 && v <= 1, `${at}.burst`);
     });
     if (parts.filter((p) => p.range).length > MAX_OWN_RANGES) bad("request.parts");
 }

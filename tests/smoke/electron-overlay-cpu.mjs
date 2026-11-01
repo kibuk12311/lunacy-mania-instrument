@@ -1,12 +1,13 @@
-// Run with: npx electron tests/smoke/electron-overlay-cpu.mjs <out dir> [--seconds 10] — how much CPU the in-game
+// Run with: npx electron tests/smoke/electron-overlay-cpu.mjs <out dir> [--seconds 10] [--map] — how much CPU the in-game
 // overlay costs, per process, in the states it lives in. The widgets are real windows on the screen (not headless),
 // put in the bottom-right corner of the primary screen, fed by a fake tosu (HTTP + WebSocket on a free port, never
 // 24077): a made-up 4K map, song select, a play, its results. User data goes into <out dir>/cpu-user-data.
 // The states, in order: the edit mode (made-up numbers), song select with the widgets hidden again, a play, its
 // results screen (shown), song select after the play (hidden), osu! closed (the fake tosu gone, the windows kept).
 // Each is left to settle, then measured for --seconds: the cores used by the main process, the GPU process and each
-// widget's renderer (app.getAppMetrics()). Writes <out dir>/overlay-cpu.json and prints a table.
-import { app, ipcMain, BrowserWindow, screen } from "electron";
+// widget's renderer (app.getAppMetrics()). Writes <out dir>/overlay-cpu.json and prints a table. --map: the map panel on
+// as well (off out of the box), showing the map in song select too, with a picture from the fake tosu.
+import { app, ipcMain, BrowserWindow, nativeImage, screen } from "electron";
 import { createServer } from "node:http";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -18,6 +19,7 @@ import { WIDGETS, widgetSize } from "../../src/overlay/settings.js";
 const args = process.argv.slice(2);
 const outDir = path.resolve(args.find((a) => !a.startsWith("-") && !a.endsWith(".mjs") && !/^\d+$/.test(a)) ?? "overlay-cpu");
 const SECONDS = Number(args[args.indexOf("--seconds") + 1]) || 10;
+const MAP = args.includes("--map");
 const SETTLE_MS = 2500;
 mkdirSync(outDir, { recursive: true });
 rmSync(path.join(outDir, "cpu-user-data"), { recursive: true, force: true });
@@ -37,6 +39,10 @@ async function startFakeTosu() {
         if (req.url === "/files/beatmap/file") {
             res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
             res.end(osu);
+        } else if (req.url === "/files/beatmap/background") {
+            const bitmap = Buffer.from(Array.from({ length: 640 * 360 }, (_, i) => [40 + (i % 640) / 4, 60, 200, 255]).flat());
+            res.writeHead(200, { "content-type": "image/png" });
+            res.end(nativeImage.createFromBitmap(bitmap, { width: 640, height: 360 }).toPNG());
         } else {
             res.writeHead(404);
             res.end();
@@ -59,7 +65,13 @@ async function startFakeTosu() {
         const number = state === "results" ? 7 : state === "play" ? 2 : 5;
         return {
             state: { number, name: state },
-            beatmap: { checksum: "cpu-map", time: { live: now }, mode: { number: 3, name: "mania" } },
+            beatmap: {
+                checksum: "cpu-map", title: "CPU Map", artist: "CPU Artist", version: "4K", mapper: "CPU Mapper",
+                time: { live: now, firstObject: notes[0].t, lastObject: notes.at(-1).t }, mode: { number: 3, name: "mania" },
+                stats: { stars: { total: 4.2 }, bpm: { common: 166, min: 166, max: 166 } },
+            },
+            files: { background: "bg.png" },
+            folders: { beatmap: "cpu" },
             play: {
                 mode: { number: 3 }, hits: { geki: hit, "300": 0, katu: 0, "100": 0, "50": 0, "0": 0 },
                 hitErrorArray: [], unstableRate: 0, accuracy: null, mods: { name: "", array: [], rate: 1 },
@@ -125,7 +137,7 @@ app.whenReady().then(async () => {
     const display = screen.getPrimaryDisplay();
     console.log(`display ${display.size.width}×${display.size.height} at ${display.displayFrequency} Hz, ${navigator.hardwareConcurrency} threads`);
     const overlay = createOverlay({
-        electron: { BrowserWindow, ipcMain, globalShortcut: { register: () => true, unregister: () => {} }, screen },
+        electron: { BrowserWindow, ipcMain, globalShortcut: { register: () => true, unregister: () => {} }, screen, nativeImage },
         userData: app.getPath("userData"), port: tosu.port, t, log: (l) => console.log("log", l),
     });
     const rows = [];
@@ -135,10 +147,11 @@ app.whenReady().then(async () => {
         const area = display.workArea;
         let y = area.y + area.height;
         const place = {};
-        for (const w of [...WIDGETS].reverse()) {
+        const SHOWN = WIDGETS.filter((w) => MAP || w !== "map");
+        for (const w of [...SHOWN].reverse()) {
             const size = widgetSize(w, "card", 1, null);
             y -= size.height + 4;
-            place[w] = { x: area.x + area.width - 340, y };
+            place[w] = { x: area.x + area.width - 340, y, enabled: true };
         }
         overlay.apply({ enabled: true, showOnResults: true, widgets: place });
         await sleep(1000);
@@ -147,12 +160,12 @@ app.whenReady().then(async () => {
         overlay.setEdit(false);
         rows.push(await measure(overlay, "song select (hidden)"));
         tosu.startPlay();
-        for (let i = 0; i < 50 && !WIDGETS.every((w) => overlay.isShown(w)); i += 1) await sleep(100);
+        for (let i = 0; i < 50 && !SHOWN.every((w) => overlay.isShown(w)); i += 1) await sleep(100);
         rows.push(await measure(overlay, "playing (shown)"));
         tosu.results();
         rows.push(await measure(overlay, "results screen (shown)"));
         tosu.select();
-        for (let i = 0; i < 50 && WIDGETS.some((w) => overlay.isShown(w)); i += 1) await sleep(100);
+        for (let i = 0; i < 50 && SHOWN.some((w) => w !== "map" && overlay.isShown(w)); i += 1) await sleep(100);
         rows.push(await measure(overlay, "song select after a play (hidden)"));
         tosu.close();
         rows.push(await measure(overlay, "osu! closed (hidden)"));

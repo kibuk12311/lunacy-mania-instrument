@@ -244,6 +244,94 @@ test("«Another variant» adds a card with new seeds; lock a part and «Regenera
     }
 });
 
+test("a part's own character goes out with the run and stays with a lock; «Reset parts» gives the part back to the whole map", async () => {
+    setLang("en");
+    try {
+        const { $, calls, setSeed } = await loadedTab();
+        const role = (name) => all($("part-editor")).find((n) => n.dataset?.role === name);
+        $("stamina").value = "50";
+        $("burst").value = "30";
+        await fire($("timeline"), "pointerdown", { offsetX: 432 * 0.5, button: 0 });
+        await fire($("timeline"), "pointerup", { offsetX: 432 * 0.5 });
+
+        // a part that follows shows the whole map's sliders, as they are now
+        assert.equal(role("part-stamina").value, "50");
+        $("stamina").value = "20";
+        await fire($("stamina"), "change");
+        assert.equal(role("part-stamina").value, "20");
+
+        const slider = role("part-burst");
+        slider.value = "90";
+        await fire(slider, "change");
+        await fire($("generate"));
+        const sent = calls.generate.at(-1).request;
+        assert.equal(sent.stamina, 0.2, "the whole map's own, as it is");
+        const own = sent.parts.filter((p) => "stamina" in p || "burst" in p);
+        assert.equal(own.length, 1, JSON.stringify(sent.parts));
+        assert.deepEqual([own[0].stamina, own[0].burst], [0.2, 0.9]);
+        const index = sent.parts.indexOf(own[0]);
+
+        // a lock regenerates from the parts that card was made with: the character stays with them
+        await fire(buttons($("part-editor"), "Lock")[0]);
+        // moved after the lock: the locked part's notes were made with the old one, and stay
+        const later = role("part-burst");
+        later.value = "10";
+        await fire(later, "change");
+        setSeed(0.75);
+        await fire(buttons($("gen-result"), "Regenerate the unlocked parts")[0]);
+        const again = calls.generate.at(-1).request;
+        assert.ok(again.lock, "a regeneration");
+        assert.deepEqual([again.parts[index].stamina, again.parts[index].burst], [0.2, 0.9]);
+
+        await fire(buttons($("part-editor"), "Reset parts")[0]);
+        await fire($("generate"));
+        assert.ok(calls.generate.at(-1).request.parts.every((p) => !("stamina" in p) && !("burst" in p)));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("«Regenerate only this part» takes the character the part's sliders show now; a locked part keeps the one it was made with", async () => {
+    setLang("en");
+    try {
+        const { $, calls } = await loadedTab();
+        const role = (name) => all($("part-editor")).find((n) => n.dataset?.role === name);
+        const pick = async (at) => {
+            await fire($("timeline"), "pointerdown", { offsetX: 432 * at, button: 0 });
+            await fire($("timeline"), "pointerup", { offsetX: 432 * at });
+        };
+        $("stamina").value = "50";
+        $("burst").value = "30";
+        await pick(0.5);
+        const first = role("part-stamina");
+        first.value = "10";
+        await fire(first, "change");
+        await fire($("generate"));
+        const made = calls.generate.at(-1).request;
+        const index = made.parts.findIndex((p) => "stamina" in p);
+        assert.equal(made.parts[index].stamina, 0.1);
+
+        // moved after the card was made: redoing only this part takes it, the others are locked as they were
+        const moved = role("part-stamina");
+        moved.value = "100";
+        await fire(moved, "change");
+        await fire(buttons($("part-editor"), "Regenerate only this part")[0]);
+        const redo = calls.generate.at(-1).request;
+        assert.equal(redo.parts[index].stamina, 1);
+        assert.ok(redo.lock.parts.length === made.parts.length - 1 && !redo.lock.parts.includes(index));
+        assert.ok(redo.parts.every((p, i) => i === index || !("stamina" in p)));
+
+        // given back to the whole map: redoing it sends no character
+        await fire(role("character-same"));
+        await fire(buttons($("part-editor"), "Regenerate only this part")[0]);
+        const plain = calls.generate.at(-1).request;
+        assert.ok(plain.lock, "a regeneration");
+        assert.ok(!("stamina" in plain.parts[index]) && !("burst" in plain.parts[index]), JSON.stringify(plain.parts[index]));
+    } finally {
+        setLang("ru");
+    }
+});
+
 test("parts found past the song's end are cut at its end, so the worker's parts still line up for a lock", async () => {
     setLang("en");
     try {

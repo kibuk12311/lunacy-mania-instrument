@@ -13,7 +13,7 @@ Lunacy mania (Lunacy mania instrument) is MIT-licensed (see `LICENSE`). It build
 
 ## Bundled with the release builds
 
-These are separate programs that the app starts; they are not linked into it. Each one's license text is shipped next to it in the build, except the Interlude reader's, which are at the end of this file (shipped with every build).
+These are separate programs that the app starts; they are not linked into it. Each one's license text is shipped next to it in the build, except the Interlude reader's and the keyboard reader's, which are at the end of this file (shipped with every build).
 
 | Component | Version | License | Source |
 |---|---|---|---|
@@ -26,6 +26,8 @@ These are separate programs that the app starts; they are not linked into it. Ea
 | — inside it: [ClrMD](https://github.com/microsoft/clrmd) (Microsoft.Diagnostics.Runtime) — reads a .NET process's memory | 4.2.751201 | MIT | https://github.com/microsoft/clrmd |
 | — inside it: the [.NET runtime](https://github.com/dotnet/runtime) and libraries the program is published with | 8.0 | MIT | https://github.com/dotnet/runtime |
 | `mscordaccore.dll`, the .NET data access component (DAC), from Microsoft's official `Microsoft.NETCore.App.Runtime.win-x64` NuGet package — loaded by the reader to read Interlude's runtime | 9.0.22 (`resources/interlude-reader/dac/9.0.22/`) | MIT | https://github.com/dotnet/runtime |
+| `key-reader.exe` — our own keyboard reader for the overlay's osu! stable key lines (`native/key-reader/`, MIT like the app): hears only the lane keys it is given, only during a play, through Raw Input; a self-contained single-file .NET 8 program | `resources/key-reader/` | MIT | this repository |
+| — inside it: the [.NET runtime](https://github.com/dotnet/runtime) and libraries the program is published with | 8.0 | MIT | https://github.com/dotnet/runtime |
 
 ## Online services the app talks to
 
@@ -37,7 +39,7 @@ No account or key is needed for any of them, and nothing is sent except the requ
 - GitHub Releases of this repository — update checks.
 - Only if the user turns on «Download .NET's helper file if it's missing» in the IL panel: Microsoft's public symbol server (msdl.microsoft.com), once, for the DAC matching the running Interlude.
 
-## License texts for the Interlude reader
+## License texts for the Interlude reader and the keyboard reader
 
 ClrMD and the .NET runtime (including `mscordaccore.dll`) are under the MIT license:
 

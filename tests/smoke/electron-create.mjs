@@ -10,6 +10,10 @@
 // variants; the summary with «изменить выбор» and a card with the song's ceiling (the fake answer reports one for a
 // request with 1/8 allowed) are captured to create-auto-<lang>.png and create-auto-cards-<lang>.png; «изменить выбор»
 // hides the summary. Exits 1 when that fails too.
+// 0.10.6: a part's own «Характер»: the fake song's one part is split at the cursor, the part follows the whole map, its
+// two sliders move, it gets the dot and the timeline's mark, a run sends them for that part alone
+// (create-part-character-<lang>.png, the part editor); «как у всей карты» gives it back, a run sends none, and the two
+// halves are merged again. Exits 1 when that fails.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -207,6 +211,56 @@ app.whenReady().then(async () => {
         writeFileSync(file, (await win.webContents.capturePage()).toPNG());
         shots[name] = file;
     }
+    // A part's own «Характер»: moved by hand, as a mouse would (input, then change on release)
+    const moveSlider = (role, value) => win.webContents.executeJavaScript(`(async () => {
+        const s = document.querySelector("#part-editor [data-role=${role}]");
+        s.value = "${value}";
+        s.dispatchEvent(new Event("input", { bubbles: true }));
+        s.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 120));
+        return true;
+    })()`);
+    const characterState = () => win.webContents.executeJavaScript(`(() => {
+        const box = document.querySelector("#part-editor [data-role=character]");
+        const c = document.getElementById("timeline").getContext("2d");
+        const line = c.getImageData(0, 12, c.canvas.width, 1).data; // both bars of the mark reach down to here
+        const mark = Array.from({ length: c.canvas.width }).some((_, x) => line[4 * x] > 240 && line[4 * x + 1] > 140 && line[4 * x + 1] < 170 && line[4 * x + 2] > 200);
+        return {
+            shown: Boolean(box), own: box?.classList.contains("own") ?? false, text: box?.textContent.slice(0, 160) ?? "",
+            stamina: document.querySelector("#part-editor [data-role=part-stamina]")?.value, burst: document.querySelector("#part-editor [data-role=part-burst]")?.value,
+            same: Boolean(document.querySelector("#part-editor [data-role=character-same]")), dot: document.getElementById("part-editor").textContent.includes("•"), mark,
+            wide: box ? [...box.querySelectorAll("*")].filter((el) => el.getBoundingClientRect().right > box.getBoundingClientRect().right + 1).length : -1,
+        };
+    })()`);
+    const partButton = (text) => win.webContents.executeJavaScript(`(async () => {
+        [...document.querySelectorAll("#part-editor button")].find((b) => b.textContent === ${JSON.stringify(text)}).click();
+        await new Promise((r) => setTimeout(r, 150));
+        return true;
+    })()`);
+    await partButton(lang === "en" ? "Split at the cursor" : "Разрезать на курсоре");
+    const character = { before: await characterState() };
+    await moveSlider("part-stamina", 95);
+    await moveSlider("part-burst", 80);
+    character.moved = await characterState();
+    await win.webContents.executeJavaScript(`document.getElementById("part-editor").scrollIntoView({ block: "center" }); true`);
+    await sleep(400);
+    await win.webContents.capturePage();
+    shots["part-character"] = path.join(outDir, `create-part-character-${lang}.png`);
+    writeFileSync(shots["part-character"], (await win.webContents.capturePage()).toPNG());
+    character.ran = await runAgain();
+    character.sent = (requests.at(-1)?.parts ?? []).filter((p) => p.stamina !== undefined || p.burst !== undefined).map((p) => [p.stamina, p.burst]);
+    character.partCount = requests.at(-1)?.parts?.length ?? 0;
+    await win.webContents.executeJavaScript(`document.querySelector("#part-editor [data-role=character-same]").click(); true`);
+    await sleep(150);
+    character.back = await characterState();
+    character.ran2 = await runAgain();
+    character.sentAfter = (requests.at(-1)?.parts ?? []).filter((p) => p.stamina !== undefined || p.burst !== undefined).length;
+    await partButton(lang === "en" ? "Merge with the next" : "Склеить со следующей");
+    const characterOk = character.before.shown && !character.before.own && !character.before.same && !character.before.mark
+        && character.moved.own && character.moved.same && character.moved.dot && character.moved.mark && character.moved.stamina === "95" && character.moved.burst === "80" && character.moved.wide === 0
+        && character.ran && character.partCount > 1 && JSON.stringify(character.sent) === "[[0.95,0.8]]"
+        && !character.back.own && !character.back.same && !character.back.mark && character.ran2 && character.sentAfter === 0;
+
     detailed.cardLines = await win.webContents.executeJavaScript(`[...document.querySelectorAll(".cr-card")].slice(0, 1).map((c) => c.textContent.slice(0, 400))`);
     const wideDetailed = await win.webContents.executeJavaScript(`(() => {
         const tab = document.getElementById("create-tab");
@@ -277,6 +331,10 @@ app.whenReady().then(async () => {
             parts: document.getElementById("part-editor").textContent.slice(0, 120),
         };
     })()`);
-    console.log(JSON.stringify({ lang, loaded, generated, made, play, ...report, detailed, wideDetailed, general, modeOk, auto: { ...auto, request: auto.request ? { range: auto.request.range, snaps: auto.request.snaps, modelSize: auto.request.modelSize, patterns: auto.request.patterns, parts: auto.request.parts?.length } : null }, autoOk, shots, problems: problems.slice(0, 10) }, null, 2));
-    app.exit(report.wide.length || wideDetailed.length || report.scrollWidth > report.clientWidth || !loaded || !generated || !modeOk || !autoOk ? 1 : 0);
+    console.log(JSON.stringify({ lang, loaded, generated, made, play, ...report, detailed, wideDetailed, general, modeOk, character, characterOk, auto: { ...auto, request: auto.request ? { range: auto.request.range, snaps: auto.request.snaps, modelSize: auto.request.modelSize, patterns: auto.request.patterns, parts: auto.request.parts?.length } : null }, autoOk, shots, problems: problems.slice(0, 10) }, null, 2));
+    app.exit(report.wide.length || wideDetailed.length || report.scrollWidth > report.clientWidth || !loaded || !generated || !modeOk || !autoOk || !characterOk ? 1 : 0);
+}).catch((error) => {
+    // a step that throws fails the run; without this the window stays open and the run never ends
+    console.error(error);
+    app.exit(1);
 });

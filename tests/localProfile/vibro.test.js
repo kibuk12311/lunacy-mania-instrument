@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { MODEL, performanceDan, vibroExcluded, isVibroMap, skillFromPlays, createSkillModel } from "../../src/localProfile/model.js";
 import { createLocalProfileStore, mapSummary, mapKeyOf } from "../../app/localProfileStore.js";
-import { createLocalProfileService, withVibro } from "../../app/localProfileService.js";
+import { createLocalProfileService, withMapFacts } from "../../app/localProfileService.js";
 import { createSongsMd5Index } from "../../app/osuSongsScan.js";
 import { VIBRO } from "../../src/vibro/detect.js";
 import { chartOf, stream, jack, after } from "../fixtures/makeVibroChart.js";
@@ -96,10 +96,10 @@ test("store: the vibro answer is kept beside the map, survives maps.json and a b
     assert.deepEqual((await other.map(keyB)).vibro, NOT_VIBRO);
     // the service's helper: only a map with a dan gets an answer, from its .osu at the rate
     const vibroText = chartOf([...stream(1000, 200, 120), ...jack(25_000, 150, 85, [1, 2])]);
-    assert.equal(withVibro(mapSummary(result), vibroText, 1).vibro.vibro, true);
-    assert.equal(withVibro(mapSummary(result), vibroText, 0.8).vibro.vibro, false, "106 ms at 0.8x");
-    assert.deepEqual(withVibro({ kind: "too-short" }, vibroText, 1), { kind: "too-short" });
-    assert.equal(withVibro(mapSummary(result), null, 1).vibro, undefined);
+    assert.equal(withMapFacts(mapSummary(result), vibroText, 1).vibro.vibro, true);
+    assert.equal(withMapFacts(mapSummary(result), vibroText, 0.8).vibro.vibro, false, "106 ms at 0.8x");
+    assert.deepEqual(withMapFacts({ kind: "too-short" }, vibroText, 1), { kind: "too-short" });
+    assert.equal(withMapFacts(mapSummary(result), null, 1).vibro, undefined);
 });
 
 // ---- the service ----
@@ -214,7 +214,7 @@ test("service, a saved profile: its maps are looked at from Songs once, the vibr
     assert.equal(before.counts.vibro, 0, "not looked at yet: counted as before");
     assert.equal(before.counts.rated, plays);
     const r = await s.checkVibro();
-    assert.deepEqual(r, { checked: 9, vibro: 1, missing: 0 });
+    assert.deepEqual(r, { checked: 9, vibro: 1, lowOd: 0, missing: 0 });
     assert.ok(events.some(([c]) => c === "local-profile-changed"), "the window hears the new skill");
     const after = await s.status();
     assert.equal(after.counts.plays, plays, "no play is lost");
@@ -232,7 +232,7 @@ test("service, a saved profile: its maps are looked at from Songs once, the vibr
     assert.equal((await readFile(path.join(dir, "plays.jsonl"), "utf8")).trim().split("\n").length, plays);
     // once a session
     assert.equal((await s.checkVibro()).already, true);
-    assert.ok(logs.some((x) => /vibro looked at on 9 kept maps \(1 vibro\), 0 without/.test(x)), logs.join("\n"));
+    assert.ok(logs.some((x) => /vibro and OD looked at on 9 kept maps \(1 vibro, 0 below OD 7\), 0 without/.test(x)), logs.join("\n"));
 });
 
 test("service, a saved profile whose .osu files are gone: nothing is guessed, the plays count as they did", async () => {
@@ -246,7 +246,7 @@ test("service, a saved profile whose .osu files are gone: nothing is guessed, th
         songsIndex: createSongsMd5Index({ indexFile: path.join(dir, "songs-md5.json") }), now: () => NOW,
     });
     const before = await s.status();
-    assert.deepEqual(await s.checkVibro(), { checked: 0, vibro: 0, missing: 9 });
+    assert.deepEqual(await s.checkVibro(), { checked: 0, vibro: 0, lowOd: 0, missing: 9 });
     const after = await s.status();
     assert.equal(after.counts.vibro, 0);
     assert.equal(after.counts.rated, plays);
@@ -333,7 +333,7 @@ test("service: a backup made before vibro was looked at is looked at after it is
         store: createLocalProfileStore({ dir }), analyze: async () => null, readFile: (f) => readFile(f), exists: async () => false,
         songsIndex: createSongsMd5Index({ indexFile: path.join(dir, "songs-md5.json") }), now: () => NOW,
     });
-    assert.deepEqual(await s.checkVibro(), { checked: 0, vibro: 0, missing: 0 }, "nothing to look at yet");
+    assert.deepEqual(await s.checkVibro(), { checked: 0, vibro: 0, lowOd: 0, missing: 0 }, "nothing to look at yet");
     assert.equal((await s.importBundle(bundle)).ok, true);
     let st = await s.status();
     for (let i = 0; i < 50 && st.counts.vibro === 0; i += 1) {

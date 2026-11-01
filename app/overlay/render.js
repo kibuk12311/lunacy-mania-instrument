@@ -1,14 +1,23 @@
-// The five overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
-// mountWidget(root, widget, { style, show, dan }) builds it once; update(snapshot) puts in the numbers,
+// The overlay widgets as DOM, shared by the widget windows and the style previews in the settings window.
+// mountWidget(root, widget, { style, show, dan, look }) builds it once (look: the widget's settings, src/overlay/
+// settings.js: its font, number weight, radius, opacities and colours, the judgements shown, the key lines' thickness); update(snapshot) puts in the numbers,
 // paint(clock) draws the canvases (the KPS and NPS graphs, the key lines) for the map time of the moment and says
 // whether something it draws still eases (it wants another frame without a new snapshot). live: the widget moves with
 // the play's clock between two snapshots (the key lines), so a running play is drawn every frame.
 // The Dan widget's map data comes with its config (dan: src/overlay/dan.js's payload), or inside a made-up snapshot.
+// The map panel has no canvas: update() writes only what changed (its state comes rarely, src/overlay/mapInfo.js) and
+// it draws nothing per frame (quiet: its made-up numbers need no running either).
+// Nothing here may move because a number changed: a number (.num) sits in a box of its own, as wide as the largest value
+// it expects in the font it is in (overlay.css), whatever the digits, so what stands beside it and the graph's size come
+// from the boxes, never from the text. What does not fit its box is drawn smaller (fitNode()), which moves nothing; a
+// line (.fit) that is too long for the widget in some font or language the same. fit(): the window's size changed.
 import { t } from "../../src/i18n/i18n.js";
 import { formatAccuracy, formatCount, formatKps, formatUr } from "../../src/overlay/format.js";
 import { shortJudgement } from "../../src/overlay/interludeData.js";
-import { easeToward, graphCeiling, graphPoints, holdRounded, laneColor, laneRects, paletteFor } from "../../src/overlay/draw.js";
+import { easeToward, graphCeiling, graphPoints, holdRounded, laneColorFor, laneRects, paletteFor } from "../../src/overlay/draw.js";
 import { danKey, danView } from "../../src/overlay/dan.js";
+import { formatBpm, formatLength, formatRate, formatStars } from "../../src/overlay/mapInfo.js";
+import { FONTS, JUDGEMENT_KEYS } from "../../src/overlay/settings.js";
 
 const JUDGEMENTS = [
     { key: "max", label: () => "MAX", cls: "j-max" },
@@ -41,63 +50,130 @@ function sizedContext(canvas, zoom) {
     return { ctx, w: canvas.clientWidth, h: canvas.clientHeight };
 }
 
+// A text wider than its box is drawn smaller, as a whole, from the box's left edge (where a text too wide for its box
+// starts, however it is aligned). scale changes no layout: nothing beside it moves, and neither box depends on the text.
+// No text in it (hidden, or not laid out yet): nothing to go by. A box squeezed to nothing still has its text.
+const MIN_SCALE = 0.001;
+export function fitNode(node) {
+    const need = node.scrollWidth;
+    if (!(need > 0)) return;
+    const room = node.clientWidth;
+    const k = need > room ? String(Math.max(MIN_SCALE, Math.floor(((room - 0.5) / need) * 1000) / 1000)) : "";
+    if ((node.style.scale ?? "") !== k) node.style.scale = k;
+}
+
+// Everything in a widget that fits itself, the numbers, then the lines, the insides before what holds them. A line is as
+// wide as its boxes, whatever is in them: its width is read with the numbers at full size and their text held in
+// (.fitting), so it says the same at every value and no line is looked at again for a number. Read with the numbers as
+// they are, it would stay at what the value of that moment did to it: the browser counts a box drawn smaller as narrower
+// by its scale and rounds it out by a pixel or two.
+// → false: not laid out yet (a preview is mounted before it goes on the page), nothing done
+export function fitBox(box) {
+    if (!(box.clientWidth > 0)) return false;
+    box.querySelectorAll(".num").forEach(fitNode);
+    box.classList.toggle("fitting", true);
+    [...box.querySelectorAll(".fit")].reverse().forEach(fitNode);
+    box.classList.toggle("fitting", false);
+    return true;
+}
+
+// The width of a number's box for the largest value it expects ("000", "100.00%"), in its own font whatever that is: a
+// digit is the widest digit of the fonts on offer (Segoe UI Black's 4, Bahnschrift's, whose digits are not tabular; 1ch
+// is their 0), the rest as wide as they are in the font where they are widest (em).
+const DIGIT_CH = 1.04;
+const SIGN_EM = { ".": 0.55, ":": 0.55, " ": 0.55, "/": 0.58, "%": 1.2 };
+export function numberWidth(shape) {
+    let digits = 0;
+    let em = 0;
+    for (const c of shape) {
+        if (SIGN_EM[c]) em += SIGN_EM[c];
+        else digits += 1;
+    }
+    return `calc(${(digits * DIGIT_CH).toFixed(2)}ch + ${em.toFixed(2)}em)`;
+}
+
+// a number in a box of its own, sized for shape
+function numberNode(tag, cls, shape, text) {
+    const node = el(tag, `${cls} num`, text);
+    node.style.setProperty?.("--num", numberWidth(shape));
+    node.room = shape.length;
+    return node;
+}
+
+// A number's text: written only when it changed. → whether fitNode() must look at it: one that stays within its box's
+// shape cannot leave it, so nothing is read for it; a longer one, or one already drawn smaller, can. After all the
+// writes of a snapshot, so the layout is read once.
+export function setNumber(node, text) {
+    if (node.textContent === text) return false;
+    node.textContent = text;
+    return text.length > node.room || Boolean(node.style.scale);
+}
+
 // The rows of the judgements widget: osu!'s six, or Interlude's ruleset (judgeNames of the snapshot): its six under
 // its own short names, or its own list when it has another number of judgements.
-function judgementRows(names) {
-    if (!names) return JUDGEMENTS.map((j) => ({ label: j.label(), cls: j.cls, value: (s) => s.hits[j.key] }));
+// rows: the judgements shown (settings: { max, n300, … }); a ruleset of its own count hides by the kind it is drawn as.
+function judgementRows(names, rows = null) {
+    const shown = (r) => rows?.[r.j.key] !== false;
+    if (!names) return JUDGEMENTS.map((j) => ({ j, label: j.label(), cls: j.cls, value: (s) => s.hits[j.key] })).filter(shown);
     if (names.mapped) {
-        return JUDGEMENTS.map((j, i) => ({ label: names.labels?.[i] ?? j.label(), cls: j.cls, value: (s) => s.hits[j.key] }));
+        return JUDGEMENTS.map((j, i) => ({ j, label: names.labels?.[i] ?? j.label(), cls: j.cls, value: (s) => s.hits[j.key] }))
+            .filter(shown);
     }
     const last = names.names.length - 1;
-    return names.names.map((name, i) => ({
-        label: shortJudgement(name),
-        cls: i === last ? "j-miss" : JUDGEMENTS[Math.min(i, 4)].cls,
-        value: (s) => s.judgeNames?.counts?.[i] ?? 0,
-    }));
+    return names.names.map((name, i) => {
+        const j = i === last ? JUDGEMENTS[5] : JUDGEMENTS[Math.min(i, 4)];
+        return { j, label: shortJudgement(name), cls: j.cls, value: (s) => s.judgeNames?.counts?.[i] ?? 0 };
+    }).filter(shown);
 }
 const rowsKey = (names) => (names ? `${names.mapped ? "6" : "n"}|${names.names.join("|")}` : "osu");
 
-function mountJudgements(box, { style, show }) {
+const COMPACT_LONG = ["max", "n300"];
+
+function mountJudgements(box, { style, show, look }) {
     let rows = null;
     let rowList = [];
     let cells = [];
     let shownKey = null;
     function buildRows(names) {
         shownKey = rowsKey(names);
-        rowList = judgementRows(names);
+        rowList = judgementRows(names, look?.rows);
+        // the window has room for the rows set to show; a ruleset with more of them draws them smaller to fit
+        const room = JUDGEMENT_KEYS.filter((key) => look?.rows?.[key] !== false).length;
+        rows.style.zoom = style !== "compact" && rowList.length > room ? String(room / rowList.length) : "";
         cells = [];
         rows.replaceChildren(...rowList.map((j) => {
-            const row = el("div", `j-row ${j.cls}`);
-            const cell = el("span", "j-value", "0");
+            const row = el("div", `j-row fit ${j.cls}`);
+            // in one line the counts that rarely reach a thousand keep the line short
+            const cell = numberNode("span", "j-value", style === "compact" && !COMPACT_LONG.includes(j.j.key) ? "000" : "0000", "0");
             cells.push(cell);
             row.append(el("span", "j-label", j.label), cell);
             return row;
         }));
     }
     if (show.counts) {
-        rows = el("div", "j-rows");
+        rows = el("div", "j-rows fit");
         buildRows(null);
         box.append(rows);
     }
     let ratio = null;
     let ratioLabel = null;
     if (show.ratio) {
-        const line = el("div", "j-ratio");
-        line.append((ratioLabel = el("span", "j-label", "MAX:300")), (ratio = el("b", "j-ratio-value", "—")));
+        const line = el("div", "j-ratio fit");
+        line.append((ratioLabel = el("span", "j-label", "MAX:300")), (ratio = numberNode("b", "j-ratio-value", "00.00:0", "—")));
         box.append(line);
     }
     let acc = null;
     let ur = null;
     if (show.accuracy || show.ur) {
-        const foot = el("div", "j-foot");
+        const foot = el("div", "j-foot fit");
         if (show.accuracy) {
             const a = el("span", "j-acc");
-            a.append(el("span", "j-label", t("overlay.label.acc")), (acc = el("b", "", "—")));
+            a.append(el("span", "j-label", t("overlay.label.acc")), (acc = numberNode("b", "j-acc-value", "100.00%", "—")));
             foot.append(a);
         }
         if (show.ur) {
             const u = el("span", "j-ur");
-            u.append(el("span", "j-label", "UR"), (ur = el("b", "", "—")));
+            u.append(el("span", "j-label", "UR"), (ur = numberNode("b", "j-ur-value", "000.00", "—")));
             foot.append(u);
         }
         box.append(foot);
@@ -106,12 +182,21 @@ function mountJudgements(box, { style, show }) {
     return {
         update(s) {
             const names = s.judgeNames ?? null;
-            if (rows && rowsKey(names) !== shownKey) buildRows(names);
-            rowList.forEach((j, i) => { cells[i].textContent = formatCount(j.value(s)); });
-            if (ratio) ratio.textContent = s.ratio;
-            if (ratioLabel) ratioLabel.textContent = names?.mapped && names.labels ? `${names.labels[0]}:${names.labels[1]}` : "MAX:300";
-            if (acc) acc.textContent = formatAccuracy(s.accuracy);
-            if (ur) ur.textContent = formatUr(s.ur);
+            const rebuilt = rows && rowsKey(names) !== shownKey;
+            if (rebuilt) buildRows(names);
+            const toFit = [];
+            const put = (node, text) => {
+                if (setNumber(node, text)) toFit.push(node);
+            };
+            rowList.forEach((j, i) => put(cells[i], formatCount(j.value(s))));
+            if (ratio) put(ratio, s.ratio);
+            const named = names?.mapped && names.labels ? `${names.labels[0]}:${names.labels[1]}` : "MAX:300";
+            const relabelled = ratioLabel && ratioLabel.textContent !== named;
+            if (relabelled) ratioLabel.textContent = named;
+            if (acc) put(acc, formatAccuracy(s.accuracy));
+            if (ur) put(ur, formatUr(s.ur));
+            if (rebuilt || relabelled) fitBox(box);
+            else toFit.forEach(fitNode);
         },
         paint: () => false,
         live: false,
@@ -146,15 +231,15 @@ function strokeGraph(ctx, pts, { w, h, style, colour, glow }) {
 function mountHead(box, show, { nowKey, nowUnit, maxKey, maxLabel }) {
     let now = null;
     let max = null;
-    const head = el("div", "k-head");
+    const head = el("div", "k-head fit");
     if (show[nowKey]) {
         const n = el("span", "k-now");
-        n.append((now = el("b", "k-now-value", "0")), el("span", "k-unit", nowUnit));
+        n.append((now = numberNode("b", "k-now-value", "000", "0")), el("span", "k-unit", nowUnit));
         head.append(n);
     }
     if (show[maxKey]) {
         const m = el("span", "k-max");
-        m.append(el("span", "k-unit", maxLabel), (max = el("b", "k-max-value", "0")));
+        m.append(el("span", "k-unit", maxLabel), (max = numberNode("b", "k-max-value", "000", "0")));
         head.append(m);
     }
     if (head.children.length) box.append(head);
@@ -172,20 +257,20 @@ function mountHead(box, show, { nowKey, nowUnit, maxKey, maxLabel }) {
                 last = ms;
             }
             target = nowValue;
-            if (max) max.textContent = formatKps(maxValue);
+            if (max && setNumber(max, formatKps(maxValue))) fitNode(max);
         },
         // → whether the number still eases
         tick(ms) {
             eased = easeToward(eased, target, last === null ? 0 : ms - last, NOW_TAU_MS);
             last = ms;
             shown = holdRounded(shown, eased);
-            if (now) now.textContent = formatKps(shown);
+            if (now && setNumber(now, formatKps(shown))) fitNode(now);
             return Math.abs(target - eased) > EASED;
         },
     };
 }
 
-function mountKps(box, { style, show, zoom }) {
+function mountKps(box, { style, show, zoom, look }) {
     const head = mountHead(box, show, {
         nowKey: "now", nowUnit: t("overlay.label.kpsNow"), maxKey: "max", maxLabel: t("overlay.label.max"),
     });
@@ -217,7 +302,8 @@ function mountKps(box, { style, show, zoom }) {
             if (!canvas || !canvas.clientWidth) return easing;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const pal = paletteFor(style);
-            strokeGraph(ctx, graphPoints(history, { width: w, height: h, top }), { w, h, style, colour: pal.graph, glow: pal.glow });
+            const colour = look?.graphColor ?? pal.graph;
+            strokeGraph(ctx, graphPoints(history, { width: w, height: h, top }), { w, h, style, colour, glow: pal.glow });
             return easing;
         },
         live: false,
@@ -225,8 +311,9 @@ function mountKps(box, { style, show, zoom }) {
     };
 }
 
-// the map's notes per second: now at the play position, the map's peak, the whole map with a playhead
-function mountNps(box, { style, show, zoom }) {
+// the map's notes per second: now at the play position, the map's peak, the whole map with a playhead (or the stretch
+// around the play position scrolling under a playhead that stands still: nps.profile on a grid then)
+function mountNps(box, { style, show, zoom, look }) {
     const head = mountHead(box, show, {
         nowKey: "now", nowUnit: t("overlay.label.npsNow"), maxKey: "peak", maxLabel: t("overlay.label.peak"),
     });
@@ -243,21 +330,24 @@ function mountNps(box, { style, show, zoom }) {
             if (!canvas || !canvas.clientWidth) return moving;
             const { ctx, w, h } = sizedContext(canvas, zoom);
             const pal = paletteFor(style);
-            if (!nps.profile.length) return moving;
-            // the map's own peak is the top: the profile is fixed for the play, so is its scale
-            const pts = graphPoints(nps.profile, { width: w, height: h, top: graphCeiling(Math.max(...nps.profile), 5) });
+            const list = Array.isArray(nps.profile) ? nps.profile : nps.profile?.values;
+            if (!list?.length) return moving;
+            const colour = look?.graphColor ?? pal.nps;
+            // the top is fixed for the play (the profile's highest point, or the map's peak), so is its scale
+            const top = graphCeiling(nps.top > 0 ? nps.top : Math.max(...list), 5);
+            const pts = graphPoints(nps.profile, { width: w, height: h, top });
             const x = Math.round(nps.progress * w);
             // the part still ahead, dimmed; the part played, tinted in full
             ctx.save();
             ctx.globalAlpha = 0.45;
-            strokeGraph(ctx, pts, { w, h, style, colour: pal.nps });
+            strokeGraph(ctx, pts, { w, h, style, colour });
             ctx.restore();
             ctx.save();
             ctx.beginPath();
             ctx.rect(0, 0, x, h);
             ctx.clip();
-            strokeGraph(ctx, pts, { w, h, style, colour: pal.nps, glow: pal.glow });
-            ctx.fillStyle = pal.nps;
+            strokeGraph(ctx, pts, { w, h, style, colour, glow: pal.glow });
+            ctx.fillStyle = colour;
             ctx.globalAlpha = style === "minimal" ? 0.12 : 0.2;
             ctx.fillRect(0, 0, x, h);
             ctx.restore();
@@ -275,7 +365,7 @@ function mountNps(box, { style, show, zoom }) {
     };
 }
 
-function mountKeys(box, { style, show, zoom }) {
+function mountKeys(box, { style, show, zoom, look }) {
     let canvas = null;
     if (show.lines) box.append((canvas = el("canvas", "l-lines")));
     const keysRow = el("div", "l-keys");
@@ -283,27 +373,32 @@ function mountKeys(box, { style, show, zoom }) {
     let keyCells = [];
     let last = null;
     const ensureKeys = (n) => {
-        if (keyCells.length === n) return;
+        if (keyCells.length === n) return false;
         keyCells = Array.from({ length: n }, (_, col) => {
             const cell = el("div", "l-key");
-            cell.style.setProperty("--lane", laneColor(style, col));
-            const name = el("span", "l-name", `K${col + 1}`);
-            const value = el("b", "l-count", "0");
+            cell.style.setProperty("--lane", laneColorFor(style, col, n, look?.laneColors));
+            const name = el("span", "l-name fit", `K${col + 1}`);
+            const value = numberNode("b", "l-count", "0000", "0");
+            value.room = 0; // the key count sets the cell's width, narrower than the box with many keys: every text is looked at
             cell.append(name);
             if (show.counts) cell.append(value);
             return { cell, value };
         });
         keysRow.replaceChildren(...keyCells.map((k) => k.cell));
+        return true;
     };
     ensureKeys(4);
     return {
         update(s) {
             last = s;
-            ensureKeys(s.lanes.keys);
+            const rebuilt = ensureKeys(s.lanes.keys);
+            const toFit = [];
             keyCells.forEach((k, i) => {
-                k.value.textContent = formatCount(s.lanes.counts[i]);
+                if (setNumber(k.value, formatCount(s.lanes.counts[i]))) toFit.push(k.value);
                 k.cell.classList.toggle("lit", Boolean(s.lanes.pressed[i]));
             });
+            if (rebuilt) fitBox(box);
+            else toFit.forEach(fitNode);
         },
         paint(clock) {
             if (!canvas || !canvas.clientWidth || !last) return false;
@@ -318,8 +413,8 @@ function mountKeys(box, { style, show, zoom }) {
             }
             ctx.globalAlpha = 1;
             const lit = [];
-            for (const r of laneRects(bars, { clock, spanMs, keys, width: w, height: h })) {
-                ctx.fillStyle = laneColor(style, r.col);
+            for (const r of laneRects(bars, { clock, spanMs, keys, width: w, height: h, fill: look?.thickness ?? 1 })) {
+                ctx.fillStyle = laneColorFor(style, r.col, keys, look?.laneColors);
                 ctx.shadowColor = pal.glow ? ctx.fillStyle : "transparent";
                 ctx.shadowBlur = pal.glow ?? 0;
                 // older presses fade out towards the top
@@ -354,34 +449,39 @@ function mountDan(box, { show, style, dan = null }) {
     if (show.map) {
         const head = el("div", "d-head");
         const side = el("span", "d-side");
-        side.append((label = el("span", "d-label", "—")));
-        if (show.pattern) side.append((conf = el("span", "d-conf", "")));
-        head.append((num = el("b", "d-num", "—")), side);
+        side.append((label = el("span", "d-label fit", "—")));
+        if (show.pattern) side.append((conf = el("span", "d-conf fit", "")));
+        head.append((num = numberNode("b", "d-num", "00.0", "—")), side);
         box.append(head);
     }
-    const pattern = show.pattern ? el("div", "d-pattern", "") : null;
+    const pattern = show.pattern ? el("div", "d-pattern fit", "") : null;
     if (pattern) box.append(pattern);
-    const play = show.play ? el("div", "d-play", "") : null;
+    const play = show.play ? el("div", "d-play fit", "") : null;
     if (play) box.append(play);
-    const fit = show.forYou ? el("div", "d-fit", "") : null;
+    const fit = show.forYou ? el("div", "d-fit fit", "") : null;
     if (fit) box.append(fit);
     box.classList.toggle("d-empty", !box.children.length);
-    const setText = (node, text) => {
-        if (!node) return;
+    const write = (node, text) => {
+        if (!node || node.textContent === text) return false;
         node.textContent = text;
+        return true;
+    };
+    // → whether the words changed
+    const setText = (node, text) => {
+        if (!node) return false;
         node.hidden = !text;
+        return write(node, text);
     };
     return {
         update(s) {
             const view = danView(danPayloadFor(s, dan) ?? { state: "counting" }, s);
             box.dataset.state = view.state;
-            if (num) num.textContent = view.number;
-            if (label) label.textContent = view.label;
-            setText(conf, view.confidence);
-            setText(pattern, view.pattern);
-            setText(play, view.play);
-            setText(fit, view.forYou);
-            if (fit) fit.className = `d-fit${view.band ? ` band-${view.band}` : ""}`;
+            const changed = [
+                write(num, view.number), write(label, view.label), setText(conf, view.confidence), setText(pattern, view.pattern),
+                setText(play, view.play), setText(fit, view.forYou),
+            ].some(Boolean);
+            if (fit) fit.className = `d-fit fit${view.band ? ` band-${view.band}` : ""}`;
+            if (changed) fitBox(box);
         },
         paint: () => false,
         live: false,
@@ -389,15 +489,174 @@ function mountDan(box, { show, style, dan = null }) {
     };
 }
 
-const MOUNTS = { judgements: mountJudgements, kps: mountKps, nps: mountNps, keys: mountKeys, dan: mountDan };
+// The map panel: the map's picture (blurred and dimmed by the widget's settings), its names, its numbers, the dan, the
+// play's progress. s.map: src/overlay/mapInfo.js mapState(); s.image: a data URL when it changed, null: none.
+function mountMap(box, { show, style, look }) {
+    box.style.setProperty?.("--map-bar", look?.graphColor ?? paletteFor(style).graph);
+    const art = show.background ? el("div", "m-art") : null;
+    const img = el("img", "m-img");
+    img.alt = "";
+    img.hidden = true;
+    if (art) {
+        art.hidden = true;
+        art.append(img);
+        box.append(art);
+    }
+    // a line of the map, or nothing when it is turned off
+    const line = (parent, key, cls) => {
+        if (!show[key]) return null;
+        const node = el("span", cls);
+        parent.append(node);
+        return node;
+    };
+    const title = line(box, "title", "m-title fit");
+    const top = el("div", "m-top");
+    const names = el("div", "m-names");
+    const artist = line(names, "artist", "m-artist fit");
+    const diffLine = el("div", "m-diff fit");
+    const version = line(diffLine, "difficulty", "m-version");
+    const mapper = line(diffLine, "mapper", "m-mapper");
+    if (diffLine.children.length) names.append(diffLine);
+    const side = el("div", "m-side fit");
+    const stars = line(side, "stars", "m-stars");
+    const danLine = line(side, "dan", "m-dan fit");
+    if (names.children.length) top.append(names);
+    if (side.children.length) top.append(side);
+    if (top.children.length) box.append(top);
+    const stats = el("div", "m-stats fit");
+    const bpm = line(stats, "bpm", "m-bpm");
+    const length = line(stats, "length", "m-len num");
+    const rate = line(stats, "rate", "m-rate");
+    const mods = line(stats, "mods", "m-mods");
+    if (stats.children.length) box.append(stats);
+    let fill = null;
+    if (show.progress) {
+        const bar = el("div", "m-bar");
+        bar.append((fill = el("div", "m-fill")));
+        box.append(bar);
+    }
+    box.classList.toggle("m-empty", !box.children.length);
 
-// root gets the style's classes; returns { update(snapshot), paint(clock) → still easing, live }
-export function mountWidget(root, widget, { style, show, zoom = 1, dan = null }) {
+    // → whether what the line takes up changed
+    const put = (node, text) => {
+        if (!node) return false;
+        const hide = !text;
+        const moved = node.hidden !== hide || node.textContent !== text;
+        if (node.textContent !== text) node.textContent = text;
+        if (node.hidden !== hide) node.hidden = hide;
+        return moved;
+    };
+    let reserved = ""; // what the time's box is sized for
+    // The time goes up through the play beside the rate and the mods: its box is as wide as "3:12 / 3:12" of its length.
+    function reserveTime(shape) {
+        if (shape === reserved) return false;
+        reserved = shape;
+        if (shape) length?.style.setProperty?.("--num", numberWidth(shape));
+        else length?.style.removeProperty?.("--num");
+        return true;
+    }
+    let shownImage = null;
+    let shownProgress = null;
+    function setImage(url, fake) {
+        if (!art) return;
+        if (url !== shownImage) {
+            shownImage = url;
+            if (url) img.src = url;
+            else img.removeAttribute?.("src");
+            img.hidden = !url;
+        }
+        art.classList.toggle("m-fake", fake);
+        const hide = !url && !fake;
+        if (art.hidden !== hide) art.hidden = hide;
+    }
+    return {
+        update(s) {
+            const m = s.map ?? null;
+            if (s.image !== undefined || !m) setImage(s.image ?? null, m?.preview === true);
+            else if (m.preview === true) setImage(null, true);
+            const tempo = formatBpm(m?.bpm ?? null);
+            const total = formatLength(m?.lengthMs ?? null);
+            const running = Boolean(total) && Number.isFinite(s.elapsedMs);
+            const changed = [
+                put(title, m?.title || "—"),
+                put(artist, m?.artist ?? ""),
+                put(version, m?.difficulty ? `[${m.difficulty}]` : ""),
+                put(mapper, m?.mapper ? t("overlay.map.by", { name: m.mapper }) : ""),
+                put(stars, formatStars(m?.stars ?? null)),
+                put(danLine, m?.dan ? danView(m.dan, s).line : ""),
+                put(bpm, tempo ? `${tempo} BPM` : ""),
+                reserveTime(running ? `${total} / ${total}` : ""),
+                put(rate, formatRate(m?.rate ?? 1)),
+                put(mods, m?.mods?.length ? m.mods.join(" ") : ""),
+            ].some(Boolean);
+            const ticked = put(length, running ? `${formatLength(s.elapsedMs)} / ${total}` : total);
+            if (changed || (ticked && !running)) fitBox(box);
+            // the seconds of a play stay within the box: the layout is read only for a time drawn smaller, or longer than it
+            else if (ticked && (length.style.scale || length.textContent.length > reserved.length)) fitNode(length);
+            const p = Math.min(1, Math.max(0, s.progress ?? 0));
+            if (fill && p !== shownProgress) {
+                shownProgress = p;
+                fill.style.transform = `scaleX(${p})`;
+            }
+        },
+        paint: () => false,
+        live: false,
+        quiet: true,
+        style,
+    };
+}
+
+const MOUNTS = { judgements: mountJudgements, kps: mountKps, nps: mountNps, keys: mountKeys, dan: mountDan, map: mountMap };
+
+// A widget's own look as the variables overlay.css reads (null: the style's own): its font, the weight of its
+// numbers, its corner radius, its panel's and its text's opacity, the judgement colours, the map panel's picture.
+const JUDGEMENT_VARS = { max: "--max", n300: "--c300", n200: "--c200", n100: "--c100", n50: "--c50", miss: "--miss" };
+export function lookVars(look) {
+    const vars = {
+        "--font-user": look?.font ? FONTS[look.font] ?? null : null,
+        "--num-weight": look?.weight ? String(look.weight) : null,
+        "--radius-user": Number.isFinite(look?.radius) ? `${look.radius}px` : null,
+        "--bg-alpha": Number.isFinite(look?.bgOpacity) && look.bgOpacity < 1 ? String(look.bgOpacity) : null,
+        "--text-alpha": Number.isFinite(look?.textOpacity) && look.textOpacity < 1 ? String(look.textOpacity) : null,
+        "--map-filter": Number.isFinite(look?.bgBlur) ? (look.bgBlur > 0 ? `blur(${look.bgBlur}px)` : "none") : null,
+        "--map-dim": Number.isFinite(look?.bgDim) ? String(look.bgDim) : null,
+    };
+    for (const key of JUDGEMENT_KEYS) vars[JUDGEMENT_VARS[key]] = look?.colors?.[key] ?? null;
+    return vars;
+}
+
+function applyLook(root, look) {
+    for (const [name, value] of Object.entries(lookVars(look))) {
+        if (value === null) root.style.removeProperty?.(name);
+        else root.style.setProperty?.(name, value);
+    }
+}
+
+// root gets the style's classes and the widget's look; returns { update(snapshot), paint(clock) → still easing, live,
+// fit(): the page's size changed }
+export function mountWidget(root, widget, { style, show, zoom = 1, dan = null, look = null }) {
     root.replaceChildren();
-    root.className = `ov ov-${widget} style-${style}`;
+    root.className = `ov ov-${widget} style-${style}${look?.colors?.max ? " own-max" : ""}`;
+    applyLook(root, look);
     const box = el("div", "ov-box");
     root.append(box);
-    return (MOUNTS[widget] ?? mountKps)(box, { style, show, zoom, dan });
+    const view = (MOUNTS[widget] ?? mountKps)(box, { style, show, zoom, dan, look });
+    let fitted = false;
+    const fit = () => {
+        fitted = fitBox(box);
+    };
+    return {
+        ...view,
+        fit,
+        update(snapshot) {
+            view.update(snapshot);
+            if (!fitted) fit();
+        },
+        paint(clock) {
+            if (!fitted) fit();
+            return view.paint(clock);
+        },
+    };
 }
 
 // the map time to draw at: the snapshot's clock run on with the real time since it came (no further than 300 ms)

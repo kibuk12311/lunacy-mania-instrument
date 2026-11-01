@@ -1,5 +1,8 @@
 /* The overlay widgets in five styles. Shared by the widget windows (transparent) and the previews in the settings window.
-   .ov = one widget; .style-* picks the look; .ov-judgements / .ov-kps / .ov-keys / .ov-dan the layout. */
+   .ov = one widget; .style-* picks the look; .ov-judgements / .ov-kps / .ov-keys / .ov-dan / .ov-map the layout.
+   A widget's own look (app/overlay/render.js, from its settings) comes as variables on .ov, each falling back to the
+   style's: --font-user, --num-weight (the numbers), --radius-user, --bg-alpha (the panel: its background, border and
+   shadow, drawn by .ov-box::before), --text-alpha (everything on it), and the judgement colours. */
 
 .ov {
     --fg: #f2f2f2;
@@ -14,20 +17,36 @@
     width: 100%;
     height: 100%;
     color: var(--fg);
-    font-family: "Segoe UI", system-ui, sans-serif;
+    font-family: var(--font-user, "Segoe UI", system-ui, sans-serif);
     font-variant-numeric: tabular-nums;
     user-select: none;
     overflow: hidden;
 }
 .ov * { box-sizing: border-box; }
-.ov-box { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; }
+.ov-box {
+    width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+    position: relative; z-index: 0; border-radius: var(--radius-user, var(--box-radius, 0px));
+}
+/* the panel behind the numbers, so its opacity is its own */
+.ov-box::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; box-sizing: border-box; border-radius: inherit; pointer-events: none;
+    background: var(--box-bg, none); border: var(--box-border, none); box-shadow: var(--box-shadow, none); opacity: var(--bg-alpha, 1);
+}
+.ov-box > * { opacity: var(--text-alpha, 1); }
+/* A number's box: as wide as the largest value it expects (--num: render.js numberWidth(), in its own font), whatever is
+   in it, so what stands beside it stays. .fit: a line that may turn out too long. What overflows either is drawn smaller
+   (render.js fitNode()), from the left edge, where overflowing text begins; nothing is cut off. A line height of its
+   own: with the normal one a sign from another font (the ratio's ∞ in Bahnschrift) makes the line taller. */
+.num { display: inline-block; width: var(--num, auto); flex: none; line-height: 1.2; text-align: right; white-space: nowrap; transform-origin: left center; }
+.fit { min-width: 0; white-space: nowrap; transform-origin: left center; }
+.fitting .num { overflow: clip; scale: none !important; } /* only while render.js fitBox() reads the lines' widths, never drawn */
 
 /* ---- judgements ---- */
 .j-rows { display: flex; flex-direction: column; gap: 1px; }
 .j-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; line-height: 1.25; }
 .j-label { color: var(--muted); font-size: 0.85em; margin-right: 6px; }
 .j-row .j-label { color: inherit; font-weight: 700; opacity: 0.95; }
-.j-value { font-weight: 600; color: var(--fg); }
+.j-value { font-weight: var(--num-weight, 600); color: var(--fg); }
 .j-max { color: var(--max); }
 .j-300 { color: var(--c300); }
 .j-200 { color: var(--c200); }
@@ -35,15 +54,18 @@
 .j-50 { color: var(--c50); }
 .j-miss { color: var(--miss); }
 .j-ratio { display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px; }
-.j-ratio-value { font-size: 20px; font-weight: 800; color: var(--accent); }
+.j-ratio-value { font-size: 20px; font-weight: var(--num-weight, 800); color: var(--accent); }
 .j-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.j-foot b { font-weight: 700; }
+.j-foot > * { flex: none; }
+.j-foot .num { text-align: left; } /* beside its own label, not the next one's */
+.j-foot b { font-weight: var(--num-weight, 700); }
 
 /* ---- kps ---- */
-.k-head { display: flex; justify-content: space-between; align-items: baseline; }
-.k-now-value { font-size: 34px; font-weight: 800; line-height: 1; color: var(--accent); }
+.k-head { display: flex; justify-content: space-between; align-items: baseline; flex: none; }
+.k-head > * { flex: none; }
+.k-now-value { font-size: 34px; font-weight: var(--num-weight, 800); line-height: 1; color: var(--accent); }
 .k-unit { font-size: 12px; color: var(--muted); margin: 0 4px; }
-.k-max-value { font-size: 16px; font-weight: 700; }
+.k-max-value { font-size: 16px; font-weight: var(--num-weight, 700); }
 .k-graph { flex: 1; width: 100%; min-height: 20px; display: block; }
 
 /* ---- key lines ---- */
@@ -55,25 +77,57 @@
     background: color-mix(in srgb, var(--lane) 10%, transparent); min-width: 0;
 }
 .l-key.lit { background: color-mix(in srgb, var(--lane) 70%, transparent); color: #111; }
-.l-name { font-size: 10px; opacity: 0.8; }
-.l-count { font-size: 13px; font-weight: 700; }
+.l-name { font-size: 10px; opacity: 0.8; max-width: 100%; text-align: center; }
+.l-count { max-width: 100%; font-size: 13px; font-weight: var(--num-weight, 700); text-align: center; }
 
 /* ---- dan ---- */
 .ov [hidden] { display: none !important; }
 .d-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.d-num { font-size: 30px; font-weight: 800; line-height: 1; color: var(--accent); }
+.d-num { font-size: 30px; font-weight: var(--num-weight, 800); line-height: 1; color: var(--accent); }
 .d-side { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
-.d-label { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.d-conf { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.d-label { font-size: 15px; font-weight: 700; }
+.d-conf { font-size: 11px; color: var(--muted); }
 .ov-dan .ov-box:not([data-state="ok"]) .d-label { color: var(--muted); font-weight: 600; }
-.d-pattern { font-size: 13px; font-weight: 600; color: var(--c100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.d-play, .d-fit { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-pattern { font-size: 13px; font-weight: 600; color: var(--c100); }
+.d-play, .d-fit { font-size: 12.5px; }
 .d-play { color: var(--c300); font-weight: 700; }
 .d-fit { color: var(--muted); }
 .d-fit.band-easy, .d-fit.band-comfort { color: var(--c200); }
 .d-fit.band-growth { color: var(--c300); }
 .d-fit.band-challenge { color: #ffa45c; }
 .d-fit.band-hard { color: var(--miss); }
+
+/* ---- the map panel: the picture behind everything (a panel of its own, so the background's opacity is its opacity
+   too), the names and the numbers over it ---- */
+.ov-map .ov-box { gap: 3px; justify-content: space-between; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); }
+.ov-box > .m-art {
+    position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; opacity: var(--bg-alpha, 1);
+}
+.m-art::after { content: ""; position: absolute; inset: 0; background: #000; opacity: var(--map-dim, 0.55); }
+.m-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(1.1); filter: var(--map-filter, blur(8px)); }
+/* the previews' made-up picture has sharp shapes, so its blur shows as it will on a real one */
+.m-art.m-fake::before {
+    content: ""; position: absolute; inset: 0; transform: scale(1.1); filter: var(--map-filter, blur(8px));
+    background:
+        radial-gradient(circle at 80% 32%, #ffe9a8 0 15%, transparent 15.5%),
+        repeating-linear-gradient(115deg, #5b3f8c 0 18px, #2e6f9e 18px 36px, #c4577a 36px 54px);
+}
+.m-top { display: flex; justify-content: space-between; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.m-names { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; line-height: 1.2; }
+.m-title { font-size: 16px; font-weight: 700; line-height: 1.2; flex: none; }
+.m-artist { font-size: 13px; }
+.m-diff { display: flex; gap: 6px; font-size: 12px; color: var(--muted); }
+.m-diff > * { flex: none; }
+.m-version { color: var(--accent); }
+.m-side { display: flex; flex-direction: column; align-items: flex-end; flex: none; max-width: 52%; line-height: 1.25; }
+.m-stars { font-size: 14px; font-weight: var(--num-weight, 700); color: var(--c300); white-space: nowrap; }
+.m-dan { font-size: 13px; font-weight: var(--num-weight, 700); color: var(--accent); max-width: 100%; }
+.m-stats { display: flex; gap: 10px; font-size: 12.5px; font-weight: var(--num-weight, 600); flex: none; }
+.m-stats > * { flex: none; }
+.m-rate { color: var(--c300); }
+.m-mods { color: var(--c100); }
+.m-bar { height: 4px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.18); flex: none; }
+.m-fill { width: 100%; height: 100%; background: var(--map-bar, var(--accent)); transform: scaleX(0); transform-origin: left center; }
 
 /* ---- Минимал: text only, small, a shadow to read over any background ---- */
 .style-minimal { text-shadow: 0 1px 2px #000, 0 0 3px #000; --muted: #dddddd; }
@@ -86,12 +140,18 @@
 .style-minimal .l-key.lit { background: #ffffff33; color: #fff; }
 .style-minimal .d-num { font-size: 22px; color: #fff; }
 .style-minimal .d-label { font-size: 13px; }
+.style-minimal .m-title { font-size: 14px; }
+.style-minimal .m-artist { font-size: 12px; }
+.style-minimal .m-diff, .style-minimal .m-stats { font-size: 11px; }
+.style-minimal .m-stars, .style-minimal .m-dan { font-size: 12px; }
+.style-minimal .m-bar { height: 3px; }
 
 /* ---- Карточка: a dark rounded panel ---- */
 .style-card .ov-box {
-    background: rgba(20, 18, 28, 0.86); border: 1px solid #2c2840; border-radius: 12px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    border: 1px solid transparent; --box-radius: 12px;
+    --box-bg: rgba(20, 18, 28, 0.86); --box-border: 1px solid #2c2840; --box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
+.style-card .ov-box::before, .style-neon .ov-box::before { inset: -1px; }
 .style-card .j-ratio { border-top: 1px solid #2c2840; padding-top: 4px; }
 
 /* ---- Неон: glowing accents on a near-black glass ---- */
@@ -100,25 +160,28 @@
     --c200: #4dff9a; --c100: #4dc3ff; --c50: #b48cff; --miss: #ff3d71;
 }
 .style-neon .ov-box {
-    background: rgba(5, 3, 18, 0.72); border: 1px solid #22f0ff; border-radius: 10px;
-    box-shadow: 0 0 10px #22f0ff88, inset 0 0 12px #ff3df244;
+    border: 1px solid transparent; --box-radius: 10px;
+    --box-bg: rgba(5, 3, 18, 0.72); --box-border: 1px solid #22f0ff; --box-shadow: 0 0 10px #22f0ff88, inset 0 0 12px #ff3df244;
 }
 .style-neon .j-row, .style-neon .j-foot, .style-neon .k-head { text-shadow: 0 0 6px currentColor; }
 .style-neon .j-ratio-value, .style-neon .k-now-value { color: #ff3df2; text-shadow: 0 0 8px #ff3df2, 0 0 16px #ff3df2aa; }
 .style-neon .d-head, .style-neon .d-pattern, .style-neon .d-play, .style-neon .d-fit { text-shadow: 0 0 6px currentColor; }
 .style-neon .d-num { color: #ff3df2; text-shadow: 0 0 8px #ff3df2, 0 0 16px #ff3df2aa; }
+.style-neon .m-title, .style-neon .m-stars, .style-neon .m-dan { text-shadow: 0 0 6px currentColor; }
+.style-neon .m-fill { box-shadow: 0 0 8px var(--map-bar, #22f0ff); }
 .style-neon .l-key { box-shadow: 0 0 6px var(--lane); }
 .style-neon .l-key.lit { box-shadow: 0 0 14px var(--lane); }
 
 /* ---- Классика osu!: bold outlined numbers like a skin's counters ---- */
 .style-classic {
     --max: #fffbe0; --c300: #ffcc22; --c200: #33dd55; --c100: #2299ff; --c50: #aaaaaa; --miss: #ee2222; --accent: #ffcc22;
-    font-family: "Arial Black", "Segoe UI Black", "Segoe UI", sans-serif;
+    font-family: var(--font-user, "Arial Black", "Segoe UI Black", "Segoe UI", sans-serif);
 }
 .style-classic .ov-box { padding: 6px 8px; }
 .style-classic .j-row { font-size: 16px; font-style: italic; -webkit-text-stroke: 0.6px #000; text-shadow: 2px 2px 0 #000; }
 .style-classic .j-value { color: #fff; }
-.style-classic .j-max .j-label {
+/* the rainbow MAX, unless it has a colour set */
+.style-classic:not(.own-max) .j-max .j-label {
     background: linear-gradient(90deg, #ff6b6b, #ffd36b, #7be08f, #8fd3ff, #c9a2ff); -webkit-background-clip: text; color: transparent;
     -webkit-text-stroke: 0;
 }
@@ -129,15 +192,23 @@
 .style-classic .d-num { font-size: 34px; font-style: italic; -webkit-text-stroke: 1px #000; text-shadow: 3px 3px 0 #000; }
 .style-classic .d-label { font-style: italic; -webkit-text-stroke: 0.5px #000; text-shadow: 2px 2px 0 #000; }
 .style-classic .d-conf, .style-classic .d-pattern, .style-classic .d-play, .style-classic .d-fit { text-shadow: 2px 2px 0 #000; }
+.style-classic.ov-map .ov-box { text-shadow: 2px 2px 0 #000; }
+.style-classic .m-title { font-size: 17px; font-style: italic; }
+.style-classic .m-bar { border-radius: 0; }
 .style-classic .l-key { border-radius: 0; border: 2px solid #000; background: #00000066; }
 .style-classic .l-key.lit { background: var(--lane); }
 
 /* ---- Компакт: one line ---- */
 .style-compact .ov-box {
     flex-direction: row; align-items: center; gap: 10px; padding: 0 12px; white-space: nowrap;
-    background: rgba(12, 12, 16, 0.78); border-radius: 20px;
+    --box-bg: rgba(12, 12, 16, 0.78); --box-radius: 20px;
 }
+/* a line's parts share the width by how much each needs: too little of it and each is drawn smaller by as much */
+.style-compact .j-rows, .style-compact .j-ratio, .style-compact .j-foot, .style-compact .k-head, .style-compact .d-head,
+.style-compact .d-pattern, .style-compact .d-play, .style-compact .d-fit { flex: 0 1 auto; min-width: 0; }
 .style-compact .j-rows { flex-direction: row; gap: 8px; }
+.style-compact .j-row { flex: none; }
+.style-compact .j-value, .style-compact .k-max-value { text-align: left; }
 .style-compact .j-row { font-size: 13px; }
 .style-compact .j-label { margin-right: 3px; }
 .style-compact .j-ratio { margin: 0; gap: 4px; }
@@ -146,16 +217,33 @@
 .style-compact .j-foot { gap: 8px; }
 .style-compact .k-now-value { font-size: 20px; }
 .style-compact .k-head { gap: 6px; }
-.style-compact .k-graph { height: 26px; flex: 1; }
-.style-compact.ov-keys .ov-box { flex-direction: column; border-radius: 12px; padding: 6px 8px; gap: 3px; }
-.style-compact .l-key { flex-direction: row; gap: 4px; padding: 1px 0; }
+/* the graph takes the width the numbers' boxes leave, so it stands still however the numbers change */
+.style-compact .k-graph { height: 26px; flex: 1 1 0; min-width: 30%; }
+.style-compact.ov-keys .ov-box { flex-direction: column; align-items: stretch; --box-radius: 12px; padding: 6px 8px; gap: 3px; }
+.style-compact .l-key { flex-direction: row; gap: clamp(0px, 8%, 4px); padding: 1px 0; }
+.style-compact .l-name, .style-compact .l-count { flex: 0 1 auto; min-width: 0; }
+.style-compact .l-count { text-align: right; }
 .style-compact.ov-dan .ov-box { gap: 9px; }
-.style-compact .d-head { gap: 5px; flex: none; }
+.style-compact .d-head { gap: 5px; }
 .style-compact .d-num { font-size: 20px; }
 .style-compact .d-side { flex-direction: row; align-items: baseline; gap: 6px; }
 .style-compact .d-label { font-size: 13px; }
 .style-compact .d-conf { display: none; }
-.style-compact .d-pattern, .style-compact .d-play, .style-compact .d-fit { flex: none; font-size: 12px; }
+.style-compact .d-pattern, .style-compact .d-play, .style-compact .d-fit { font-size: 12px; }
+.style-compact.ov-map .ov-box { justify-content: flex-start; container-type: inline-size; }
+/* one row of the box itself: the names give way to the numbers down to a fifth of the row each (a shorter name just its
+   own width), then the numbers are drawn smaller too, so no text is left without room. With no box of its own .m-top's
+   opacity does nothing, so its children take it */
+.style-compact .m-top { display: contents; }
+.style-compact .m-top > * { opacity: var(--text-alpha, 1); }
+.style-compact .m-names { flex: 0 1000 auto; min-width: calc-size(max-content, min(size, 20cqw)); flex-direction: row; align-items: baseline; gap: 8px; }
+.style-compact .m-title { font-size: 14px; flex: 0 1000 auto; min-width: calc-size(max-content, min(size, 20cqw)); }
+.style-compact .m-artist { font-size: 12px; flex: 0 1 auto; }
+.style-compact .m-diff { flex: 0 1 auto; align-items: baseline; }
+.style-compact .m-side { flex: 0 1 auto; flex-direction: row; align-items: baseline; gap: 8px; max-width: none; margin-left: auto; }
+.style-compact .m-side > * { flex: none; max-width: none; }
+.style-compact .m-stats { flex: 0 1 auto; gap: 8px; min-width: 0; }
+.style-compact .m-bar { position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; }
 
 /* ---- edit mode: the window can be dragged, the corner resizes ---- */
 .editing { -webkit-app-region: drag; }

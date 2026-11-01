@@ -11,9 +11,10 @@ import { initInterludeState, onInterludeState } from "./interlude.js";
 import { initInterludePanel } from "./interludePanel.js";
 import { initProfileTab, onProfileTabShown } from "./profileTab.js";
 import { initSkinTab } from "./skinTab.js";
+import { initReplayTab, onReplayTabShown } from "./replayTab.js";
 import { initSettingsPage } from "./settingsPage.js";
 
-const TABS = ["analysis", "rate", "marathon", "recommend", "profile", "create", "skin"];
+const TABS = ["analysis", "rate", "marathon", "recommend", "profile", "replay", "create", "skin"];
 
 const card = document.getElementById("card");
 applyI18n(document);
@@ -87,11 +88,13 @@ function showTab(tab) {
     document.getElementById("recommend-tab").hidden = tab !== "recommend";
     document.getElementById("profile-tab").hidden = tab !== "profile";
     document.getElementById("skin-tab").hidden = tab !== "skin";
+    document.getElementById("replay-tab").hidden = tab !== "replay";
     document.body.classList.toggle("creating", tab !== "analysis");
     window.danApi.setTab(tab === "analysis" ? "analysis" : "create");
     if (tab === "rate") onRateTabShown();
     if (tab === "recommend") onRecommendTabShown();
     if (tab === "profile") onProfileTabShown();
+    if (tab === "replay") onReplayTabShown();
     // any tab can follow which one is showing (the create tab's player pauses on the others)
     window.dispatchEvent(new CustomEvent("tab-shown", { detail: tab }));
 }
@@ -128,6 +131,7 @@ initMarathonTab();
 initRecommendTab();
 initProfileTab();
 initSkinTab();
+initReplayTab();
 initAnalysisPanel({ card, redraw: draw });
 initOverlayPanel({ panel: document.getElementById("overlay-panel") });
 initInterludeState();

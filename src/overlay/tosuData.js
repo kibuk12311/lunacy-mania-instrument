@@ -3,11 +3,18 @@
 // /websocket/v2/precise (about every 10 ms): the key overlay counters (and the clock, if a tosu ever sends one:
 // v4.26.3 sends only keys, hitErrors and tourney, see its api/utils/buildResultV2Precise.ts).
 // In osu!mania the judgements are: geki = MAX (320), 300, katu = 200, 100, 50, 0 = miss.
+// folders.game and profile.name say where osu! is and who plays (the keyboard reader's lane keys, from osu!'s cfg).
 // osu! lazer comes through the same payload (tosu maps lazer's perfect/great/good/ok/meh/miss onto these names,
 // its accuracy is in percent too, and mods.rate is the mod's own speed: DT 1.2, Rate Adjust 1.35 and so on);
 // `client` says which one it is.
+// Every frame also says which map osu! has (src/overlay/mapInfo.js) and whether a map is being chosen (song select, a
+// multiplayer room): the map panel's.
+
+import { readTosuMap } from "./mapInfo.js";
+import { lazerOdSet } from "../lazer/realmDump.js";
 
 const STATES = { 0: "menu", 2: "playing", 5: "songselect", 7: "results" };
+const SELECTING = new Set([5, 12, 13]); // song select, a multiplayer room, its song select
 const SPEED = { DT: 1.5, NC: 1.5, HT: 0.75, DC: 0.75 };
 const num = (x) => {
     if (x === null || x === undefined || x === "" || typeof x === "boolean") return null;
@@ -50,19 +57,42 @@ export function readPlayFrame(json) {
         accuracy = num(json.resultsScreen.accuracy) ?? accuracy;
     }
     const mode = num(play.mode?.number) ?? num(json?.beatmap?.mode?.number) ?? num(json?.menu?.gameMode);
+    const rate = rateOf(play.mods);
+    const mods = modCodes(play.mods);
+    // the play is gone on lazer's results screen: the score shown there has the mods
+    const setBy = state === "results" && json?.resultsScreen?.mods ? json.resultsScreen.mods : play.mods;
     return {
         state,
         client: json?.client === "stable" || json?.client === "lazer" ? json.client : null,
         mode, // 3 = mania
         checksum: json?.beatmap?.checksum ? String(json.beatmap.checksum) : null,
-        rate: rateOf(play.mods),
-        mods: modCodes(play.mods),
+        rate,
+        mods,
+        odSet: lazerOdSet(setBy?.array), // the OD the play set itself (lazer's Difficulty Adjust), else null
+        selecting: SELECTING.has(json?.state?.number),
+        map: readTosuMap(json, { mode, rate, mods }),
         liveMs: num(json?.beatmap?.time?.live),
         hits,
         accuracy,
         ur: num(play.unstableRate),
         hitErrors: Array.isArray(play.hitErrorArray) ? play.hitErrorArray.filter((x) => Number.isFinite(x)) : [],
+        // where osu! is and who plays (folders.game, profile.name): osu! stable's settings file, for its key layouts
+        gameDir: typeof json?.folders?.game === "string" && json.folders.game ? json.folders.game : null,
+        profile: typeof json?.profile?.name === "string" && json.profile.name ? json.profile.name : null,
+        // a play that is not the player's own: autoplay or cinema, or someone else's (spectating, their replay:
+        // play.playerName is not the profile's). The keyboard is no part of it
+        watching: watching(play, json?.profile?.name),
     };
+}
+
+const nameKey = (s) => (typeof s === "string" ? s.trim().toLowerCase() : "");
+
+function watching(play, profileName) {
+    const mods = modCodes(play.mods);
+    if (mods.includes("AT") || mods.includes("CN")) return true;
+    const player = nameKey(play.playerName);
+    const me = nameKey(profileName);
+    return Boolean(player && me && player !== me);
 }
 
 // A /websocket/v2/precise frame: { currentTime, keys: { k1: { isPressed, count }, k2, m1, m2 } }. A future tosu

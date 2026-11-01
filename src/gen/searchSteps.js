@@ -142,3 +142,27 @@ export async function searchRange({ evaluate, lo, hi, min, max, seed, score, bud
     attempts.sort((a, b) => gap(a) - gap(b));
     return { best: attempts[0], inRange: false };
 }
+
+// A map a last edit put outside its range (start: { knob, numeric, … }, already drawn) comes back in by the smallest move
+// of a knob that only reaches part of it, so as much of the edit as the range allows stays: `steps` even steps from the
+// start, up to `span` away, down when it came out too hard and up when too easy. A walk, not a bisection: the dan reads
+// ±0.3 from one draw to the next, and a jump to the middle of the span can land in range far past what was needed. Two
+// steps running that come no closer end it: each is a whole draw of the song, and such a part is at what the knob can do
+// (the dan of a map is its hardest stretches, which a part's knob may barely touch).
+// draw(knob) → { knob, numeric, … }. → the first try inside the range, else the try nearest it (start when none came closer).
+export async function backInRange({ draw, start, range, span, steps = 4 }) {
+    const gap = (a) => (!Number.isFinite(a.numeric) ? Infinity : a.numeric < range.lo ? range.lo - a.numeric : Math.max(0, a.numeric - range.hi));
+    const direction = start.numeric >= range.hi ? -1 : 1;
+    let closest = start;
+    let stale = 0;
+    for (let k = 1; k <= steps && stale < 2; k += 1) {
+        const a = await draw(start.knob + direction * (span * k) / steps);
+        if (a.numeric >= range.lo && a.numeric < range.hi) return a;
+        stale += 1;
+        if (gap(a) < gap(closest)) {
+            closest = a;
+            stale = 0;
+        }
+    }
+    return closest;
+}

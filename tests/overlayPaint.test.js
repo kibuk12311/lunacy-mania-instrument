@@ -244,8 +244,14 @@ test("widget: the edit mode's made-up numbers go on moving outside a play; the j
     keys.config(true);
     keys.on.visible(true);
     keys.on.state(snap("idle", false));
-    for (let i = 0; i < 20; i += 1) assert.equal(keys.frames.step(), 1, "edit mode: the key lines every frame");
+    for (let i = 0; i < 5; i += 1) {
+        assert.equal(keys.frames.step(), 1, "edit mode: the made-up key lines go on");
+        assert.equal(keys.frames.pending(), 0, "about 60 a second, not every screen refresh: nobody plays to them");
+        await new Promise((r) => setTimeout(r, EASE_MS + 4));
+    }
     keys.config(false);
+    keys.frames.step();
+    await new Promise((r) => setTimeout(r, EASE_MS + 4));
     keys.frames.step();
     assert.equal(keys.frames.pending(), 0, "the edit mode over: at rest");
 

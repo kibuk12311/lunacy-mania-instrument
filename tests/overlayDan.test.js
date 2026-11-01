@@ -152,7 +152,7 @@ test("settings: the Dan widget's defaults are the overall dan alone; its size fo
     const d = normalizeOverlaySettings(null);
     assert.equal(d.v, SETTINGS_VERSION);
     assert.deepEqual(d.widgets.dan, {
-        enabled: true, style: "card", opacity: 1, scale: 1, x: null, y: null,
+        enabled: true, style: "card", bgOpacity: 1, textOpacity: 1, font: null, weight: 0, radius: null, scale: 1, x: null, y: null,
         show: { map: true, pattern: false, forYou: false, play: false },
     });
     assert.deepEqual(SHOW.dan, ["map", "pattern", "forYou", "play"]);
@@ -182,7 +182,13 @@ test("settings: the Dan widget's defaults are the overall dan alone; its size fo
     const migrated = loadOverlaySettings(file);
     assert.equal(migrated.enabled, true);
     assert.equal(migrated.showOnResults, false);
-    assert.deepEqual(migrated.widgets.judgements, { enabled: false, style: "neon", opacity: 0.6, scale: 1.2, x: 10, y: 20, show: { counts: true, ratio: true, accuracy: true, ur: false } });
+    // its opacity (v2 had one) goes to the background and the text
+    const { rows, colors, ...judgements } = migrated.widgets.judgements;
+    assert.deepEqual(judgements, {
+        enabled: false, style: "neon", bgOpacity: 0.6, textOpacity: 0.6, font: null, weight: 0, radius: null, scale: 1.2, x: 10, y: 20,
+        show: { counts: true, ratio: true, accuracy: true, ur: false },
+    });
+    assert.ok(Object.values(rows).every(Boolean) && Object.values(colors).every((c) => c === null), "every judgement, the style's colours");
     assert.equal(migrated.widgets.kps.style, "compact");
     assert.equal(migrated.widgets.keys.show.counts, false);
     assert.deepEqual(migrated.widgets.dan, d.widgets.dan, "the new widget with its defaults");
@@ -208,7 +214,10 @@ test("settings migration from 0.9.6: the line and now dropped; extras never touc
     };
     // as 0.9.6 wrote it out of the box: every line on
     const untouched = await load({ enabled: true, style: "neon", opacity: 0.8, scale: 1.3, x: 40, y: 50, show: { map: true, pattern: true, live: true, forYou: true, play: true } });
-    assert.deepEqual(untouched, { enabled: true, style: "neon", opacity: 0.8, scale: 1.3, x: 40, y: 50, show: { map: true, pattern: false, forYou: false, play: false } });
+    assert.deepEqual(untouched, {
+        enabled: true, style: "neon", bgOpacity: 0.8, textOpacity: 0.8, font: null, weight: 0, radius: null, scale: 1.3, x: 40, y: 50,
+        show: { map: true, pattern: false, forYou: false, play: false },
+    });
     // the line turned off but the extras left as they came: off now
     assert.deepEqual((await load({ show: { map: true, pattern: true, live: false, forYou: true, play: true } })).show, { map: true, pattern: false, forYou: false, play: false });
     // "for you" turned off by hand: the player chose, the rest of their choice kept
@@ -259,8 +268,8 @@ test("the Dan widget's DOM: the overall dan alone by default, extras when asked,
     view.paint(500); // nothing to draw
     view.update({ phase: "results", checksum: "m", rate: 1.2, clock: 900, hits: { max: 1000, n300: 0, n200: 0, n100: 0, n50: 0, miss: 0 }, mods: [] });
     const box = root.children[0];
-    assert.deepEqual(box.children.map((n) => n.className), ["d-head", "d-pattern", "d-play", "d-fit band-challenge"], "no line, no canvas");
-    const play = box.children.find((n) => n.className === "d-play");
+    assert.deepEqual(box.children.map((n) => n.className), ["d-head", "d-pattern fit", "d-play fit", "d-fit fit band-challenge"], "no line, no canvas");
+    const play = box.children.find((n) => n.className === "d-play fit");
     assert.equal(play.textContent, "эта игра: Gamma mid/high");
     view.update({ phase: "playing", checksum: "n", rate: 1, clock: 0 });
     assert.equal(box.dataset.state, "counting");

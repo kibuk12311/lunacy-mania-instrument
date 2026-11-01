@@ -591,7 +591,8 @@ test("overlay: Interlude's play shows the widgets (no tosu needed); minimized or
         }
         await tick();
         const shown = () => windows.filter((w) => overlay.isShown(w.query.w));
-        assert.equal(shown().length, WIDGETS.length, "every widget is up during Interlude's play");
+        const onByDefault = WIDGETS.filter((w) => w !== "map"); // the map panel is off until turned on
+        assert.equal(shown().length, onByDefault.length, "every widget is up during Interlude's play");
         const keepUps = every.filter((e) => e.ms === KEEP_UP_MS);
         assert.equal(keepUps.length, 1, "one watchdog while widgets are up");
         // Win+D / the game minimized: the widget's own minimize puts it back
@@ -611,7 +612,7 @@ test("overlay: Interlude's play shows the widgets (no tosu needed); minimized or
         main.minimize();
         main.emit("restore");
         await tick();
-        assert.equal(shown().length, WIDGETS.length);
+        assert.equal(shown().length, onByDefault.length);
         assert.ok(windows.every((w) => w.visible && !w.minimized));
         assert.ok(windows.every((w) => !w.options.parent), "no parent: never tied to the main window");
         // Interlude gone: the play is over

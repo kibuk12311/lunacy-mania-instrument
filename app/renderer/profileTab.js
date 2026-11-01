@@ -221,6 +221,7 @@ function countsText(c) {
     if (!c?.plays) return t("profile.local.noPlays");
     const parts = [t("profile.local.count", { n: c.plays, rated: c.rated })];
     if (c.vibro) parts.push(t("profile.local.vibro", { n: c.vibro }));
+    if (c.lowOd) parts.push(t("profile.local.lowOd", { n: c.lowOd }));
     if (c.live) parts.push(t("profile.local.fromLive", { n: c.live }));
     if (c.stable) parts.push(t("profile.local.fromStable", { n: c.stable }));
     if (c.interlude) parts.push(t("profile.local.fromInterlude", { n: c.interlude }));

@@ -3,7 +3,8 @@
 // synthetic osu! folder (Songs with charts of tests/fixtures/makeChart.js and one vibro chart of
 // tests/fixtures/makeVibroChart.js, a scores.db of TestPlayer's plays) imported with «Импорт из osu! stable» (the real
 // service, the real analyzer in-process); «Мой профиль» says how many plays were left out and marks the vibro plays,
-// and its dans are the ones without them; then the card (the real selection controller over the same analyzer) shows
+// and its dans are the ones without them, an OD 6 chart's plays carry just the mark <OD7; then the card (the real
+// selection controller over the same analyzer) shows
 // the vibro chip with its tooltip on the vibro chart and none on a normal one. userData lives in <out-dir>/user-data;
 // screenshots vibro-*.png go to <out-dir>. Every http(s) request is cancelled. Exits 1 on any failed check.
 import { app, BrowserWindow, ipcMain, session } from "electron";
@@ -83,6 +84,7 @@ for (const [i, c] of CHARTS.entries()) {
 const VIBRO_INDEX = CHARTS.length;
 addChart(vibroChart(), VIBRO_INDEX, 3);
 const vibroText = texts[VIBRO_INDEX];
+addChart(makeChart({ kind: "jumpstream", bpm: 240, seconds: 120 }).replace(/^Title:.*$/m, "Title:Smoke low OD").replace(/^OverallDifficulty:.*$/m, "OverallDifficulty:6"), VIBRO_INDEX + 1, 2);
 mkdirSync(osuDir, { recursive: true });
 writeFileSync(path.join(osuDir, "scores.db"), makeScoresDb(scores));
 
@@ -170,6 +172,13 @@ app.whenReady().then(async () => {
     check(/\d+%/.test(tip), "the play's tooltip says how much of the map is vibro");
     const best = await text("prof-local-top");
     check(!best.includes("Smoke vibro dump"), "the best plays leave it out");
+    check(st.counts.lowOd === 2, `the OD 6 map's 2 passes are left out (${st.counts.lowOd})`);
+    check(counts.includes(t("profile.local.lowOd", { n: 2 })), "the counts say so");
+    check(await js(`document.querySelectorAll("#prof-local-recent .prof-play.low-od").length === 2`), "the two OD 6 plays are marked");
+    const lowOdLine = await js(`document.querySelector("#prof-local-recent .prof-play.low-od .prof-play-line").innerText`);
+    console.log("OD 6 play:", lowOdLine);
+    check(lowOdLine.split(" · ").includes("<OD7"), "the mark is just <OD7");
+    check(!best.includes("Smoke low OD"), "the best plays leave them out");
     await js(`document.getElementById("prof-local-counts").scrollIntoView({ block: "center" }); true`);
     await shot(`vibro-profile-counts-${lang}.png`);
     await js(`document.getElementById("prof-local-recent").scrollIntoView({ block: "start" }); true`);

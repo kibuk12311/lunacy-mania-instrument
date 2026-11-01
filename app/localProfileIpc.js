@@ -7,14 +7,17 @@ import { readFile, writeFile, stat } from "node:fs/promises";
 import { connectTosu } from "./tosuClient.js";
 import { createLocalProfileStore } from "./localProfileStore.js";
 import { createLocalProfileService } from "./localProfileService.js";
-import { createSongsMd5Index } from "./osuSongsScan.js";
+import { songsIndexAt } from "./osuSongsScan.js";
 import { readRecent } from "../src/recommend/progress.js";
 import { t } from "../src/i18n/i18n.js";
 
 export const HISTORY_DAYS = [7, 30, 90, 365];
-// after the window loads, the pass over the maps kept before vibro was looked at waits this long (the start is busy)
+// after the window loads, the pass over the maps kept before vibro and the OD were looked at waits this long (the start
+// is busy)
 export const VIBRO_CHECK_DELAY_MS = 8000;
 export const TRACKER_SITE = "https://mania-tracker.com/player/";
+// the md5 index of osu!'s Songs folder (app/osuSongsScan.js); the Replay tab finds maps in it too
+export const songsIndexFile = (userData) => path.join(userData, "local-profile", "songs-md5.json");
 const fail = (error) => ({ ok: false, message: String(error?.message ?? error) });
 
 // tosu's /json/v2 folders while it reads osu! stable: { game, songs } (nulls otherwise).
@@ -49,7 +52,7 @@ export function createLocalProfile({ userData, analysis, interlude = null, lazer
         },
         readFile: (file) => readFile(file),
         exists: async (file) => Boolean((await stat(file).catch(() => null))?.isFile()),
-        songsIndex: createSongsMd5Index({ indexFile: path.join(dir, "songs-md5.json") }),
+        songsIndex: songsIndexAt(songsIndexFile(userData)),
         osuFolders: () => osuFoldersFrom(port),
         defaultOsuFolder: env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "osu!") : null,
         interlude: interlude ? {
@@ -181,8 +184,8 @@ export function registerLocalProfileIpc({ ipcMain, dialog, window, shell, log, l
     ipcMain.handle("local-profile-reset", () => h.reset());
     ipcMain.handle("tracker-recent", () => h.trackerRecent());
     ipcMain.handle("tracker-open-site", () => h.openTracker());
-    // the recording starts with the window (registering does no I/O), once; a while later the maps kept before vibro
-    // was looked at are looked at (src/vibro/detect.js), so a saved profile leaves its vibro plays out of the dans too
+    // the recording starts with the window (registering does no I/O), once; a while later the kept maps without this
+    // version's vibro answer or their OD are looked at, so a saved profile updates by itself after an update of the app
     let socket = null;
     let vibroTimer = null;
     hooks?.on?.("window-load", () => {

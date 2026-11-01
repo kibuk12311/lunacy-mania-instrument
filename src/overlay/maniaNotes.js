@@ -26,7 +26,10 @@ export function parseManiaNotes(osuText) {
             const col = Math.max(0, Math.min(keys - 1, Math.floor((x * keys) / 512)));
             // a hold note (type bit 128) keeps its end time before the first ':' of the last field
             const end = type & 128 ? Number(String(parts[5] ?? "").split(":")[0]) : NaN;
-            notes.push({ t, col, end: Number.isFinite(end) && end > t ? end : null });
+            const note = { t, col, end: Number.isFinite(end) && end > t ? end : null };
+            // a hold written to end before it starts: played like no note at all (src/replay/judge.js)
+            if (end < t) note.reversed = true;
+            notes.push(note);
         }
     }
     notes.sort((a, b) => a.t - b.t || a.col - b.col);

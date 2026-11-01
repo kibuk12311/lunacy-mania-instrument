@@ -7,9 +7,10 @@
 //     its .osu text (tosu's file, Interlude's library chart) goes through the same analysis and cache.
 // analyze({ text, rate, result }) → { result } (makeDanAnalyzer below: the shared cache, the worker's background
 // line); onChange(key) when an entry changed. Beside a result with a dan the entry keeps whether the map is vibro at
-// that rate (src/vibro/detect.js over the same .osu, not part of the analysis): the widget's "this play" says so.
+// that rate and its OD (from the same .osu, not part of the analysis): the widget's "this play" says so.
 import { danKey, danStateOf } from "../../src/overlay/dan.js";
 import { detectVibro, vibroSummary } from "../../src/vibro/detect.js";
+import { osuOverallDifficulty } from "../../src/localProfile/model.js";
 
 const KEEP = 8; // maps kept
 export const RETRY_MS = 15_000; // a transient failure (the worker busy, a fetch that failed) is asked again after this
@@ -35,8 +36,11 @@ function vibroFor(result, text, rate) {
     }
 }
 
+// A result with a dan and its .osu → the map's OD, or null.
+const odFor = (result, text) => (result?.kind === "ok" ? osuOverallDifficulty(text) : null);
+
 export function createDanSource({ analyze = null, log = () => {}, onChange = () => {}, now = () => Date.now(), keep = KEEP }) {
-    const entries = new Map(); // key → { state, result, vibro, failedAt, version }
+    const entries = new Map(); // key → { state, result, vibro, od, failedAt, version }
     let version = 0;
 
     function put(key, patch) {
@@ -64,7 +68,7 @@ export function createDanSource({ analyze = null, log = () => {}, onChange = () 
             const out = await analyze({ text: body, rate, result });
             const transient = out?.result?.kind === "error" && out.result.transient;
             const got = transient ? null : out?.result ?? null;
-            put(key, { state: transient ? "failed" : "done", result: got, vibro: vibroFor(got, body, rate), failedAt: transient ? now() : null });
+            put(key, { state: transient ? "failed" : "done", result: got, vibro: vibroFor(got, body, rate), od: odFor(got, body), failedAt: transient ? now() : null });
             log(`overlay dan ${key} ${out?.result?.kind ?? "?"}`);
         } catch (error) {
             log(`overlay dan ${key} failed: ${error?.message ?? error}`);
@@ -93,7 +97,7 @@ export function createDanSource({ analyze = null, log = () => {}, onChange = () 
             const key = danKey(id, rate);
             const e = entries.get(key);
             if (e?.state === "done" && e.result?.kind === result.kind && e.result?.numeric === result.numeric) return;
-            put(key, { state: "done", result, vibro: vibroFor(result, text, rate), failedAt: null });
+            put(key, { state: "done", result, vibro: vibroFor(result, text, rate), od: odFor(result, text), failedAt: null });
         },
         get: (key) => entries.get(key) ?? null,
         // the widget's state for an entry: "counting" while there is no result yet

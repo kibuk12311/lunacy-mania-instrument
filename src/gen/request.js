@@ -112,6 +112,26 @@ export function normalizeRequest(raw, _durationMs) {
 const badParts = (what) => new Error(t("gen.parts.bad", { what }));
 const isNumber = (v) => typeof v === "number" && Number.isFinite(v);
 
+// The «Характер» sliders a part may have of its own.
+export const CHARACTER = ["stamina", "burst"];
+// Whether a part (sent, normalised or on the timeline) has a character of its own.
+export const hasOwnCharacter = (p) => CHARACTER.some((key) => isNumber(p?.[key]));
+// A part's character: its own values, the whole map's (request: { stamina, burst }) for the rest.
+export const characterOf = (part, request) => ({
+    stamina: isNumber(part?.stamina) ? part.stamina : request.stamina,
+    burst: isNumber(part?.burst) ? part.burst : request.burst,
+});
+// The indexes of the parts whose character really differs from the whole map's (a part given the whole map's own values
+// has none: it is drawn as any other). The generators draw these parts last of all, over the finished map.
+export function ownCharacterParts(parts, request) {
+    const out = [];
+    parts.forEach((part, k) => {
+        const own = characterOf(part, request);
+        if (!part.empty && (own.stamina !== request.stamina || own.burst !== request.burst)) out.push(k);
+    });
+    return out;
+}
+
 function checkPart(p, i) {
     const at = `parts[${i}]`;
     if (!p || typeof p !== "object" || !isNumber(p.startMs) || !isNumber(p.endMs) || !(p.startMs < p.endMs)) throw badParts(at);
@@ -129,12 +149,18 @@ function checkPart(p, i) {
     }
     if (p.empty) out.empty = true;
     if (Number.isSafeInteger(p.seed)) out.seed = p.seed;
+    // the part's own «Характер» (stamina, burst: 0..1 each, either one alone); absent: the whole map's
+    for (const key of CHARACTER) {
+        if (p[key] === undefined || p[key] === null) continue;
+        if (!isNumber(p[key]) || p[key] < 0 || p[key] > 1) throw badParts(`${at}.${key}`);
+        out[key] = p[key];
+    }
     return out;
 }
 
 // Song parts (sent or detected) → parts that cover [0, durationMs) end to end: sorted, clipped, gaps closed by
 // stretching the part before, parts under a bar merged into a neighbour, at most 24 (the shortest merge first).
-// A merged part keeps its neighbour's settings. Throws gen.parts.bad naming the field.
+// A merged part keeps its neighbour's settings (its own character too: stamina, burst). Throws gen.parts.bad naming the field.
 export function normalizeParts(parts, durationMs, { barMs = DEFAULT_BAR_MS } = {}) {
     if (!Array.isArray(parts)) throw badParts("parts");
     const checked = parts.map(checkPart);

@@ -4,7 +4,7 @@
 // retry. A results screen opened from song select (a saved score, a replay) is no new play. Watching someone else
 // (a replay or spectating: the play's player is not the logged-in one) is never recorded.
 // onPlay({ client, md5, beatmapId, beatmapsetId, artist, title, version, rate, mods, hits, accuracy, maxCombo,
-//          outcome: "pass" | "fail" | "quit", startedAt, at }).
+//          outcome: "pass" | "fail" | "quit", startedAt, at }), and odSet when the play set the OD itself (Difficulty Adjust).
 import { readPlayFrame, totalHits } from "../overlay/tosuData.js";
 import { accuracyOf } from "./model.js";
 
@@ -27,6 +27,7 @@ export function readRecordFrame(json) {
     const results = json?.resultsScreen ?? {};
     const player = text(json?.play?.playerName) || text(results.playerName);
     const me = text(json?.profile?.name);
+    const mods = frame.state === "results" && results.mods ? results.mods : json?.play?.mods;
     return {
         ...frame,
         beatmapId: id(b.id),
@@ -34,7 +35,7 @@ export function readRecordFrame(json) {
         artist: text(b.artist),
         title: text(b.title),
         version: text(b.version),
-        mods: modsOf(frame.state === "results" && results.mods ? results.mods : json?.play?.mods),
+        mods: modsOf(mods),
         // on the results screen the score shown there (lazer resets the play)
         maxCombo: frame.state === "results" ? (num(results.maxCombo) ?? num(json?.play?.combo?.max)) : num(json?.play?.combo?.max),
         health: num(json?.play?.healthBar?.normal),
@@ -57,7 +58,7 @@ export function createPlayRecorder({ onPlay, leaveMs = LEAVE_MS, minHits = MIN_H
             client: p.client, md5: p.md5, beatmapId: p.beatmapId, beatmapsetId: p.beatmapsetId,
             artist: p.artist, title: p.title, version: p.version, rate: p.rate, mods: p.mods,
             hits: { ...p.hits }, accuracy: acc === null ? null : Math.round(acc * 10000) / 1e6, maxCombo: p.maxCombo,
-            outcome, startedAt: p.startedAt, at,
+            outcome, startedAt: p.startedAt, at, ...(p.odSet === null ? {} : { odSet: p.odSet }),
         };
         try {
             onPlay?.(out);
@@ -70,7 +71,7 @@ export function createPlayRecorder({ onPlay, leaveMs = LEAVE_MS, minHits = MIN_H
     function start(f, at) {
         play = {
             client: f.client, md5: f.checksum ? f.checksum.toLowerCase() : null, beatmapId: f.beatmapId, beatmapsetId: f.beatmapsetId,
-            artist: f.artist, title: f.title, version: f.version, rate: f.rate, mods: f.mods,
+            artist: f.artist, title: f.title, version: f.version, rate: f.rate, mods: f.mods, odSet: f.odSet,
             hits: { ...f.hits }, maxCombo: f.maxCombo, health: f.health, foreign: f.foreign, startedAt: at,
         };
     }
@@ -96,6 +97,7 @@ export function createPlayRecorder({ onPlay, leaveMs = LEAVE_MS, minHits = MIN_H
             play.hits = { ...f.hits };
             play.rate = f.rate > 0 ? f.rate : play.rate;
             if (f.mods.length) play.mods = f.mods;
+            play.odSet = f.odSet ?? play.odSet;
             play.maxCombo = f.maxCombo ?? play.maxCombo;
             play.health = f.health ?? play.health;
             play.foreign ||= f.foreign;
@@ -109,6 +111,7 @@ export function createPlayRecorder({ onPlay, leaveMs = LEAVE_MS, minHits = MIN_H
             if (totalHits(f.hits) > 0) play.hits = { ...f.hits };
             if (f.maxCombo) play.maxCombo = f.maxCombo;
             if (f.mods.length) play.mods = f.mods;
+            play.odSet = f.odSet ?? play.odSet;
             return finish("pass", now);
         }
         return null;

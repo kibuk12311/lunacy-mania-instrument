@@ -1,13 +1,13 @@
 // The local profile on disk, all in userData\local-profile (nothing leaves the machine):
 //   plays.jsonl   — one play per line, appended as they come (the source of truth: the skill is worked out from it);
 //   maps.json     — the analysis summary of each map at each rate a play was on ("md5@1.10"), so a map is analysed once,
-//                   with whether it is vibro at that rate beside it (src/vibro/detect.js, not part of the analysis);
+//                   with whether it is vibro at that rate and the OD of its .osu beside it (not part of the analysis);
 //   settings.json — { record, osuFolder, imports: { stable, interlude, lazer } }.
 // A play is the same play when its id matches or when md5, rate and every judgement do (the live recording and a
 // later scores.db import, a replay of one's own score): it is kept once. Export is one JSON file with all three.
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
-import { vibroSummary } from "../src/vibro/detect.js";
+import { vibroCurrent, vibroSummary } from "../src/vibro/detect.js";
 
 export const BUNDLE_FORMAT = "lunacy-mania-local-profile";
 export const BUNDLE_VERSION = 1;
@@ -61,12 +61,14 @@ export function normalizePlay(x) {
         maxCombo: Number.isInteger(x.maxCombo) && x.maxCombo >= 0 ? x.maxCombo : null,
         outcome: OUTCOMES.includes(x.outcome) ? x.outcome : "pass",
         at,
+        ...(finite(x.odSet) === null ? {} : { odSet: x.odSet }), // the OD the play set itself (lazer's Difficulty Adjust)
     };
 }
 
 // An analysis result (src/core/analyze.js) → what is kept of it: the dans, the pattern shares, the length; and, set
 // beside it by the service (never part of the analysis), whether the map is vibro at that rate (src/vibro/detect.js
-// vibroSummary), so the model can leave its plays out of the dans.
+// vibroSummary) and the OD of its .osu (null: the text has none; no od at all: its .osu was not read yet), so the model
+// can leave its plays out of the dans.
 export function mapSummary(result) {
     if (!result || !MAP_KINDS.includes(result.kind)) return null;
     if (result.kind !== "ok") return { kind: result.kind };
@@ -87,7 +89,16 @@ export function mapSummary(result) {
         primary: typeof result.primary === "string" ? result.primary.slice(0, 40) : null,
         durationSec: finite(result.durationSec),
         ...(vibro ? { vibro } : {}),
+        ...("od" in result ? { od: finite(result.od) } : {}),
     };
+}
+
+// What a backup adds to a map this profile has: the OD when ours has none, the vibro answer when ours has none or one
+// of an older version.
+function withBackupFacts(ours, theirs) {
+    const vibro = !ours.vibro || (vibroCurrent(theirs.vibro) && !vibroCurrent(ours.vibro)) ? theirs.vibro : ours.vibro;
+    const od = ours.od ?? theirs.od;
+    return { ...ours, ...(vibro ? { vibro } : {}), ...(od !== undefined ? { od } : {}) };
 }
 
 const normalizeMap = (x) => (x && typeof x === "object" && MAP_KINDS.includes(x.kind) ? (x.kind === "ok" ? mapSummary(x) : { kind: x.kind }) : null);
@@ -208,6 +219,16 @@ export function createLocalProfileStore({ dir, fs = nodeFs }) {
             state.maps.set(key, m);
             await saveMaps();
         }),
+        // many kept maps at one write (the pass over a whole profile): entries [[key, summary]]; a map no longer here (the
+        // profile was reset while the pass read) is not brought back
+        setMaps: (entries) => serial(async () => {
+            await load();
+            for (const [key, summary] of entries) {
+                const m = normalizeMap(summary);
+                if (m && state.maps.has(key)) state.maps.set(key, m);
+            }
+            await saveMaps();
+        }),
         settings: async () => structuredClone((await load()).settings),
         updateSettings: (fn) => serial(async () => {
             await load();
@@ -238,8 +259,7 @@ export function createLocalProfileStore({ dir, fs = nodeFs }) {
                 if (!m || !/^[0-9a-f]{32}@\d\.\d\d$/.test(k)) continue;
                 const ours = state.maps.get(k);
                 if (!ours) state.maps.set(k, m);
-                // the backup knows whether the map is vibro and this profile does not yet: that answer is taken
-                else if (ours.kind === "ok" && m.kind === "ok" && !ours.vibro && m.vibro) state.maps.set(k, { ...ours, vibro: m.vibro });
+                else if (ours.kind === "ok" && m.kind === "ok") state.maps.set(k, withBackupFacts(ours, m));
             }
             state.plays.sort((a, b) => a.at - b.at);
             await savePlays();

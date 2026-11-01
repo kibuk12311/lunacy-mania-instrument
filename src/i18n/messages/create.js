@@ -92,7 +92,7 @@ export default {
         ru: "Найдено частей: {n} · дропов: {d}",
         en: ({ n, d }) => `{n} ${Number(n) === 1 ? "part" : "parts"} found · {d} ${Number(d) === 1 ? "drop" : "drops"}`,
     },
-    "create.parts.hint": { ru: "Нажми на часть, чтобы задать ей свой паттерн и дан", en: "Click a part to give it its own pattern and dan" },
+    "create.parts.hint": { ru: "Нажми на часть, чтобы задать ей свой паттерн, дан и характер", en: "Click a part to give it its own pattern, dan and character" },
     "create.parts.same": { ru: "Как у всей карты", en: "Same as the whole map" },
     "create.parts.anyStep": { ru: "любой", en: "any" },
     "create.parts.empty": { ru: "Без нот", en: "No notes" },
@@ -100,6 +100,12 @@ export default {
     "create.parts.merge": { ru: "Склеить со следующей", en: "Merge with the next" },
     "create.parts.reset": { ru: "Сбросить части", en: "Reset parts" },
     "create.parts.badgeOff": { ru: "≈ {label} (просили {wanted})", en: "≈ {label} (asked for {wanted})" },
+    "create.parts.characterSame": { ru: "как у всей карты", en: "as the whole map" },
+    "create.parts.characterOwn": { ru: "свой у этой части", en: "this part's own" },
+    "create.parts.characterHint": {
+        ru: "Выносливость и всплески только этой части; остальная карта — по общим ползункам «Характер»",
+        en: "Stamina and bursts of this part only; the rest of the map follows the main Character sliders",
+    },
     "create.parts.danHint": {
         ru: "Дан этой части, если играть её отдельно — обычно чуть ниже дана всей карты",
         en: "This part's dan if played on its own — usually a bit lower than the whole map's",

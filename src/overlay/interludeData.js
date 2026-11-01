@@ -8,6 +8,8 @@
 // order, under the ruleset's own (short) names; any other count is shown as the ruleset's own rows, and the six
 // slots get the first ones in order with the last as the miss.
 
+import { readInterludeMap } from "./mapInfo.js";
+
 const PLAY_SCREENS = new Set(["play", "practice", "replay"]);
 const SLOTS = ["max", "n300", "n200", "n100", "n50", "miss"];
 const SHORT = { MARVELLOUS: "MARV", MARVELOUS: "MARV", PERFECT: "PERF", EXCELLENT: "EXC", FANTASTIC: "FANT" };
@@ -85,6 +87,8 @@ export function readInterludeFrame(msg) {
         keys: num(chart?.keys),
         rate: rate > 0 ? rate : 1,
         mods: [],
+        selecting: screen === "levelselect" || screen === "lobby",
+        map: readInterludeMap(msg),
         liveMs: num(play?.timeMs),
         paused: play?.paused === true,
         playId: num(play?.playId),

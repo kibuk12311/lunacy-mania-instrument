@@ -1,15 +1,18 @@
-// One overlay widget window: the config comes from main (style, opacity, scale, what to show, the edit mode, and for
-// the Dan widget the map's dan data — sent again whenever the map, the rate or the profile changes),
+// One overlay widget window: the config comes from main (style, scale, what to show, its look, the overlay's language,
+// the edit mode, the options the made-up numbers follow, and for the Dan widget the map's dan data — sent again
+// whenever the map, the rate or the profile changes),
 // snapshots of the play about 30 times a second while it is shown, and whether it is shown at all.
 // Hidden, it draws nothing. Shown, the key lines are drawn every animation frame while a play runs (they move with its
 // clock); everything else only when a snapshot or a config comes or the window's size or pixel ratio changes, and while
 // a number or a graph's scale still eases (src/overlay/paintLoop.js).
-// In the edit mode outside a play it shows made-up numbers, so there is something to place; they go on moving: the key
-// lines every frame, the rest about 60 times a second (their numbers change every 100 ms).
-import { setLang, t } from "../../src/i18n/i18n.js";
+// In the edit mode outside a play it shows made-up numbers, so there is something to place; they go on moving, about 60
+// times a second, the key lines too (nobody plays to them, and on a 500 Hz screen every frame would cost a third of a core).
+// The map panel (quiet) is the exception: main sends it a state only when something on it changed, it draws nothing per
+// frame, and its made-up map goes in once. A map it really has is shown in the edit mode too, so it can be placed on it.
+import { getLang, setLang, t } from "../../src/i18n/i18n.js";
 import { fakeSnapshot } from "../../src/overlay/fake.js";
 import { createPaintLoop } from "../../src/overlay/paintLoop.js";
-import { SCALE } from "../../src/overlay/settings.js";
+import { SCALE, overlayLang } from "../../src/overlay/settings.js";
 import { clockAt, mountWidget } from "./render.js";
 
 const api = window.overlayApi;
@@ -24,27 +27,37 @@ let view = null;
 let snapshot = null;
 let receivedAt = 0;
 let lastFake = 0;
+let faked = false; // the quiet panel has its made-up map
+let image; // the map panel's picture: its state brings it only when it changed
 
 function mount() {
     if (!config) return;
+    // the overlay's own language, or the app's
+    const lang = overlayLang(config.lang, api.lang);
+    if (lang !== getLang()) setLang(lang);
     document.body.classList.toggle("editing", config.edit);
     document.documentElement.style.zoom = String(config.scale);
     root.style.width = "100%";
     root.style.height = "100%";
-    root.style.opacity = String(config.opacity);
     badge.textContent = `${t(`overlay.widget.${widget}`)} · ${t("overlay.edit.badge")}`;
-    view = mountWidget(root, widget, { style: config.style, show: config.show, zoom: config.scale, dan: config.dan ?? null });
+    view = mountWidget(root, widget, { style: config.style, show: config.show, zoom: config.scale, dan: config.dan ?? null, look: config.look ?? null });
+    faked = false;
     if (snapshot) view.update(snapshot);
 }
 
-const faking = () => config?.edit && (!snapshot || snapshot.phase !== "playing");
+const faking = () => config?.edit && (widget === "map" ? !snapshot?.map : !snapshot || snapshot.phase !== "playing");
 
 // → whether something still eases
 function paint(now) {
     if (!view) return false;
+    if (faking() && view.quiet) {
+        if (!faked) view.update(fakeSnapshot(now, config.options));
+        faked = true;
+        return false;
+    }
     if (faking()) {
         if (now - lastFake > 100) {
-            view.update(fakeSnapshot(now));
+            view.update(fakeSnapshot(now, config.options));
             lastFake = now;
         }
         view.paint(now);
@@ -55,7 +68,7 @@ function paint(now) {
 
 const loop = createPaintLoop({
     paint,
-    live: () => view?.live === true && (faking() || (snapshot?.phase === "playing" && snapshot.running === true)),
+    live: () => view?.live === true && !faking() && snapshot?.phase === "playing" && snapshot.running === true,
     requestFrame: (fn) => requestAnimationFrame(fn),
     cancelFrame: (id) => cancelAnimationFrame(id),
 });
@@ -66,6 +79,11 @@ api.onConfig((c) => {
     loop.wake();
 });
 api.onState((s) => {
+    if (widget === "map") {
+        if (s.image !== undefined) image = s.image;
+        s = { ...s, image: image ?? null };
+        faked = false;
+    }
     snapshot = s;
     receivedAt = performance.now();
     view?.update(s);
@@ -76,8 +94,11 @@ api.onVisible((on) => loop.setVisible(on));
 // The canvases take the size they are shown at only when they are drawn (render.js sizedContext). A window resized
 // (main's setBounds for a new scale or style lands after the config) or a screen of another pixel ratio (Windows'
 // display scaling, another monitor) is drawn again at once: an idle widget (the results screen) would otherwise stay
-// stretched or blurry until a snapshot that differs.
-window.addEventListener("resize", () => loop.wake());
+// stretched or blurry until a snapshot that differs. What fits itself to the widget looks again at the size it got.
+window.addEventListener("resize", () => {
+    view?.fit();
+    loop.wake();
+});
 // the ratio can change with the size in CSS pixels the same: a query for the ratio of now, asked anew for each new one
 function watchRatio() {
     window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener("change", () => {

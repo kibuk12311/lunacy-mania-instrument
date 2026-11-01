@@ -37,12 +37,14 @@ import { createInterludeClient } from "./interludeClient.js";
 import { registerInterludeIpc } from "./interludeIpc.js";
 import { createLocalProfile, registerLocalProfileIpc } from "./localProfileIpc.js";
 import { createReaderProcess, readerArgs, readerPath } from "./interludeReader.js";
+import { createKeyReader, keyReaderPath } from "./keyReader.js";
 import { createInterludeLive, liveText } from "./interludeLive.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { chartTimeNotes } from "../src/overlay/interludeData.js";
 import { registerSessionIpc } from "./sessionIpc.js";
 import { createLazerRealm, lazerDataDir } from "./lazerRealm.js";
 import { registerSkinIpc } from "./skinIpc.js";
+import { registerReplayIpc } from "./replayIpc.js";
 import { registerSettingsIpc } from "./settingsIpc.js";
 import { createStyleCatalog } from "./modelStyles.js";
 import { setLang, getLang, langForLocale, LANGS, LANG_NAMES, t } from "../src/i18n/i18n.js";
@@ -261,7 +263,7 @@ async function main() {
     });
     updater.start();
     overlay = createOverlay({
-        electron: { BrowserWindow, ipcMain, globalShortcut, screen, powerMonitor },
+        electron: { BrowserWindow, ipcMain, globalShortcut, screen, powerMonitor, nativeImage },
         userData: app.getPath("userData"), port: TOSU_PORT, t, log,
         onChange: () => buildTray(), icon: path.join(here, "assets", "icon.png"), mainWindow: () => win,
         // the notes of the Interlude chart being played (NPS, key lines), on the reader's clock
@@ -273,7 +275,14 @@ async function main() {
         // chart text, and whether the local profile records plays (made below, asked for only once a play needs it)
         danAnalyze: (request) => danAnalyze?.(request) ?? null,
         interludeText: async (hash) => (await interlude?.library.osuFor(hash))?.text ?? null,
+        // the map panel's picture of an Interlude chart
+        interludeBackground: async (hash) => (await interlude?.library.osuFor(hash))?.background ?? null,
         recording: async () => (await localProfileRef?.recording?.()) === true,
+        // osu! stable's lane keys from the keyboard (native/key-reader): started by the overlay when a play wants it
+        keyReader: (handlers) => createKeyReader({
+            exe: () => keyReaderPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appDir: here }),
+            log, ...handlers,
+        }),
     });
     tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", "icon.png")).resize({ width: 32, height: 32, quality: "best" }));
     tray.setToolTip(TITLE);
@@ -413,6 +422,7 @@ async function main() {
     registerLocalProfileIpc(deps);
     registerSessionIpc(deps);
     registerSkinIpc(deps);
+    registerReplayIpc(deps);
     registerSettingsIpc(deps);
     // <<< tabs v2
 
@@ -530,7 +540,7 @@ app.on("before-quit", async (event) => {
     try {
         tosuSocket?.close();
         await interludeReader?.stop();
-        overlay?.dispose();
+        await overlay?.dispose();
 
         await tosu?.stop();
         workerClient?.dispose();

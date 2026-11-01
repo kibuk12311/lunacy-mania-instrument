@@ -109,13 +109,57 @@ test("Dan widget: a vibro map's play has no dan of its own and says why; the map
     assert.equal(asked.get("ghi|1.00").vibro.vibro, true);
 });
 
+test("Dan widget: a play on a map below OD 7 says just <OD7 and has no dan of its own; 7 counts, Interlude keeps its dan", () => {
+    const source = createDanSource({ analyze: async ({ result }) => ({ result }) });
+    source.fromCard({ checksum: "low", rate: 1, result: { ...OK }, text: chartOf(stream(1000, 300, 120), { od: 6.9 }) });
+    source.fromCard({ checksum: "seven", rate: 1, result: { ...OK }, text: chartOf(stream(1000, 300, 120), { od: 7 }) });
+    source.fromCard({ checksum: "external:abc", rate: 1, result: { ...OK }, text: chartOf(stream(1000, 300, 120), { od: 5 }) });
+    source.fromCard({ checksum: "notext", rate: 1, result: { ...OK } });
+    assert.equal(source.get("low|1.00").od, 6.9);
+    const payload = (checksum) => buildDanPayload({ checksum, rate: 1, entry: source.get(`${checksum}|1.00`), recording: true });
+    assert.equal(payload("low").od, 6.9);
+    assert.equal(payload("low").numeric, 21.4, "the map keeps its own dan");
+    assert.equal(payload("seven").od, 7);
+    assert.equal(payload("interlude:abc").state, "ok");
+    assert.equal(source.get("interlude:abc|1.00").od, 5);
+    assert.equal("od" in payload("notext"), false);
+    assert.equal(playDanOf(payload("low"), hits), null);
+    assert.ok(Number.isFinite(playDanOf(payload("seven"), hits)));
+    assert.ok(Number.isFinite(playDanOf(payload("interlude:abc"), hits)));
+    assert.ok(Number.isFinite(playDanOf(payload("notext"), hits)), "no .osu at hand: nothing is held against the map");
+    // the play's mods decide with the map's OD: EZ never counts, HR is as tight as its windows
+    assert.equal(playDanOf(payload("seven"), hits, ["EZ"]), null);
+    assert.ok(Number.isFinite(playDanOf(payload("low"), hits, ["HR"])));
+    assert.ok(Number.isFinite(playDanOf(payload("interlude:abc"), hits, ["EZ"])));
+    try {
+        for (const lang of ["ru", "en"]) {
+            setLang(lang);
+            const v = danView(payload("low"), { phase: "results", hits, mods: [] });
+            assert.equal(v.play, "<OD7");
+            assert.equal(v.playDan, null);
+            assert.equal(v.number, "21.4");
+            assert.equal(danView(payload("seven"), { phase: "results", hits, mods: ["EZ"] }).play, "<OD7");
+            assert.notEqual(danView(payload("low"), { phase: "results", hits, mods: ["HR"] }).play, "<OD7");
+            assert.notEqual(danView(payload("interlude:abc"), { phase: "results", hits, mods: [] }).play, "<OD7");
+            assert.equal(danView(payload("low"), { phase: "playing", hits }).play, "", "only on the results screen");
+            assert.equal(danView({ ...payload("low"), recording: false }, { phase: "results", hits }).play, "");
+        }
+    } finally {
+        setLang("ru");
+    }
+});
+
 test("profile words: the play row's note and tooltip, the count of plays left out, in both languages", () => {
     try {
         setLang("ru");
+        assert.equal(t("profile.play.lowOd"), "<OD7");
+        assert.equal(t("profile.local.lowOd", { n: 3 }), "<OD7 не учтено: 3");
         assert.equal(t("profile.play.vibro"), "вибро — не влияет на даны");
         assert.match(t("profile.play.vibroTitle", { pct: 60 }), /^На этом рейте 60% нот карты — вибро/);
         assert.equal(t("profile.local.vibro", { n: 3 }), "вибро не учтено: 3");
         setLang("en");
+        assert.equal(t("profile.play.lowOd"), "<OD7");
+        assert.equal(t("profile.local.lowOd", { n: 3 }), "3 <OD7 left out");
         assert.equal(t("profile.play.vibro"), "vibro — doesn't move your dans");
         assert.equal(t("profile.local.vibro", { n: 3 }), "3 vibro left out");
     } finally {

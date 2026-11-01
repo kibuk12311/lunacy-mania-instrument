@@ -6,6 +6,8 @@
 //               (full credit at REF_ACC, a little more near perfect, steadily less below) and by the misses; none
 //               for a map that is vibro at that rate (src/vibro/detect.js, kept beside the map's summary): such a
 //               pass says little about the player's jacks, so it is listed but moves no dan (MODEL.VIBRO_EXCLUDE);
+//               none either for a play judged looser than OD 7 (MODEL.MIN_OD: the map's OD, any EZ, HR by its tighter
+//               windows), whose accuracy says little;
 //   one map  → its attribution: which patterns (and so which axes) it is evidence for, from the analysis's pattern
 //               shares (LeoBlack's top three, the tech flag, the length);
 //   many plays → per key (an axis or a pattern) the best play of each map, ordered by performance (old plays fade a
@@ -29,7 +31,7 @@ export const MODEL = Object.freeze({
     BELOW_SLOPE: 0.2, // − per % below the reference, down to KNEE_ACC
     KNEE_ACC: 93, // below this the map is clearly over the player's head
     STEEP_SLOPE: 0.35, // − per % below the knee
-    FLOOR: -2.5, // never more than this below the map's dan
+    FLOOR: -6, // never more than this below the map's dan: only a map far over the player's head reaches it (docs/local-profile.md)
     MISS_SLOPE: 10, // − dan per unit of miss rate (1% misses → −0.1) on top of what they cost the accuracy …
     MISS_MAX: 0.4, // … at most this
     // a pass without judgements (Interlude's scores keep only a replay): counted as "passed it", weaker evidence
@@ -58,6 +60,10 @@ export const MODEL = Object.freeze({
     // a pass on a map that is vibro at its rate (map.vibro.vibro, src/vibro/detect.js) is no evidence: kept and
     // listed, counted in vibroPlays, but in no axis, pattern or overall dan
     VIBRO_EXCLUDE: true,
+    // a pass judged looser than this OD is no evidence either: kept and listed, counted in lowOdPlays (leftOutWhy has
+    // what decides; 7 itself counts). Interlude's plays are not touched (it judges by the player's ruleset, not the OD)
+    MIN_OD: 7,
+    HR_WINDOW: 1.4, // HR divides mania's hit windows by this (EZ multiplies them by it: judgedLoose)
 });
 
 // Mods that make a play not the player's own (autoplay, cinema, relax, autopilot) or not a play at all.
@@ -98,20 +104,55 @@ const excluded = (mods) => (Array.isArray(mods) ? mods : []).some((x) => EXCLUDE
 // Whether a map's summary says it is vibro at its rate (no answer is not vibro: the play counts as it always did).
 export const isVibroMap = (map) => map?.vibro?.vibro === true;
 
-// A play that would be evidence (a pass, the player's own, on a map with a dan) but is left out: the map is vibro.
-export function vibroExcluded(play, map, m = MODEL) {
-    if (!m.VIBRO_EXCLUDE || !isVibroMap(map) || !play || play.outcome !== "pass" || excluded(play.mods)) return false;
-    return map.kind === "ok" && finite(map.numeric) !== null;
+// Whether a map (a summary with its od) is below the line; an unknown OD is not (its .osu is gone: the play counts).
+export const isLowOdMap = (map, m = MODEL) => finite(map?.od) !== null && map.od < m.MIN_OD;
+
+const hasMod = (mods, mod) => (Array.isArray(mods) ? mods : []).some((x) => String(x).toUpperCase() === mod);
+// mania's 300 window in ms at an OD
+const window300 = (od) => 64 - 3 * od;
+
+// The OD a .osu text declares, null without one.
+export function osuOverallDifficulty(text) {
+    const raw = typeof text === "string" ? /^[ \t]*OverallDifficulty[ \t]*:[ \t]*(\S+)/m.exec(text)?.[1] : null;
+    return raw ? finite(Number(raw)) : null;
 }
+
+// The OD a difficulty name states ("OD0", "OD 6.5"), null without one: rate maps often say it, and it is all that is left
+// of a map whose .osu is gone.
+export function namedOverallDifficulty(version) {
+    const raw = typeof version === "string" ? /\bOD\s?(\d{1,2}(?:\.\d+)?)\b/i.exec(version)?.[1] : null;
+    return raw ? finite(Number(raw)) : null;
+}
+
+// Whether a play was judged looser than MIN_OD. EZ always was: its windows are wider than OD 7's even on OD 10 (47.6 ms
+// against 43), with or without an OD known. HR is read by its tighter windows (on OD 1.27 and up it is at least as tight
+// as OD 7). Rate does not enter. The OD is the one the play set itself (lazer's Difficulty Adjust, play.odSet), else the
+// map's .osu's, else what its name states; none known, the play counts.
+function judgedLoose(play, map, m) {
+    if (hasMod(play.mods, "EZ")) return true;
+    const od = finite(play.odSet) ?? finite(map?.od) ?? namedOverallDifficulty(play.version);
+    if (od === null) return false;
+    return window300(od) / (hasMod(play.mods, "HR") ? m.HR_WINDOW : 1) > window300(m.MIN_OD);
+}
+
+// Why a play that would be evidence (a pass, the player's own, on a map with a dan) moves no dan: "vibro", "lowOd", or
+// null. The vibro reason comes first, so a play on a map that is both is counted once.
+export function leftOutWhy(play, map, m = MODEL) {
+    if (!play || play.outcome !== "pass" || excluded(play.mods)) return null;
+    if (map?.kind !== "ok" || finite(map.numeric) === null) return null;
+    if (m.VIBRO_EXCLUDE && isVibroMap(map)) return "vibro";
+    return play.client !== "interlude" && judgedLoose(play, map, m) ? "lowOd" : null;
+}
+
+export const vibroExcluded = (play, map, m = MODEL) => leftOutWhy(play, map, m) === "vibro";
 
 // One play on a map (its analysis summary at the play's rate) → { dan, quality, adjust, accuracy } or null when it is
 // no evidence: not a pass (a fail or a quit tells only that the player stopped), autoplay-like mods, a map without a
-// dan (LN, not 4K, too short), or a map that is vibro at that rate (vibroExcluded).
+// dan (LN, not 4K, too short), or a play left out (leftOutWhy: vibro at that rate, looser than MIN_OD).
 export function performanceDan(play, map, m = MODEL) {
     if (!play || play.outcome !== "pass" || excluded(play.mods)) return null;
     const mapDan = map?.kind === "ok" ? finite(map.numeric) : null;
-    if (mapDan === null) return null;
-    if (m.VIBRO_EXCLUDE && isVibroMap(map)) return null;
+    if (mapDan === null || leftOutWhy(play, map, m)) return null;
     const acc = play.hits ? accuracyOf(play.hits) : (finite(play.accuracy) !== null ? play.accuracy * 100 : null);
     if (acc === null) {
         return { dan: round2(mapDan + m.NO_ACC_CREDIT), mapDan, quality: m.NO_ACC_QUALITY, adjust: m.NO_ACC_CREDIT, accuracy: null };
@@ -217,7 +258,8 @@ export function createSkillModel({ model = MODEL } = {}) {
     const seen = new Set();
     let rated = 0;
     let total = 0;
-    let vibro = 0; // passes left out because their map is vibro
+    let vibro = 0; // passes left out because their map is vibro …
+    let lowOd = 0; // … and because it was judged looser than MIN_OD
     let lastAt = null;
 
     // → the play's performance (null when it is no evidence)
@@ -227,7 +269,9 @@ export function createSkillModel({ model = MODEL } = {}) {
         total += 1;
         const perf = performanceDan(play, map, model);
         if (!perf) {
-            if (vibroExcluded(play, map, model)) vibro += 1;
+            const why = leftOutWhy(play, map, model);
+            if (why === "vibro") vibro += 1;
+            if (why === "lowOd") lowOd += 1;
             return null;
         }
         rated += 1;
@@ -242,16 +286,16 @@ export function createSkillModel({ model = MODEL } = {}) {
     function skill(now = Date.now()) {
         const axes = Object.fromEntries(AXES.map((k) => [k, aggregate(byKey.get(`axis:${k}`), now, model)]));
         const patterns = Object.fromEntries(PATTERNS.map((p) => [p, aggregate(byKey.get(`pattern:${p}`), now, model)]));
-        return skillObject({ axes, patterns, rated, total, vibro, lastAt });
+        return skillObject({ axes, patterns, rated, total, vibro, lowOd, lastAt });
     }
 
-    return { add, skill, size: () => total, rated: () => rated, vibro: () => vibro };
+    return { add, skill, size: () => total, rated: () => rated, vibro: () => vibro, lowOd: () => lowOd };
 }
 
 // The estimates → the skill object every consumer takes (src/recommend/skill.js readSkill's shape: overall, tiles,
 // msd, ready, analyzedPlays), plus local: true and the per-axis / per-pattern details. A tile without enough evidence
 // is null, so src/recommend/skill.js playerDanFor falls back to the overall dan there.
-export function skillObject({ axes, patterns, rated = 0, total = 0, vibro = 0, lastAt = null }) {
+export function skillObject({ axes, patterns, rated = 0, total = 0, vibro = 0, lowOd = 0, lastAt = null }) {
     const tiles = Object.fromEntries(AXES.map((k) => [k, axes[k]?.dan ?? null]));
     const known = AXES.map((k) => tiles[k]).filter((d) => d !== null);
     const overall = known.length ? round2(known.reduce((s, d) => s + d, 0) / known.length) : null;
@@ -263,6 +307,7 @@ export function skillObject({ axes, patterns, rated = 0, total = 0, vibro = 0, l
         analyzedPlays: rated,
         totalPlays: total,
         vibroPlays: vibro, // passes on vibro maps: kept and listed, in no dan
+        lowOdPlays: lowOd, // passes judged looser than MODEL.MIN_OD: the same
         lastPlayAt: lastAt,
         overall,
         overallLabel: overall === null ? null : numericToLabel(overall).text,

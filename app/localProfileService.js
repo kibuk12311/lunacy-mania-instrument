@@ -6,13 +6,14 @@
 // A lazer play the live recording already took is its imported score too (same map, rate, judgements): kept once.
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { createSkillModel, dailySkill, AXES, PATTERNS, performanceDan, isVibroMap, DAY_MS } from "../src/localProfile/model.js";
+import { createSkillModel, dailySkill, AXES, PATTERNS, MODEL, performanceDan, isVibroMap, isLowOdMap, leftOutWhy, namedOverallDifficulty, osuOverallDifficulty, DAY_MS } from "../src/localProfile/model.js";
 import { parseScoresDb, mainPlayer } from "../src/localProfile/scoresDb.js";
 import { createPlayRecorder } from "../src/localProfile/recorder.js";
 import { detectVibro, vibroSummary, vibroCurrent } from "../src/vibro/detect.js";
 import { mapKeyOf, mapSummary } from "./localProfileStore.js";
 
 const TEXT_CACHE = 6; // .osu texts of the maps played last (fetched from tosu while the play goes on)
+const SAVE_EVERY = 50; // the pass over the kept maps writes maps.json after this many (a whole profile can be thousands)
 const md5Of = (text) => createHash("md5").update(Buffer.from(text, "utf8")).digest("hex");
 // What tosu served (the file's bytes, or text) → { md5 of the bytes as osu! names the map, the text to analyse }.
 // The md5 is taken over the bytes: decoding first would drop a BOM and change it.
@@ -23,13 +24,24 @@ function served(x) {
 }
 const round2 = (x) => Math.round(x * 100) / 100;
 
-// A map's summary with the vibro answer for its .osu at the rate beside it (src/vibro/detect.js; worked out here, never
-// in the analysis, so the shared result cache does not change); a summary without a dan is kept as it is.
-export function withVibro(summary, text, rate) {
+// A map's summary with what its .osu says beside it: the vibro answer at the rate (src/vibro/detect.js) and the OD; both
+// worked out here, never in the analysis, so the shared result cache does not change. A summary without a dan, or
+// without a text, is kept as it is. ownOd false: the text's OD is not the map's (statesOd), so all it can add is vibro.
+export function withMapFacts(summary, text, rate, { ownOd = true } = {}) {
     if (summary?.kind !== "ok" || typeof text !== "string" || !text) return summary;
+    if (!ownOd && vibroCurrent(summary.vibro)) return summary;
     const vibro = vibroSummary(detectVibro(text, rate));
-    return vibro ? { ...summary, vibro } : summary;
+    const od = ownOd ? osuOverallDifficulty(text) : summary.od;
+    if (!vibro && od === summary.od) return summary; // nothing new in this text (not a 4K chart): no write, no count
+    return { ...summary, ...(vibro ? { vibro } : {}), ...(od === undefined ? {} : { od }) };
 }
+
+// Whether an Interlude chart's text states the map's OD: the .osu it was imported from does, and one made from the chart
+// carries its origin's SourceOD, or a made-up 8 when it has none (src/interlude/chart.js).
+const statesOd = (osu) => osu.original !== false || Boolean(osu.meta?.origins?.some((o) => Number.isFinite(o?.od)));
+
+// Whether a kept summary has this version's facts (an older profile's are worked out again when the .osu is at hand).
+const factsCurrent = (m) => m.kind !== "ok" || (vibroCurrent(m.vibro) && m.od !== undefined);
 
 // store: app/localProfileStore.js; analyze(text, rate) → analysis result (the shared, cached service);
 // fetchMapText() → the .osu tosu has selected (its bytes, or its text); readFile(path) → Buffer; songsIndex: app/osuSongsScan.js;
@@ -88,29 +100,30 @@ export function createLocalProfileService({
     // noText: getText had none (the .osu is gone). A map asked again while it is worked out (its next play, begun
     // ahead) waits for that answer, so its getText is not called again and noText tells every play.
     const mapping = new Map(); // key → Promise of { key, map, noText? }
-    function mapFor(md5, rate, getText) {
+    function mapFor(md5, rate, getText, facts) {
         const key = mapKeyOf(md5, rate);
-        if (!mapping.has(key)) mapping.set(key, workOutMap(key, rate, getText).finally(() => mapping.delete(key)));
+        if (!mapping.has(key)) mapping.set(key, workOutMap(key, rate, getText, facts).finally(() => mapping.delete(key)));
         return mapping.get(key);
     }
 
-    async function workOutMap(key, rate, getText) {
+    async function workOutMap(key, rate, getText, facts) {
         const known = await store.map(key);
-        if (known && (known.kind !== "ok" || vibroCurrent(known.vibro))) return { key, map: known };
+        if (known && factsCurrent(known)) return { key, map: known };
         const text = await getText();
         if (known) {
-            // kept before vibro was looked at (or by another version of it): looked at now that the .osu is here; the
-            // map's earlier plays were counted without the answer, so a vibro one has the skill worked out again
-            const next = withVibro(known, text, rate);
+            // kept before vibro and the OD were looked at (or by another version): looked at now that the .osu is here;
+            // the map's earlier plays were counted without the answer (or by the OD in their name), so the skill is
+            // worked out again
+            const next = withMapFacts(known, text, rate, facts);
             if (next !== known) {
                 await store.setMap(key, next);
-                if (isVibroMap(next) || isVibroMap(known)) rebuild();
+                rebuild();
             }
             return { key, map: next };
         }
         if (!text) return { key, map: null, noText: true };
         const result = await analyze(text, rate);
-        const summary = withVibro(mapSummary(result), text, rate);
+        const summary = withMapFacts(mapSummary(result), text, rate, facts);
         // a transient failure (the worker busy, cancelled) is worked out again next time
         if (summary && !(result?.kind === "error" && result.transient)) await store.setMap(key, summary);
         return { key, map: summary?.kind === "error" ? null : summary };
@@ -155,7 +168,7 @@ export function createLocalProfileService({
         return stored;
     }
 
-    // ---- vibro on the maps kept before it was looked at ----
+    // ---- vibro and the OD on the maps kept before they were looked at ----
 
     let vibroRun = null; // the pass under way (a Promise of its answer)
     let vibroBusy = false; // … past waiting for an import: it is reading
@@ -168,10 +181,14 @@ export function createLocalProfileService({
         return fromTosu.songs && fromTosu.game && path.resolve(fromTosu.game) === path.resolve(osu) ? fromTosu.songs : path.join(osu, "Songs");
     }
 
-    // Every played map with a dan and no vibro answer of this version: its .osu found again where its plays came from
-    // (the last live plays' texts, Interlude's library, the Songs folder, lazer's files store), looked at and the answer
-    // kept beside its summary. A map whose .osu is gone keeps none, and its plays count as they always did. The skill is
-    // worked out again when any answer came (the plays stay as they are). → { checked, vibro, missing }
+    // Every played map with a dan and without this version's facts (a vibro answer of this VIBRO.VERSION, its OD): its
+    // .osu found again where its plays came from (the last live plays' texts, Interlude's library, the Songs folder,
+    // lazer's files store; a chart Interlude made up an OD for only when nothing else has it, and for vibro only), looked
+    // at and the facts kept beside its summary. A map only Interlude played needs no OD (its plays do not go by one). A
+    // map whose .osu is gone keeps what it had (an older vibro answer stays in force) and is tried again next session;
+    // its plays go by the OD their difficulty name states (the model reads it, nothing is stored), and without one they
+    // count. The skill is worked out again when any answer came (the plays stay as they are). → { checked, vibro, lowOd,
+    // missing }
     async function backfillVibro() {
         while (job) await job.ended;
         vibroBusy = true; // an import asked for from now on waits for this pass (nothing between the check and this)
@@ -180,14 +197,15 @@ export function createLocalProfileService({
         const todo = new Map(); // mapKey → { md5, rate, interlude (a chart hash), stable, lazer }
         for (const p of plays) {
             const m = maps.get(p.mapKey);
-            if (m?.kind !== "ok" || vibroCurrent(m.vibro)) continue;
-            const e = todo.get(p.mapKey) ?? { md5: p.md5, rate: p.rate, interlude: null, stable: false, lazer: false };
+            if (m?.kind !== "ok" || factsCurrent(m)) continue;
+            const e = todo.get(p.mapKey) ?? { md5: p.md5, rate: p.rate, interlude: null, stable: false, lazer: false, named: namedOverallDifficulty(p.version) !== null };
             if (p.client === "interlude") e.interlude ??= String(p.id).split(":")[1] || null;
             else if (p.client === "lazer") e.lazer = true;
             else e.stable = true;
             todo.set(p.mapKey, e);
         }
-        if (!todo.size) return { checked: 0, vibro: 0, missing: 0 };
+        for (const [key, e] of todo) if (!e.stable && !e.lazer && vibroCurrent(maps.get(key).vibro)) todo.delete(key);
+        if (!todo.size) return { checked: 0, vibro: 0, lowOd: 0, missing: 0 };
         let charts = null; // the Songs folder's md5 → { path }, scanned (only what changed) once
         const songsCharts = async () => {
             if (charts) return charts;
@@ -215,55 +233,71 @@ export function createLocalProfileService({
             }
             return lazerHashes.get(md5) ?? null;
         };
+        // → { text, ownOd } (ownOd false: the text's OD is not the map's), or null
         const textOf = async (e) => {
             const remembered = texts.get(e.md5);
-            if (remembered) return remembered;
+            if (remembered) return { text: remembered, ownOd: true };
+            let madeUp = null;
             if (e.interlude && interlude) {
                 const osu = await interlude.osuFor(e.interlude).catch(() => null);
-                if (osu?.text) return osu.text;
+                if (osu?.text && statesOd(osu)) return { text: osu.text, ownOd: true };
+                if (osu?.text) madeUp = { text: osu.text, ownOd: false };
             }
             if (e.stable) {
                 const chart = (await songsCharts()).get(e.md5);
                 const bytes = chart ? await readFile(chart.path).catch(() => null) : null;
-                if (bytes) return served(bytes).text;
+                if (bytes) return { text: served(bytes).text, ownOd: true };
             }
             if (e.lazer) {
                 const hash = await lazerHashOf(e.md5);
                 const text = hash ? await lazer.text(hash).catch(() => null) : null;
-                if (text) return text;
+                if (text) return { text, ownOd: true };
             }
-            return null;
+            return madeUp;
         };
         let checked = 0;
         let vibro = 0;
+        let lowOd = 0;
+        let unknownOd = 0; // maps whose .osu is gone and whose name states no OD
+        let unsaved = [];
+        const save = async () => {
+            if (unsaved.length) await store.setMaps(unsaved);
+            unsaved = [];
+        };
         for (const [key, e] of todo) {
-            const text = await textOf(e).catch(() => null);
+            const got = await textOf(e).catch(() => null);
             const known = await store.map(key);
-            const next = text && known ? withVibro(known, text, e.rate) : known;
-            if (!next || next === known) continue;
-            await store.setMap(key, next);
+            const next = got && known ? withMapFacts(known, got.text, e.rate, { ownOd: got.ownOd }) : known;
+            if (!next || next === known) {
+                if (!got?.ownOd && !e.named) unknownOd += 1;
+                continue;
+            }
+            unsaved.push([key, next]);
             checked += 1;
             if (isVibroMap(next)) vibro += 1;
+            if (isLowOdMap(next)) lowOd += 1;
+            if (unsaved.length >= SAVE_EVERY) await save();
         }
+        await save();
         const missing = todo.size - checked;
-        log(`local profile: vibro looked at on ${checked} kept maps (${vibro} vibro), ${missing} without their .osu`);
+        log(`local profile: vibro and OD looked at on ${checked} kept maps (${vibro} vibro, ${lowOd} below OD ${MODEL.MIN_OD}), ${missing} without their .osu${missing ? ` (${missing - unknownOd} by the OD in their name; ${unknownOd} OD unknown, their plays count)` : ""}`);
         if (checked) {
             rebuild();
             await changed();
         }
-        return { checked, vibro, missing };
+        return { checked, vibro, lowOd, missing };
     }
 
     // The pass over the kept maps, once a session (again after a backup is imported); → its answer. Asked again while
     // one runs, the answer is that one's; one asked for after it began (a backup) follows it.
     function checkVibro() {
         if (vibroRun) return vibroRun;
-        if (vibroDone >= vibroWanted) return Promise.resolve({ checked: 0, vibro: 0, missing: 0, already: true });
+        if (vibroDone >= vibroWanted) return Promise.resolve({ checked: 0, vibro: 0, lowOd: 0, missing: 0, already: true });
         const wanted = vibroWanted;
         vibroRun = backfillVibro()
             .catch((error) => {
                 log(`local profile: vibro pass failed: ${error?.message}`);
-                return { checked: 0, vibro: 0, missing: 0, failed: true };
+                return { checked: 0, vibro: 0, lowOd: 0, missing: 0, failed: true };
             })
             .finally(() => {
                 vibroRun = null;
@@ -303,12 +337,25 @@ export function createLocalProfileService({
         const { map } = await mapFor(p.md5, p.rate, async () => texts.get(p.md5) ?? (await fetchNow()));
         const stored = await addPlay(play, map);
         const perf = stored ? performanceDan(stored, map) : null;
-        log(`local profile: ${p.outcome} ${p.artist} - ${p.title} [${p.version}] ${p.rate}x ${p.accuracy !== null ? (p.accuracy * 100).toFixed(2) : "—"}%${perf ? ` → ${perf.dan}` : ""}${isVibroMap(map) ? " (vibro: no dan)" : ""}${stored ? "" : " (already there)"}`);
+        log(`local profile: ${p.outcome} ${p.artist} - ${p.title} [${p.version}] ${p.rate}x ${p.accuracy !== null ? (p.accuracy * 100).toFixed(2) : "—"}%${perf ? ` → ${perf.dan}` : ""}${isVibroMap(map) ? " (vibro: no dan)" : ""}${stored && leftOutWhy(stored, map) === "lowOd" ? " (<OD7: no dan)" : ""}${stored ? "" : " (already there)"}`);
         if (stored) await changed();
         return stored;
     }
 
-    const recorder = createPlayRecorder({ onPlay: (p) => { serial(() => recordLive(p)).catch((e) => log(`local profile: live play not kept: ${e?.message}`)); } });
+    // who wants to know a play just ended, recorded or not (the Replay tab)
+    const endListeners = new Set();
+    const recorder = createPlayRecorder({
+        onPlay: (p) => {
+            serial(() => recordLive(p)).catch((e) => log(`local profile: live play not kept: ${e?.message}`));
+            for (const listener of endListeners) {
+                try {
+                    listener(p);
+                } catch (e) {
+                    log(`local profile: a listener of a play's end failed: ${e?.message}`);
+                }
+            }
+        },
+    });
 
     function onTosuJson(json, at = now()) {
         recorder.onJson(json, at);
@@ -397,7 +444,7 @@ export function createLocalProfileService({
             if (!osu) return null;
             const origin = osu.meta?.origins?.find((o) => o.md5 && Math.abs((o.rate ?? 1) - 1) < 1e-6) ?? osu.meta?.origins?.[0] ?? null;
             const md5 = origin?.md5 ?? md5Of(osu.text);
-            return { osu, origin, md5, ...(await mapFor(md5, r.rate, async () => osu.text)) };
+            return { osu, origin, md5, ...(await mapFor(md5, r.rate, async () => osu.text, { ownOd: statesOd(osu) })) };
         });
         for (const [i, r] of todo.entries()) {
             if (job?.cancelled) return finishImport("interlude", { added, total: plays.length, done: plays.length - todo.length + i, cancelled: true });
@@ -433,7 +480,7 @@ export function createLocalProfileService({
             return {
                 hash: s.hash, known: Boolean(m),
                 play: {
-                    id: `lazer:${s.id}`, source: "lazer-db", client: "lazer", md5: s.md5, rate: s.rate, mods: s.mods, hits: s.hits,
+                    id: `lazer:${s.id}`, source: "lazer-db", client: "lazer", md5: s.md5, rate: s.rate, mods: s.mods, odSet: s.odSet, hits: s.hits,
                     maxCombo: s.maxCombo, outcome: s.failed ? "fail" : "pass", at: s.at,
                     beatmapId: m?.beatmapId ?? null, beatmapsetId: m?.setId ?? null, artist: m?.artist ?? "", title: m?.title ?? "", version: m?.version ?? "",
                 },
@@ -504,13 +551,15 @@ export function createLocalProfileService({
         const map = mapOf(p.mapKey);
         const perf = performanceDan(p, map);
         return {
-            id: p.id, client: p.client, source: p.source, artist: p.artist, title: p.title, version: p.version, rate: p.rate,
+            id: p.id, client: p.client, source: p.source, md5: p.md5, artist: p.artist, title: p.title, version: p.version, rate: p.rate,
             mods: p.mods, accuracy: p.hits ? round2(accuracyPct(p.hits)) : p.accuracy === null ? null : round2(p.accuracy * 100),
             outcome: p.outcome, at: p.at, beatmapId: p.beatmapId, mapDan: map?.kind === "ok" ? map.numeric : null,
             mapLabel: map?.kind === "ok" ? map.label : null, unrated: !map || map.kind !== "ok", perf: perf?.dan ?? null,
             calcs: map?.kind === "ok" ? map.calcs : null,
             // the map is vibro at this rate: listed, in no dan ({ share, peakGapMs } for the words)
             vibro: map?.kind === "ok" && isVibroMap(map) ? { share: map.vibro.share, peakGapMs: map.vibro.peakGapMs } : null,
+            // judged below the OD line (the map's OD, or EZ): listed, in no dan
+            lowOd: leftOutWhy(p, map) === "lowOd",
         };
     }
 
@@ -520,8 +569,8 @@ export function createLocalProfileService({
         const byId = new Map(plays.map((p) => [p.id, p]));
         const topOf = (est) => (est?.top ?? []).slice(0, top).map((x) => ({ ...describe(byId.get(x.playId)), eff: x.eff, weight: x.weight })).filter((x) => x.id);
         // lazer: every lazer play (recorded or imported); lazerDb: the ones its database import added
-        // vibro: passes left out of the dans because their map is vibro at the rate played
-        const counts = { plays: plays.length, rated: k.analyzedPlays, vibro: k.vibroPlays ?? 0, live: 0, stable: 0, interlude: 0, lazer: 0, lazerDb: 0 };
+        // vibro, lowOd: passes left out of the dans because their map is vibro at the rate played, or judged below the OD line
+        const counts = { plays: plays.length, rated: k.analyzedPlays, vibro: k.vibroPlays ?? 0, lowOd: k.lowOdPlays ?? 0, live: 0, stable: 0, interlude: 0, lazer: 0, lazerDb: 0 };
         for (const p of plays) {
             if (p.source === "live") counts.live += 1;
             if (p.source === "stable-db") counts.stable += 1;
@@ -576,6 +625,13 @@ export function createLocalProfileService({
     return {
         onTosuJson,
         onTosuDown: () => recorder.onDown(now()),
+        // a play is going on in osu! right now (the Replay tab stops waiting for the last play's replay)
+        playing: () => recorder.playing(),
+        // fn(play) for every play that ends, recorded or not (the recorder's onPlay); → stop listening
+        onPlayEnded: (fn) => {
+            endListeners.add(fn);
+            return () => endListeners.delete(fn);
+        },
         recordLive: (p) => serial(() => recordLive(p)),
         skill,
         status,
@@ -600,15 +656,15 @@ export function createLocalProfileService({
             emit("local-profile-changed", { skill: await skill(), record: s.record });
             return { ok: true, record: s.record };
         },
-        // the pass over the maps kept before vibro was looked at (once a session; app/localProfileIpc.js asks a while
-        // after the window loads): → { checked, vibro, missing }
+        // the pass over the maps kept before vibro and the OD were looked at (once a session; app/localProfileIpc.js asks
+        // a while after the window loads): → { checked, vibro, lowOd, missing }
         checkVibro,
         exportBundle: () => store.exportBundle(),
         importBundle: async (bundle) => {
             const r = await store.importBundle(bundle);
             rebuild();
             await changed();
-            // a backup made before vibro was looked at: its maps are looked at too (after a pass under way)
+            // a backup made before vibro and the OD were looked at: its maps are looked at too (after a pass under way)
             if (r?.ok) {
                 vibroWanted += 1;
                 void Promise.resolve(vibroRun).then(() => checkVibro());

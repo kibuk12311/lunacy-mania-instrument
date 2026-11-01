@@ -1,6 +1,6 @@
 // Run with: npx electron tests/smoke/electron-skin.mjs <out-dir> [lang=en]   (SMOKE_LANG=en works too)
 // The Skin tab through the real window, fully offline, over fixture folders made here only (<out-dir>/osu with a
-// Skins folder, <out-dir>/docs as Documents, <out-dir>/user-data): the tab bar with seven tabs at 320 px and
+// Skins folder, <out-dir>/docs as Documents, <out-dir>/user-data): the tab bar with its eight tabs and ⚙ at 320 px and
 // narrower; a skin made from scratch with the builder; an edit in the editor (the hit
 // position) that the preview and the working copy's skin.ini follow; upscroll; undo; the .osk export (opened with a
 // stub instead of osu!) and the Interlude .isk; an osu! skin of the fixture Skins folder opened as a copy (its
@@ -112,11 +112,11 @@ app.whenReady().then(async () => {
     await js("localStorage.clear(); true");
     await win.loadFile(path.join(appDir, "renderer", "index.html"));
 
-    // ---- the tab bar: seven tabs at the default 320 px and narrower ----
+    // ---- the tab bar: eight tabs and ⚙ at 320 px and narrower ----
     const barAt = () => js(`(() => { const n = document.querySelector(".tabs"); return { over: n.scrollWidth - n.clientWidth, labels: [...n.children].map((b) => b.textContent), heights: [...n.children].map((b) => b.offsetHeight), cut: [...n.children].filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent) }; })()`);
     const bar = await barAt();
     console.log("tabs:", JSON.stringify(bar));
-    check(bar.labels.length === 7 && bar.labels.at(-1) === t("skin.html.tab"), `seven tabs, the last «${t("skin.html.tab")}»`);
+    check(bar.labels.length === 9 && bar.labels.at(-2) === t("skin.html.tab"), `eight tabs and ⚙, the last «${t("skin.html.tab")}»`);
     check(bar.over <= 0, `the tab bar fits at 320 px (overflow ${bar.over})`);
     check(new Set(bar.heights).size === 1, "every tab is one line high at 320 px");
     check(bar.cut.length === 0, `no tab label is cut (${bar.cut.join(", ") || "none"})`);

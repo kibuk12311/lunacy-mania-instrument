@@ -4,13 +4,13 @@
 const X = [64, 192, 320, 448]; // the middle of each of the 4 columns
 
 // rows [[t, [cols]]] → .osu text (Mode 3, CircleSize keys)
-export function chartOf(rows, { keys = 4, mode = 3, title = "Synthetic vibro" } = {}) {
+export function chartOf(rows, { keys = 4, mode = 3, title = "Synthetic vibro", od = 8 } = {}) {
     const objects = [];
     for (const [t, cols] of rows) for (const c of cols) objects.push(`${X[c]},192,${Math.round(t)},1,0,0:0:0:0:`);
     return [
         "osu file format v14", "", "[General]", "AudioFilename: audio.mp3", `Mode: ${mode}`, "",
         "[Metadata]", `Title:${title}`, "Artist:Test", "Creator:TestPlayer", "Version:vibro", "",
-        "[Difficulty]", "HPDrainRate:8", `CircleSize:${keys}`, "OverallDifficulty:8", "ApproachRate:5", "",
+        "[Difficulty]", "HPDrainRate:8", `CircleSize:${keys}`, `OverallDifficulty:${od}`, "ApproachRate:5", "",
         "[TimingPoints]", "0,500,4,1,0,100,1,0", "", "[HitObjects]", ...objects, "",
     ].join("\r\n");
 }
