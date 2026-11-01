@@ -6,6 +6,7 @@
 import path from "node:path";
 import * as nodeFs from "node:fs/promises";
 import { createJsonStore } from "./jsonStore.js";
+import { gameFolderOf, osuAssociation } from "./osuFolder.js";
 import { readSkinArchive, packOsk, exportedFiles, MAX_FILES, MAX_TOTAL_BYTES } from "../src/skin/skinArchive.js";
 import { buildSkin, skinIniText, normalizeOptions, PARTS } from "../src/skin/build.js";
 import { buildInterludeSkin } from "../src/skin/interludeSkin.js";
@@ -142,7 +143,7 @@ export async function skinImages(dir, files, values, fs = nodeFs) {
 
 export function createSkinService({
     userData, docsDir, env = process.env, port = null, fs = nodeFs, shell = null, dialog = null, window = () => null,
-    log = () => {}, gameFolder = () => osuGameFolder(port), now = () => Date.now(),
+    log = () => {}, gameFolder = () => osuGameFolder(port), association = async () => null, now = () => Date.now(),
 }) {
     const workRoot = path.join(userData, "skin-work");
     const outDir = path.join(docsDir, SKINS_FOLDER);
@@ -159,12 +160,14 @@ export function createSkinService({
     const inside = (root, p) => path.resolve(p).startsWith(path.resolve(root) + path.sep);
     const newId = () => `${now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-    // osu!'s Skins folder: from the running stable (tosu), else %LOCALAPPDATA%\osu!\Skins; null when neither is there
+    // osu!'s Skins folder: from the running stable (tosu), else %LOCALAPPDATA%\osu!\Skins, else beside the program Windows
+    // opens stable's .osz files with (app/osuFolder.js); null when none of them is there
     async function skinsFolder() {
         const game = await gameFolder();
         const candidates = [game ? path.join(game, "Skins") : null, env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "osu!", "Skins") : null].filter(Boolean);
         for (const dir of candidates) if (await exists(dir)) return dir;
-        return null;
+        const linked = await gameFolderOf(await association(), fs);
+        return linked && await exists(path.join(linked, "Skins")) ? path.join(linked, "Skins") : null;
     }
 
     const walk = (dir) => walkSkin(dir, fs);
@@ -451,7 +454,7 @@ export function createSkinService({
 export function registerSkinIpc({ ipcMain, paths, shell, dialog, window, log, tosu }) {
     // made on the first call: registering does no I/O and reads no paths
     let service = null;
-    const get = () => (service ??= createSkinService({ userData: paths.userData, docsDir: paths.docsDir, port: tosu.port, shell, dialog, window, log }));
+    const get = () => (service ??= createSkinService({ userData: paths.userData, docsDir: paths.docsDir, port: tosu.port, shell, dialog, window, log, association: osuAssociation }));
     const s = new Proxy({}, { get: (_t, key) => (req) => get()[key](req) });
     ipcMain.handle("skin-list", () => s.list());
     ipcMain.handle("skin-open", (_e, req) => s.open(req));

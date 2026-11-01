@@ -96,6 +96,18 @@ test("tosu: stable's frame; its BPM has the rate in it, the length is the span o
     assert.equal(readPlayFrame({ state: { number: 5 } }).map, null);
 });
 
+test("tosu: while a map is being chosen the mode is the map's: play.mode there is the last play's, osu! until one was played", () => {
+    const staleOsu = { ...frame().play, mode: { number: 0 } };
+    const chosen = readPlayFrame(frame({ play: staleOsu }));
+    assert.deepEqual([chosen.mode, chosen.map.mode], [3, 3], "a mania map, before the first play");
+    const otherMode = { ...frame().beatmap, mode: { number: 0 } };
+    assert.equal(readPlayFrame(frame({ beatmap: otherMode })).map.mode, 0, "another mode's map, after a mania play");
+    assert.equal(readPlayFrame(frame({ state: { number: 12 }, play: staleOsu })).map.mode, 3, "a multiplayer room");
+    assert.equal(readPlayFrame(frame({ beatmap: { ...frame().beatmap, mode: undefined }, play: staleOsu })).map.mode, 0, "the map says nothing: the play's");
+    assert.equal(readPlayFrame(frame({ state: { number: 2 }, beatmap: otherMode })).mode, 3, "a play goes by its own mode");
+    assert.equal(readPlayFrame(frame({ state: { number: 7 }, beatmap: otherMode })).mode, 3, "and so do its results");
+});
+
 test("tosu: lazer's frame reads the same (its acronyms, its own rate)", () => {
     const f = readPlayFrame(frame({ client: "lazer", play: { mode: { number: 3 }, hits: {}, mods: { array: [{ acronym: "DT", settings: { speed_change: 1.2 } }], rate: 1.2 } } }));
     assert.deepEqual([f.map.mods, f.map.rate], [["DT"], 1.2]);
@@ -595,6 +607,11 @@ test("manager: the dan: a selected map's only after it stayed selected, from the
         assert.deepEqual(asked, [1.5], "one map, at its rate; the one passed by never");
         await sleep(30);
         assert.deepEqual(r.states().at(-1).map.dan, { state: "ok", numeric: 12.5 });
+        // no play yet in this run of osu!: tosu's play.mode is osu!'s, the map is mania and gets its dan all the same
+        await r.frameTo(frame({ beatmap: { ...frame().beatmap, checksum: "fresh" }, play: { ...frame().play, mode: { number: 0 } } }));
+        assert.equal(r.states().at(-1).map.dan.state, "counting");
+        await sleep(SELECT_DAN_MS + 150);
+        assert.deepEqual(asked, [1.5, 1.5]);
         // not mania: says so, asks nothing
         await r.frameTo(frame({ beatmap: { ...frame().beatmap, checksum: "ccc", mode: { number: 0 } }, play: { ...frame().play, mode: { number: 0 } } }));
         await sleep(30);
@@ -603,7 +620,7 @@ test("manager: the dan: a selected map's only after it stayed selected, from the
         r.overlay.apply({ widgets: { map: { show: { dan: false } } } });
         await r.frameTo(frame({ beatmap: { ...frame().beatmap, checksum: "ddd" } }));
         await sleep(SELECT_DAN_MS + 100);
-        assert.equal(asked.length, 1);
+        assert.equal(asked.length, 2);
         assert.equal(r.states().at(-1).map.dan, null);
     } finally {
         r.stop();

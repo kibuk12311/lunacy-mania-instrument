@@ -3,7 +3,8 @@
 // index, app/osuSongsScan.js, so a scan made once serves both), its audio is handed to the window, and the skin set in
 // osu! is read as it is: skin.ini's 4K section and the pictures it names. Everything under the osu! folder is only
 // ever read; the one thing this module writes is its own replay.json (the folder picked by hand, the after-a-play switch)
-// in userData. The folder: the one picked in Settings, else what tosu says while osu! stable runs, else %LOCALAPPDATA%\osu!.
+// in userData. The folder: the one picked (checked on every read, app/osuFolder.js), else what tosu says while osu! stable
+// runs, else the local profile's, %LOCALAPPDATA%\osu!, or where Windows opens stable's .osz files from.
 // Dans and pattern families come from the map's usual details and parts (the shared cache, the background line).
 // When a play ends (the local profile's recorder sees it from tosu) the replay osu! stable writes for it into Data\r is
 // looked for by the map's md5 and the file's time, and the window is told: only told, so nothing takes focus from the game.
@@ -13,6 +14,7 @@ import * as nodeFs from "node:fs/promises";
 import { createJsonStore } from "./jsonStore.js";
 import { songsIndexAt } from "./osuSongsScan.js";
 import { songsIndexFile } from "./localProfileIpc.js";
+import { gameFolderOf, osuAssociation } from "./osuFolder.js";
 import { decodeIni, skinImages, walkSkin } from "./skinIpc.js";
 import { detailsKey, looksLikeDetails } from "./analysisDetails.js";
 import { sectionsKey, looksLikeSections } from "./analysisSections.js";
@@ -89,11 +91,12 @@ export const overallDifficulty = (osuText) => {
 
 const shownCounts = (h) => ({ ...h.counts, accuracy: accuracyPercent(h.counts) });
 
-// fs, tosu ({ game, songs, skin }) and the index are injected; analysis / worker / cache: the shared analysis, used only
+// fs, tosu ({ game, songs, skin }) and the index are injected; profileFolder() → the folder the local profile keeps;
+// association() → the folder Windows knows (app/osuFolder.js); analysis / worker / cache: the shared analysis, used only
 // for the parts' dans and the pattern families.
 export function createReplayService({
     userData, env = process.env, fs = nodeFs, dialog = null, window = () => null, log = () => {}, send = () => {},
-    tosu = async () => ({ game: null, songs: null, skin: null }), songsIndex = null,
+    tosu = async () => ({ game: null, songs: null, skin: null }), profileFolder = async () => null, association = async () => null, songsIndex = null,
     analysis = null, worker = null, cache = null, now = () => Date.now(), sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
     playing = () => false,
 }) {
@@ -105,21 +108,30 @@ export function createReplayService({
     let charts = null; // md5 → the map (the last scan's answer)
     let scannedAt = 0;
     let scannedDir = null;
-    let scanning = null;
+    let scanning = null; // the scan under way: { dir, run }
     let current = null; // the replay open: { id, file, text, mapPath, rate, analysis, notes, keys, od, header }
     let nextId = 1;
     let lastEnded = 0; // which play's replay is being waited for: a newer play ends the wait for an older one
 
     const isDir = async (p) => Boolean((await fs.stat(p).catch(() => null))?.isDirectory());
 
-    // { folder, source: "picked" | "tosu" | "default" | null, picked }
+    // What was saved is only ever read here: a folder inside the game counts as the game, one that leads nowhere is passed
+    // over, and stays saved in case its drive comes back.
+    // { folder, source: "picked" | "tosu" | "profile" | "default" | "association" | null, picked }
     async function folder() {
-        const picked = (await store.get()).folder;
+        const picked = await gameFolderOf((await store.get()).folder, fs);
         if (picked) return { folder: picked, source: "picked", picked };
         const live = await tosu();
         if (live.game && await isDir(live.game)) return { folder: live.game, source: "tosu", picked: null };
-        const auto = env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "osu!") : null;
-        if (auto && await isDir(auto)) return { folder: auto, source: "default", picked: null };
+        const others = {
+            profile: () => profileFolder().catch(() => null),
+            default: () => (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "osu!") : null),
+            association,
+        };
+        for (const [source, where] of Object.entries(others)) {
+            const game = await gameFolderOf(await where(), fs);
+            if (game) return { folder: game, source, picked: null };
+        }
         return { folder: null, source: null, picked: null };
     }
 
@@ -136,15 +148,18 @@ export function createReplayService({
         const dir = await songsDir(game);
         if (!dir) return null;
         if (charts && scannedDir === dir && !force && now() - scannedAt < INDEX_FRESH_MS) return charts;
-        scanning ??= index.scan(dir, {
-            onProgress: ({ done, total }) => send("replay-progress", { done, total }),
+        if (scanning?.dir === dir) return scanning.run; // one of another folder is left to end, unheard: the folder was changed
+        const scan = { dir, run: null };
+        scanning = scan;
+        scan.run = index.scan(dir, {
+            onProgress: ({ done, total }) => { if (scanning === scan) send("replay-progress", { done, total }); },
         }).then((r) => {
             charts = r.charts;
             scannedAt = now();
             scannedDir = dir;
             return charts;
-        }).finally(() => { scanning = null; });
-        return scanning;
+        }).finally(() => { if (scanning === scan) scanning = null; });
+        return scan.run;
     }
 
     // The header's counts for the list, which has no frames to go by: put right only when they are short of the map's notes
@@ -463,13 +478,18 @@ export function createReplayService({
     async function setFolder(next) {
         await store.update((v) => ({ ...v, folder: clean(next) }));
         charts = null;
-        return { ok: true, ...(await folder()) };
+        scanning = null;
+        const place = { ok: true, ...(await folder()) };
+        send("replay-folder", place);
+        return place;
     }
 
     async function pickFolder() {
         const r = await dialog?.showOpenDialog(window(), { title: t("replay.pickFolder"), properties: ["openDirectory"] });
         if (!r || r.canceled || !r.filePaths?.[0]) return { ok: false, cancelled: true };
-        return setFolder(r.filePaths[0]);
+        const game = await gameFolderOf(r.filePaths[0], fs);
+        if (!game) return { ok: false, message: t("replay.err.notOsuFolder") };
+        return setFolder(game);
     }
 
     const safe = (fn) => async (req) => {
@@ -493,6 +513,7 @@ export function registerReplayIpc({ ipcMain, paths, dialog, window, log, send, t
     let service = null;
     const get = () => (service ??= createReplayService({
         userData: paths.userData, dialog, window, log, send, tosu: () => tosuFolders(tosu.port), analysis, worker, cache: resultCache,
+        profileFolder: async () => (await localProfile?.osuFolder?.()) ?? null, association: osuAssociation,
         playing: () => localProfile?.playing?.() ?? false,
     }));
     const s = new Proxy({}, { get: (_t, key) => (req) => get()[key](req) });

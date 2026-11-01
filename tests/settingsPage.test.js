@@ -21,6 +21,8 @@ import { stripComments } from "./helpers/source.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flush = async () => { for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r)); };
+const FOLDER = String.raw`D:\Games\osu!`;
+const OTHER = String.raw`E:\osu!`;
 
 function fakeApi() {
     const calls = [];
@@ -42,7 +44,7 @@ function fakeApi() {
         localProfilePickOsu: async () => { calls.push(["pickOsu"]); return { ok: true }; },
         sessionCopy: async (text) => { calls.push(["copy", text]); return { ok: true }; },
     };
-    for (const name of ["onSettings", "onOpenSettings", "onOsuClient", "onSessionLibrary", "onLocalProfileChanged"]) api[name] = (cb) => { on[name] = cb; };
+    for (const name of ["onSettings", "onOpenSettings", "onOsuClient", "onSessionLibrary", "onLocalProfileChanged", "onReplayFolder"]) api[name] = (cb) => { on[name] = cb; };
     return api;
 }
 
@@ -91,6 +93,66 @@ test("opens from ⚙ and the tray, closes by back, Esc and another tab; the Inte
     assert.deepEqual(m.shown(), { focus: true });
     m.window.dispatchEvent(new CustomEvent("open-tab", { detail: { tab: "analysis" } }));
     assert.equal(m.page.hidden, true, "a chart put on the card: back to it");
+});
+
+test("the osu! folder for replays: a refused pick is said and the path stays, the path follows a pick or a reset made anywhere", async () => {
+    const m = mount({ lang: "en" });
+    const box = m.$("st-folders");
+    const auto = /automatic/;
+    const say = "That is not an osu! folder";
+    m.api.replayPickFolder = async () => ({ ok: false, message: say });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(say));
+    assert.match(textOf(box), auto);
+    m.api.replayPickFolder = async () => ({ ok: false, cancelled: true });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(say), "a cancel changes nothing");
+    m.api.replayPickFolder = async () => ({ ok: true, folder: FOLDER, picked: FOLDER, source: "picked" });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(FOLDER));
+    assert.ok(!textOf(box).includes(say), "the message goes");
+    assert.doesNotMatch(textOf(box), auto);
+    m.api.replayPickFolder = async () => ({ ok: false, message: say });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(say));
+    assert.ok(textOf(box).includes(FOLDER), "refused: the folder saved is still shown, not «automatic»");
+    assert.doesNotMatch(textOf(box), auto);
+    m.api.replayPickFolder = async () => ({ ok: false, cancelled: true });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(FOLDER), "and so after a cancel");
+    assert.doesNotMatch(textOf(box), auto);
+    m.api.on.onReplayFolder({ ok: true, folder: OTHER, picked: OTHER, source: "picked" }); // picked on the tab
+    assert.ok(textOf(box).includes(OTHER));
+    m.api.replayResetFolder = async () => ({ ok: true, folder: null, picked: null, source: null });
+    await fire(buttonNamed(box, "Automatic"), "click");
+    assert.ok(!textOf(box).includes(OTHER));
+    assert.match(textOf(box), auto);
+});
+
+test("the osu! folder for replays: a refusal goes with a reset or a pick made on the tab, the import's note stays through it all", async () => {
+    const m = mount({ lang: "en" });
+    const box = m.$("st-folders");
+    const say = "That is not an osu! folder";
+    const importing = "Importing";
+    m.api.replayResetFolder = async () => ({ ok: true, folder: null, picked: null, source: null });
+    m.api.replayPickFolder = async () => ({ ok: false, message: say });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    await fire(buttonNamed(box, "Automatic"), "click");
+    assert.ok(!textOf(box).includes(say), "a reset takes it away");
+    await fire(buttonNamed(box, "Choose…"), "click");
+    m.api.on.onReplayFolder({ ok: true, folder: FOLDER, picked: FOLDER, source: "picked" });
+    assert.ok(!textOf(box).includes(say), "so does a pick on the tab");
+
+    await fire(buttonNamed(box, "Pick the osu! folder and import…"), "click");
+    assert.ok(textOf(box).includes(importing));
+    m.api.replayPickFolder = async () => ({ ok: true, folder: OTHER, picked: OTHER, source: "picked" });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(importing), "a pick says nothing about the import");
+    await fire(buttonNamed(box, "Automatic"), "click");
+    assert.ok(textOf(box).includes(importing), "nor does a reset");
+    m.api.replayPickFolder = async () => ({ ok: false, message: say });
+    await fire(buttonNamed(box, "Choose…"), "click");
+    assert.ok(textOf(box).includes(importing) && textOf(box).includes(say), "a refusal stands beside it");
 });
 
 test("⚙ at the end of the tab bar opens the page as a page of its own and closes it again, lit while open", async () => {

@@ -37,6 +37,48 @@ async function setup() {
     return { root, game, skin, service, opened, shown, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
+test("osu!'s Skins folder: tosu, else %LOCALAPPDATA%, else the .osz association through the game-folder check", async (t) => {
+    const { root, game, cleanup } = await setup();
+    t.after(cleanup);
+    await writeFile(path.join(game, "osu!.exe"), "exe");
+    const asked = [];
+    const service = (over) => createSkinService({
+        userData: path.join(root, "user-data"), docsDir: path.join(root, "docs"), env: {}, gameFolder: async () => null,
+        association: async () => { asked.push("association"); return game; }, ...over,
+    });
+    const skins = path.join(game, "Skins");
+    const linked = await service({}).list();
+    assert.equal(linked.folder, skins);
+    assert.deepEqual(linked.skins.map((s) => s.folder), ["Fixture", "No ini"]);
+    assert.equal((await service({}).open({ folder: "Fixture" })).ok, true, "a skin opens from there too");
+    const below = path.join(game, "Songs", "1 Map");
+    await mkdir(below, { recursive: true });
+    assert.equal((await service({ association: async () => below }).list()).folder, skins, "a program below the game leads to the game's Skins");
+    const notCopy = path.join(root, "not-a-copy");
+    await mkdir(notCopy, { recursive: true });
+    await writeFile(path.join(notCopy, "Skins"), "a file");
+    assert.deepEqual(await service({ association: async () => notCopy }).list(), { ok: true, folder: null, skins: [] }, "a file called Skins holds no skins");
+
+    asked.length = 0;
+    const live = path.join(root, "live");
+    await mkdir(path.join(live, "Skins"), { recursive: true });
+    assert.equal((await service({ gameFolder: async () => live }).list()).folder, path.join(live, "Skins"));
+    const local = path.join(root, "local");
+    await mkdir(path.join(local, "osu!", "Skins"), { recursive: true });
+    assert.equal((await service({ env: { LOCALAPPDATA: local } }).list()).folder, path.join(local, "osu!", "Skins"));
+    assert.deepEqual(asked, [], "asked only when nothing else knows");
+
+    const lazer = path.join(root, "osulazer", "current");
+    await mkdir(lazer, { recursive: true });
+    await writeFile(path.join(lazer, "osu!.exe"), "exe");
+    assert.deepEqual(await service({ association: async () => lazer }).list(), { ok: true, folder: null, skins: [] }, "lazer's folder is not stable's");
+    assert.deepEqual(await service({ association: async () => path.join(root, "gone") }).list(), { ok: true, folder: null, skins: [] });
+    assert.deepEqual(await service({ association: async () => null }).list(), { ok: true, folder: null, skins: [] });
+    await mkdir(path.join(game, "Songs"), { recursive: true });
+    await rm(skins, { recursive: true });
+    assert.deepEqual(await service({}).list(), { ok: true, folder: null, skins: [] }, "the game with no Skins folder");
+});
+
 test("names and encodings", () => {
     assert.equal(safeName('a:b/c*?"<>|. '), "a_b_c______");
     assert.equal(safeName("  "), "skin");

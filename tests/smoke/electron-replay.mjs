@@ -1,21 +1,26 @@
 // Run with: npx electron tests/smoke/electron-replay.mjs <out-dir> [lang=en]   (SMOKE_LANG=en works too)
-// The Replay tab through the real window, fully offline, over a fixture osu! folder made here only (a made-up player,
-// TestPlayer; <out-dir>/osu with Songs, Replays, Data\r, Skins and osu!.TestPlayer.cfg, <out-dir>/user-data): the tab bar
-// with eight tabs; the recent list; an honest replay and a roll played as jumps opened from it (manip ≈ 0 / ≈ 100 % on
+// The Replay tab through the real window, fully offline, over fixture osu! folders made here only (a made-up player,
+// TestPlayer; <out-dir>/osu with osu!.exe, Songs, Replays, Data\r, Skins and osu!.TestPlayer.cfg, <out-dir>/other-osu, a
+// second install, <out-dir>/user-data; neither is in %LOCALAPPDATA%): the tab bar with eight tabs; osu! closed and no folder
+// known, a wrong pick refused, then osu! starting and the tab finding it when shown again; the recent list; an honest
+// replay and a roll played as jumps opened from it (manip ≈ 0 / ≈ 100 % on
 // screen); the judgement table against the replay's own counts; the skin set in osu! drawn (a pixel check on the stage, and
 // another skin / the plain field from the select); the song decoded and playing (the clock moves, seek, speed, pause);
 // presses and manip lines drawn; a play ending in osu! (the replay appears in Data\r, the tab opens it by itself, without
 // a call on the window's focus, and a play with no replay says why); the statistics' folds on a mixed map (fingers picked and
 // remembered, hands, holds, jacks, ghost presses, combo breaks, earlier plays; a section with no data is not there); a replay
-// whose map is missing; the profile's plays saying what needs a replay; 440 px with no sideways scroll, then narrower; every
-// file under the osu! folder unchanged. Screenshots go to <out-dir>. Exits 1 on any failed check.
+// whose map is missing; the profile's plays saying what needs a replay; 440 px with no sideways scroll, then narrower; with
+// a replay open a pick of the other install's Songs in Settings (a wrong one refused first) landing on its game folder, the
+// list and the skin select filling and the path following, a reset rereading, the same from the tab's own button; every
+// file under the osu! folders unchanged. Screenshots go to <out-dir>. Exits 1 on any failed check.
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
-import { mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createReplayService } from "../../app/replayIpc.js";
 import { createSongsMd5Index } from "../../app/osuSongsScan.js";
+import { decodeReg } from "../../app/osuFolder.js";
 import { buildSkin, skinIniText } from "../../src/skin/build.js";
 import { setLang, t } from "../../src/i18n/i18n.js";
 import { makeOsr, honestPresses, gluedPresses, chartText, rollNotes, noise } from "../fixtures/makeOsr.js";
@@ -29,7 +34,7 @@ const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith("electr
 const outDir = path.resolve(args.find((a) => !a.includes("=")) ?? path.join(here, "replay-out"));
 const lang = setLang(args.includes("lang=en") || process.env.SMOKE_LANG === "en" ? "en" : "ru");
 mkdirSync(outDir, { recursive: true });
-for (const dir of ["user-data", "osu"]) rmSync(path.join(outDir, dir), { recursive: true, force: true });
+for (const dir of ["user-data", "osu", "other-osu", "osulazer"]) rmSync(path.join(outDir, dir), { recursive: true, force: true });
 app.setPath("userData", path.join(outDir, "user-data"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = false;
@@ -69,12 +74,14 @@ const game = path.join(outDir, "osu");
 const notes = rollNotes({ count: 1200, stepMs: 45, startMs: 1500 });
 const text = chartText(notes, { title: "Fixture Roll", artist: "Test", version: "Rolls" });
 const hash = md5(text);
-const put = (rel, data) => {
-    const file = path.join(game, rel);
+const putIn = (root, rel, data) => {
+    const file = path.join(root, rel);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, data);
     return file;
 };
+const put = (rel, data) => putIn(game, rel, data);
+put("osu!.exe", "exe");
 put("Songs/1 Test - Fixture Roll/Test - Fixture Roll (TestPlayer) [Rolls].osu", text);
 put("Songs/1 Test - Fixture Roll/audio.wav", wav(60));
 const headerFor = (presses) => {
@@ -148,6 +155,18 @@ const earlierA = replayOf(earlierMix, mixedHash, mixed);
 put(`Data/r/${mixedHash}-1000.osr`, makeOsr({ md5: mixedHash, presses: earlierMix, counts: earlierA.counts, maxCombo: earlierA.combo.max, at: Date.UTC(2026, 8, 20, 18) }));
 before = snapshot(game);
 
+// ---- a second install with a replay and a skin of its own, and what is no osu! though it has an osu!.exe: lazer's folder ----
+const otherGame = path.join(outDir, "other-osu");
+putIn(otherGame, "osu!.exe", "exe");
+putIn(otherGame, "Songs/1 Test - Fixture Roll/Test - Fixture Roll (TestPlayer) [Rolls].osu", text);
+const otherFile = putIn(otherGame, "Replays/other.osr", makeOsr({ md5: hash, presses: honestPlay.slice(0, 20), counts: { max: 15, n300: 5 }, maxCombo: 20, at: Date.UTC(2026, 9, 5, 12) }));
+putIn(otherGame, "Skins/Other Bars/skin.ini", "[General]\r\nName: Other Bars\r\n");
+putIn(otherGame, "osu!.TestPlayer.cfg", "BeatmapDirectory = Songs\r\nSkin = Other Bars\r\n");
+const otherBefore = snapshot(otherGame);
+const lazerFolder = path.dirname(putIn(path.join(outDir, "osulazer", "current"), "osu!.exe", "exe"));
+const replayJson = path.join(outDir, "user-data", "replay.json");
+const savedFolder = () => (existsSync(replayJson) ? JSON.parse(readFileSync(replayJson, "utf8")).folder : null);
+
 app.whenReady().then(async () => {
     const blocked = [];
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
@@ -158,6 +177,8 @@ app.whenReady().then(async () => {
     ipcMain.on("get-lang", (event) => { event.returnValue = lang; });
     ipcMain.on("tab", () => {});
     let win = null;
+    let osuRunning = false;
+    let pickAnswer = { canceled: true, filePaths: [] };
     const worker = {
         details: async () => ({ kind: "details", details: { v: 2, durationSec: 55, strain: [], families: new Array(120).fill("stream"), flavourBins: [] } }),
         sections: async () => ({ kind: "sections", sections: { v: 1, parts: [{ dan: 12.4 }, { dan: 13.1 }, { dan: null }, { dan: 11.8 }, { dan: 13.4 }], top: 1 } }),
@@ -165,13 +186,13 @@ app.whenReady().then(async () => {
     const service = createReplayService({
         userData: path.join(outDir, "user-data"), env: {}, log: (l) => console.log("log", l),
         songsIndex: createSongsMd5Index({ indexFile: path.join(outDir, "user-data", "songs.json") }),
-        tosu: async () => ({ game, songs: null, skin: null }), send: (channel, payload) => win?.webContents.send(channel, payload),
+        tosu: async () => ({ game: osuRunning ? game : null, songs: null, skin: null }), send: (channel, payload) => win?.webContents.send(channel, payload),
         analysis: { enqueue: (fn) => fn() }, worker, cache: { get: async () => null, set: async () => {} },
-        dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+        dialog: { showOpenDialog: async () => pickAnswer },
     });
     const channels = {
         "replay-status": "status", "replay-list": "list", "replay-open": "open", "replay-audio": "audio", "replay-skin": "skin", "replay-details": "details",
-        "replay-earlier": "earlier", "replay-after-play": "setAfterPlay",
+        "replay-earlier": "earlier", "replay-after-play": "setAfterPlay", "replay-pick-folder": "pickFolder", "replay-reset-folder": "resetFolder",
     };
     for (const [channel, method] of Object.entries(channels)) ipcMain.handle(channel, (_e, req) => service[method](req));
     const history = {
@@ -250,8 +271,27 @@ app.whenReady().then(async () => {
     check(bar.labels.includes(t("replay.html.tab")) && bar.labels.length === 9, `the tab «${t("replay.html.tab")}» in a bar of eight + ⚙`);
     check(bar.over <= 0, `the tab bar fits at 440 px (overflow ${bar.over})`);
 
+    // what reg.exe's bytes need, in this Electron's own ICU: code page 866
+    check(decodeReg(Buffer.from([0x28, 0xaf, 0xae, 0x29, 0x20, 0x88, 0xa3, 0xe0, 0xeb]), 866) === "(по) Игры", "code page 866 is read here too");
+
+    // ---- osu! closed, no folder known: the tab says so, a wrong pick is refused, osu! starting is seen when it is shown ----
+    const listHas = (words) => `document.getElementById("rp-list").textContent.includes(${JSON.stringify(words)})`;
+    const pickOnTab = (where) => {
+        pickAnswer = { canceled: false, filePaths: [where] };
+        return js(`document.querySelector("#rp-list button").click(); true`);
+    };
     await js(`document.querySelector("[data-tab=replay]").click(); true`);
-    check(await waitFor(`document.querySelectorAll("#rp-list .rp-row").length >= 3`), "the recent replays are listed");
+    check(await waitFor(listHas(t("replay.list.noFolder"))), "osu! closed and no folder known: the tab says so");
+    await pickOnTab(lazerFolder);
+    check(await waitFor(`document.getElementById("rp-status").textContent === ${JSON.stringify(t("replay.err.notOsuFolder"))}`), "lazer's folder is refused, in words");
+    check(await js(`document.getElementById("rp-status").className.includes("bad")`) && savedFolder() === null, "and nothing is saved");
+    await shot(`replay-nofolder-${lang}.png`);
+    await js(`document.querySelector("[data-tab=analysis]").click(); true`);
+    osuRunning = true;
+    await sleep(200);
+    check(await js(listHas(t("replay.list.noFolder"))), "osu! started while the tab was not looking: nothing has moved yet");
+    await js(`document.querySelector("[data-tab=replay]").click(); true`);
+    check(await waitFor(`document.querySelectorAll("#rp-list .rp-row").length >= 3`), "the tab shown again finds osu!: the recent replays are listed");
     check(await waitFor(`document.getElementById("rp-list").innerText.includes("Fixture Roll")`), "the list names the maps from Songs");
     const list = await text2("rp-list");
     check(!list.includes("standard") && (list.match(/Fixture Roll/g) ?? []).length === 3, "one row per mania replay");
@@ -454,6 +494,7 @@ app.whenReady().then(async () => {
     await shot(`replay-gameplay-${lang}.png`);
     await js(`document.querySelector(".rp-game-row button").click(); true`);
     check(await waitFor(`!document.getElementById("rp-session").hidden`), "and it opens");
+    check(await waitFor(`document.getElementById("rp-status").textContent === ""`), "the word of the refused pick is gone");
 
     // the tab pauses when left
     await sleep(400);
@@ -465,11 +506,54 @@ app.whenReady().then(async () => {
     await sleep(200);
     check((await js(`document.querySelector(".rp-play").textContent`)) === t("replay.play.play"), "another tab pauses the playback");
 
+    // ---- the folder changed in Settings with a replay open: a wrong pick refused, Songs landing on its game, a reset ----
+    const skinNames = () => js(`[...document.getElementById("rp-skin").options].map((o) => o.value)`);
+    const skinsAre = (name) => `[...document.getElementById("rp-skin").options].some((o) => o.value === ${JSON.stringify(name)})`;
+    const rowOf = (file) => `[...document.querySelectorAll("#rp-list .rp-row")].some((b) => b.dataset.file === ${JSON.stringify(file)})`;
+    const foldersText = (words) => `document.getElementById("st-folders").textContent.includes(${JSON.stringify(words)})`;
+    const replayButton = (word) => `[...document.querySelectorAll("#st-folders button")].find((b) => b.textContent === ${JSON.stringify(word)})`;
+    const resetButton = replayButton(t("replay.settings.reset"));
+    await js(`document.getElementById("settings-tab").click(); true`);
+    check(await waitFor(`!document.getElementById("settings-page").hidden`), "Settings opens");
+    pickAnswer = { canceled: false, filePaths: [lazerFolder] };
+    await js(`${resetButton}.previousElementSibling.click(); true`);
+    check(await waitFor(foldersText(t("replay.err.notOsuFolder"))), "Settings: lazer's folder is refused, in words");
+    check(savedFolder() === null && await js(foldersText(t("replay.settings.auto"))), "and nothing is saved, the path stays");
+    await js(`document.getElementById("st-folders").scrollIntoView(); true`);
+    await shot(`replay-refused-settings-${lang}.png`);
+    pickAnswer = { canceled: false, filePaths: [path.join(otherGame, "Songs")] };
+    await js(`${resetButton}.previousElementSibling.click(); true`);
+    check(await waitFor(rowOf(otherFile)), "a pick of Songs: the list fills from the game folder, a replay still open");
+    check(await waitFor(skinsAre("Other Bars")), "and so does the skin select");
+    check(!(await skinNames()).includes("Fixture Bars"), "with that folder's skins only");
+    check((await js(`document.getElementById("rp-skin").value`)) === "Other Bars", "the skin set in that osu! is chosen");
+    check(savedFolder() === otherGame, `what is saved is the game folder (${savedFolder()})`);
+    check(await waitFor(foldersText(otherGame)) && !(await js(foldersText(path.join(otherGame, "Songs")))), "the path shown follows, not Songs");
+    check(!(await js(foldersText(t("replay.err.notOsuFolder")))), "the refusal's word is gone");
+    check((await text2("rp-folder")).includes(otherGame) && await js(`!document.getElementById("rp-session").hidden`), "the tab says where, with the replay open as it was");
+    await js(`${resetButton}.click(); true`);
+    check(await waitFor(rowOf(honestFile)), "a reset rereads the list");
+    check(await waitFor(skinsAre("Fixture Bars")) && !(await skinNames()).includes("Other Bars"), "and the skin select");
+    check(savedFolder() === null && await waitFor(foldersText(t("replay.settings.auto"))), "nothing saved any more, the path says so");
+    await js(`document.getElementById("settings-back").click(); true`);
+
+    // ---- the same from the tab's own button: osu! gone, nothing known, a pick, a reset ----
+    osuRunning = false;
+    await js(`document.getElementById("rp-close").click(); true`);
+    check(await waitFor(listHas(t("replay.list.noFolder"))), "osu! closed again: the tab says so");
+    await pickOnTab(path.join(otherGame, "Skins", "Other Bars"));
+    check(await waitFor(rowOf(otherFile)), "a skin's folder picked on the tab: the list fills at once");
+    check(savedFolder() === otherGame, "the game folder is what is saved");
+    await service.resetFolder();
+    check(await waitFor(listHas(t("replay.list.noFolder"))), "a reset from anywhere rereads the tab");
+    check(!(await js(`document.getElementById("rp-folder").textContent`)), "and no folder is shown");
+
     check(!errors.length, `no console errors (${errors.slice(0, 2).join(" | ")})`);
     check(!blocked.length, `nothing went online (${blocked.slice(0, 2).join(" ")})`);
     rmSync(path.join(game, "Data", "r", `${mixedHash}-2000.osr`), { force: true }); // this one played osu!'s part
     const after = snapshot(game);
     check(JSON.stringify(after) === JSON.stringify(before), "the osu! folder is unchanged");
+    check(JSON.stringify(snapshot(otherGame)) === JSON.stringify(otherBefore), "and the other one");
     console.log(failed ? "SMOKE FAILED" : "SMOKE PASSED");
     app.exit(failed ? 1 : 0);
 }).catch((error) => {

@@ -72,6 +72,7 @@ export default {
     "replay.pickFolder": { ru: "Папка osu! (где osu!.exe, Replays и Songs)", en: "The osu! folder (with osu!.exe, Replays and Songs)" },
     "replay.opening": { ru: "Открываю реплей…", en: "Opening the replay…" },
     "replay.err.notReplay": { ru: "Это не .osr.", en: "That is not an .osr." },
+    "replay.err.notOsuFolder": { ru: "Здесь нет osu! stable: выбери папку, где лежит osu!.exe, или любую внутри неё.", en: "No osu! stable here: pick the folder with osu!.exe, or any folder inside it." },
     "replay.err.noFile": { ru: "Файла больше нет.", en: "The file is gone." },
     "replay.err.tooBig": { ru: "Слишком большой файл для реплея.", en: "Too big for a replay." },
     "replay.err.badReplay": { ru: "Реплей не читается: файл повреждён.", en: "The replay cannot be read: the file is damaged." },
@@ -288,7 +289,7 @@ export default {
 
     // Settings
     "replay.settings.label": { ru: "Папка osu! для реплеев", en: "osu! folder for replays" },
-    "replay.settings.auto": { ru: "сама (из osu! или %LOCALAPPDATA%)", en: "automatic (from osu! or %LOCALAPPDATA%)" },
+    "replay.settings.auto": { ru: "сама (из osu!, Моего профиля, %LOCALAPPDATA% или настроек Windows)", en: "automatic (from osu!, My profile, %LOCALAPPDATA% or Windows' settings)" },
     "replay.settings.pick": { ru: "Выбрать…", en: "Choose…" },
     "replay.settings.reset": { ru: "Сама", en: "Automatic" },
     "replay.settings.afterPlay": { ru: "После игры показывать её разбор на вкладке «Реплей»", en: "After a play, show its analysis on the Replay tab" },

@@ -93,6 +93,7 @@ footer button.settings-open:hover { opacity: 1; color: var(--gold); }
 .st-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .st-label { color: var(--text); }
 .st-note { font-size: 11px; line-height: 1.35; }
+.st-note:empty { display: none; }
 .st-path { font-size: 10px; word-break: break-all; user-select: text; }
 .st-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .st-seg { display: inline-flex; gap: 4px; }

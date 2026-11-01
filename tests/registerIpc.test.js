@@ -131,7 +131,44 @@ test("every event the preload listens to is sent by main or a tab module", () =>
     const events = [...preload.matchAll(/ipcRenderer\.on\("([\w-]+)"/g)].map((m) => m[1]);
     assert.ok(events.includes("profile-changed"));
     assert.ok(events.includes("generate-progress"));
+    assert.ok(events.includes("replay-folder"));
     assert.deepEqual(events.filter((c) => !appCode.includes(`"${c}"`)), []);
+});
+
+// The preload run against a stand-in for electron: the api it exposes, and who listens on which channel.
+function loadPreload() {
+    const listeners = {};
+    const ipcRenderer = {
+        on: (channel, fn) => { (listeners[channel] ??= []).push(fn); },
+        removeListener: (channel, fn) => { listeners[channel] = (listeners[channel] ?? []).filter((f) => f !== fn); },
+        send() {}, sendSync() {}, invoke() {},
+    };
+    let api = null;
+    const contextBridge = { exposeInMainWorld: (_name, exposed) => { api = exposed; } };
+    new Function("require", preloadRaw)(() => ({ contextBridge, ipcRenderer, webUtils: {} }));
+    return { api, listeners };
+}
+
+test("the folder event reaches the tab with its payload, and whatever takes itself off comes off the channel it was on", () => {
+    const { api, listeners } = loadPreload();
+    const count = () => Object.values(listeners).reduce((sum, list) => sum + list.length, 0);
+    const seen = [];
+    const off = api.onReplayFolder((p) => seen.push(p));
+    listeners["replay-folder"][0]({}, { folder: "x" });
+    assert.deepEqual(seen, [{ folder: "x" }]);
+    off();
+    assert.deepEqual(listeners["replay-folder"], []);
+    let taken = 0;
+    for (const name of Object.keys(api).filter((key) => /^on[A-Z]/.test(key))) {
+        const before = count();
+        const remove = api[name](() => {});
+        assert.equal(count(), before + 1, name);
+        if (typeof remove !== "function") continue;
+        remove();
+        taken += 1;
+        assert.equal(count(), before, name);
+    }
+    assert.ok(taken >= 2, `only ${taken} found`);
 });
 
 test("the preload groups its methods in marked blocks, one per tab", () => {
@@ -148,5 +185,6 @@ test("the preload groups its methods in marked blocks, one per tab", () => {
     assert.match(inBlock("rate"), /rateInfo[\s\S]*ratePreview[\s\S]*rateCreate/);
     assert.match(inBlock("marathon"), /marathonAddCurrent[\s\S]*marathonDan[\s\S]*marathonCreate/);
     assert.match(inBlock("picks"), /recPlayer[\s\S]*onRecDownloadProgress/);
+    assert.match(inBlock("replay"), /onReplayProgress[\s\S]*onReplayFolder/);
     assert.match(inBlock("overlay"), /overlayGet[\s\S]*overlaySet[\s\S]*overlaySetEdit[\s\S]*overlayOpenSettings[\s\S]*onOverlaySettings/);
 });

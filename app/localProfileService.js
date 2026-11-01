@@ -642,6 +642,8 @@ export function createLocalProfileService({
         importLazer: () => runImport("lazer"),
         cancelImport: () => { if (job) job.cancelled = true; return { ok: true }; },
         importing: () => (job ? { source: job.source, ...(job.progress ?? {}) } : null),
+        // the osu! folder of the last import from stable, or null (the Replay tab looks there while osu! is closed)
+        osuFolder: async () => (await store.settings()).osuFolder,
         // whether live plays are recorded (the overlay's Dan widget shows a play's own dan only then)
         recording: async () => {
             try {

@@ -31,7 +31,7 @@ export default {
     "settings.folders.osu": { ru: "Импорт старых игр из osu! stable (Мой профиль)", en: "Import old plays from osu! stable (My profile)" },
     "settings.folders.pickOsu": { ru: "Выбрать папку osu! и импортировать…", en: "Pick the osu! folder and import…" },
     "settings.folders.importing": { ru: "Импорт идёт — ход виден во вкладке «Профиль».", en: "Importing — its progress is on the Profile tab." },
-    "settings.folders.skinsNote": { ru: "Скины osu! берутся из папки, где osu! (tosu), иначе %LOCALAPPDATA%\\osu!\\Skins.", en: "osu! skins come from where osu! is (tosu), else %LOCALAPPDATA%\\osu!\\Skins." },
+    "settings.folders.skinsNote": { ru: "Скины osu! берутся из папки, где osu! (tosu), иначе %LOCALAPPDATA%\\osu!\\Skins, иначе оттуда, откуда Windows открывает файлы .osz.", en: "osu! skins come from where osu! is (tosu), else %LOCALAPPDATA%\\osu!\\Skins, else from where Windows opens .osz files." },
 
     // updates
     "settings.updates.title": { ru: "Обновления", en: "Updates" },

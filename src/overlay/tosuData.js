@@ -56,7 +56,11 @@ export function readPlayFrame(json) {
         hits = readHits(json.resultsScreen.hits);
         accuracy = num(json.resultsScreen.accuracy) ?? accuracy;
     }
-    const mode = num(play.mode?.number) ?? num(json?.beatmap?.mode?.number) ?? num(json?.menu?.gameMode);
+    // play.mode is the last play's (osu! until one was played), so while a map is being chosen the map's own goes first
+    const selecting = SELECTING.has(json?.state?.number);
+    const playMode = num(play.mode?.number);
+    const mapMode = num(json?.beatmap?.mode?.number);
+    const mode = (selecting ? mapMode ?? playMode : playMode ?? mapMode) ?? num(json?.menu?.gameMode);
     const rate = rateOf(play.mods);
     const mods = modCodes(play.mods);
     // the play is gone on lazer's results screen: the score shown there has the mods
@@ -69,7 +73,7 @@ export function readPlayFrame(json) {
         rate,
         mods,
         odSet: lazerOdSet(setBy?.array), // the OD the play set itself (lazer's Difficulty Adjust), else null
-        selecting: SELECTING.has(json?.state?.number),
+        selecting,
         map: readTosuMap(json, { mode, rate, mods }),
         liveMs: num(json?.beatmap?.time?.live),
         hits,

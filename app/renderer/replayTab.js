@@ -99,8 +99,12 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     let shown = false;
     let source = SOURCES.includes(readStored(SOURCE_KEY, "replay")) ? readStored(SOURCE_KEY, "replay") : "replay";
     let items = [];
-    let listed = false;
-    let skinLoaded = false;
+    let listed = false; // the list was read from a folder: with none, the tab looks again each time it is shown
+    let listAsked = 0; // the folder can change while a list or a skin is on its way: only the last answer counts
+    let skinAsked = 0;
+    let skinLoaded = false; // the skins were read: an answer without any is not kept
+    let skinNote = ""; // the line under the stage: what the skin says, unless the song has something to say
+    let audioNote = "";
     let fingers = readFingers();
     let later = null; // the map's dans and pattern families, once they come
     let earlier = null; // the earlier plays of the map, once they come
@@ -110,6 +114,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         box.textContent = text;
         box.className = `muted sk-status ${cls}`;
     };
+    const drawNote = () => { $("rp-skin-note").textContent = audioNote || skinNote; };
 
     function showPanes() {
         $("rp-start").hidden = source !== "replay" || Boolean(opened);
@@ -141,7 +146,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         if (!place?.folder) {
             box.replaceChildren(el("div", "muted", t("replay.list.noFolder")), button(t("replay.list.pick"), "small", async () => {
                 const r = await api.replayPickFolder?.();
-                if (r?.ok) void refresh();
+                if (r?.message) status(r.message, "bad"); // a folder taken comes back as onReplayFolder
             }));
             return;
         }
@@ -166,17 +171,24 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     }
 
     async function refresh() {
+        listAsked += 1;
+        const asked = listAsked;
         if (!items.length) $("rp-list").replaceChildren(el("div", "muted", t("replay.list.loading")));
         const quick = await api.replayList?.({ titles: false });
+        if (asked !== listAsked) return null;
         if (!quick?.ok) {
             status(t("replay.err.failed", { message: quick?.message ?? "" }), "bad");
             return null;
         }
         items = quick.items;
         drawList(quick);
-        listed = true;
-        if (!quick.folder) return quick;
+        listed = Boolean(quick.folder);
+        if (!quick.folder) {
+            status();
+            return quick;
+        }
         const named = await api.replayList?.({ titles: true });
+        if (asked !== listAsked) return null;
         status();
         if (named?.ok) {
             items = named.items;
@@ -210,8 +222,11 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
 
     // ---- the skin ----
     async function loadSkin(request) {
+        skinAsked += 1;
+        const asked = skinAsked;
         const r = await api.replaySkin?.(request);
-        if (!r?.ok) return;
+        if (asked !== skinAsked || !r?.ok) return;
+        skinLoaded = r.skins.length > 0;
         const box = $("rp-skin");
         const options = [new Option(t("replay.play.skinPlain"), "", false, !r.chosen)];
         for (const name of r.skins) {
@@ -231,14 +246,22 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             img.onerror = () => { pictures[value] = null; resolve(); };
             img.src = info.url;
         })));
+        if (asked !== skinAsked) return;
         view.setSkin(r.config, pictures);
-        const note = $("rp-skin-note");
-        note.textContent = !r.chosen ? t("replay.play.plainSkin") : r.mania4 ? "" : t("replay.play.no4k");
+        skinNote = !r.chosen ? t("replay.play.plainSkin") : r.mania4 ? "" : t("replay.play.no4k");
+        drawNote();
     }
     $("rp-skin").addEventListener("change", (e) => {
         const value = e.target.value;
         store(SKIN_KEY, value);
         void loadSkin(skinRequest(value));
+    });
+
+    // the folder was picked or reset, here or in Settings: all that came from it is read again, with a replay open too
+    api.onReplayFolder?.(() => {
+        void refresh();
+        void loadSkin(skinRequest(readStored(SKIN_KEY, null)));
+        if (source === "gameplay") void drawGame();
     });
 
     // ---- one replay open ----
@@ -290,31 +313,31 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             return;
         }
         view.setReplay(result, handsOf(fingers));
-        if (!skinLoaded) {
-            skinLoaded = true;
-            await loadSkin(skinRequest(readStored(SKIN_KEY, null)));
-        } else view.redraw();
+        if (!skinLoaded) await loadSkin(skinRequest(readStored(SKIN_KEY, null)));
+        else view.redraw();
         void loadAudio(result);
         void loadDetails(result);
         void loadEarlier(result);
     }
 
     async function loadAudio(result) {
+        const say = (text) => {
+            audioNote = text;
+            drawNote();
+        };
+        say(result.map.audio ? t("replay.play.audioLoading") : "");
         if (!result.map.audio) return;
-        const note = $("rp-skin-note");
-        const before = note.textContent;
-        note.textContent = t("replay.play.audioLoading");
         const r = await api.replayAudio?.({ id: result.id });
         if (opened?.id !== result.id) return;
         if (!r?.ok) {
-            note.textContent = r?.stale ? before : t("replay.play.noAudio", { message: r?.message ?? "" });
+            say(r?.stale ? "" : t("replay.play.noAudio", { message: r?.message ?? "" }));
             return;
         }
         try {
             await player.loadAudio(r.data);
-            note.textContent = before;
+            say("");
         } catch {
-            note.textContent = t("replay.play.noAudio", { message: t("replay.err.noAudio") });
+            say(t("replay.play.noAudio", { message: t("replay.err.noAudio") }));
         }
     }
 

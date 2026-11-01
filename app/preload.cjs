@@ -225,6 +225,12 @@ contextBridge.exposeInMainWorld("danApi", {
         ipcRenderer.on("replay-progress", listener);
         return () => ipcRenderer.removeListener("replay-progress", listener);
     },
+    // the folder picked or reset, wherever that was: { ok, folder, source, picked }
+    onReplayFolder: (cb) => {
+        const listener = (_e, p) => cb(p);
+        ipcRenderer.on("replay-folder", listener);
+        return () => ipcRenderer.removeListener("replay-folder", listener);
+    },
     onReplayEnded: (cb) => {
         const listener = (_e, p) => cb(p);
         ipcRenderer.on("replay-ended", listener);

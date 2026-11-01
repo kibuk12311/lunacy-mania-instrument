@@ -161,7 +161,11 @@ export function initSettingsPage({
     const folders = $("st-folders");
     const replayPath = el("div", "st-path", t("replay.settings.auto"));
     const replayActions = el("div", "st-actions");
-    const showReplayFolder = (r) => { if (r?.ok) replayPath.textContent = r.picked ?? t("replay.settings.auto"); };
+    const replayAnswer = el("div", "muted st-note"); // a refused pick: its own line, the import's note is another's
+    const showReplayFolder = (r) => {
+        if (r?.ok) replayPath.textContent = r.picked ?? t("replay.settings.auto");
+        if (!r?.cancelled) replayAnswer.textContent = r?.message ?? "";
+    };
     const afterPlay = checkRow(t("replay.settings.afterPlay"), (on) => { void api.replayAfterPlay?.({ on }); });
     replayActions.append(
         button(t("replay.settings.pick"), "small", async () => showReplayFolder(await api.replayPickFolder?.())),
@@ -176,7 +180,7 @@ export function initSettingsPage({
         el("div", "st-label", t("settings.folders.docs")), docsPath, docsActions,
         el("div", "st-label", t("settings.folders.songs")), songsPath, songsActions,
         el("div", "st-label", t("settings.folders.osu")), osuActions,
-        el("div", "st-label", t("replay.settings.label")), replayPath, replayActions, afterPlay.label,
+        el("div", "st-label", t("replay.settings.label")), replayPath, replayActions, replayAnswer, afterPlay.label,
         folderAnswer,
         el("div", "muted st-note", t("settings.folders.skinsNote")),
     );
@@ -191,6 +195,7 @@ export function initSettingsPage({
         folderAnswer.textContent = r?.ok === false && r.message ? r.message : t("settings.folders.importing");
     }));
     api.onSessionLibrary?.((s) => { songsPath.textContent = s?.songsDir || t("settings.folders.songsAuto"); });
+    api.onReplayFolder?.(showReplayFolder);
 
     // ---- updates ----
     const updates = $("st-updates");

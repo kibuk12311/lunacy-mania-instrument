@@ -83,7 +83,7 @@ test("the folder: picked, else tosu, else %LOCALAPPDATA%\\osu!, else none", asyn
     const none = createReplayService({ ...quiet, userData: path.join(f.root, "u2") });
     assert.equal((await none.status()).folder, null);
     const auto = path.join(f.root, "local", "osu!");
-    await mkdir(auto, { recursive: true });
+    await mkdir(path.join(auto, "Replays"), { recursive: true });
     const byEnv = createReplayService({ ...quiet, userData: path.join(f.root, "u3"), env: { LOCALAPPDATA: path.join(f.root, "local") } });
     assert.equal((await byEnv.status()).source, "default");
     assert.equal((await byEnv.status()).folder, auto);
@@ -93,6 +93,366 @@ test("the folder: picked, else tosu, else %LOCALAPPDATA%\\osu!, else none", asyn
     assert.equal((await picking.pickFolder()).source, "picked");
     assert.equal((await picking.status()).picked, f.game);
     assert.equal((await picking.resetFolder()).source, null);
+});
+
+const closed = async () => ({ game: null, songs: null, skin: null });
+const jsonOf = (userData) => path.join(userData, "replay.json");
+async function saved(userData, folder, afterPlay = true) {
+    await mkdir(userData, { recursive: true });
+    await writeFile(jsonOf(userData), JSON.stringify({ folder, afterPlay }));
+}
+const dialogGiving = (where) => ({ showOpenDialog: async () => ({ canceled: false, filePaths: [where] }) });
+// a folder laid out like a real install: osu!.exe with the game's own folders
+async function installed(game) {
+    await mkdir(path.join(game, "Songs"), { recursive: true });
+    await mkdir(path.join(game, "Skins", "Their Skin"), { recursive: true });
+    await writeFile(path.join(game, "osu!.exe"), "exe");
+    return game;
+}
+
+test("the order: picked, tosu, the profile's, %LOCALAPPDATA%, the .osz association, each looked at only after the one before", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const game = {};
+    for (const name of ["picked", "tosu", "profile", "association"]) game[name] = await installed(path.join(f.root, "games", name));
+    const local = path.join(f.root, "local");
+    game.default = await installed(path.join(local, "osu!"));
+    const asked = [];
+    const answer = async (has) => {
+        const userData = path.join(f.root, `u-${has.join("-")}`);
+        if (has.includes("picked")) await saved(userData, game.picked);
+        const service = createReplayService({
+            ...f.opts, userData, env: has.includes("default") ? { LOCALAPPDATA: local } : {},
+            tosu: async () => ({ game: has.includes("tosu") ? game.tosu : null, songs: null, skin: null }),
+            profileFolder: async () => { asked.push("profile"); return has.includes("profile") ? game.profile : null; },
+            association: async () => { asked.push("association"); return has.includes("association") ? game.association : null; },
+        });
+        const { folder, source, picked } = await service.status();
+        return { folder, source, picked };
+    };
+    const all = ["picked", "tosu", "profile", "default", "association"];
+    assert.deepEqual(await answer(all), { folder: game.picked, source: "picked", picked: game.picked });
+    assert.deepEqual(await answer(all.slice(1)), { folder: game.tosu, source: "tosu", picked: null });
+    assert.deepEqual(asked, []);
+    assert.deepEqual(await answer(all.slice(2)), { folder: game.profile, source: "profile", picked: null });
+    assert.deepEqual(asked, ["profile"]);
+    asked.length = 0;
+    assert.deepEqual(await answer(all.slice(3)), { folder: game.default, source: "default", picked: null });
+    assert.deepEqual(asked, ["profile"], "the association is left alone while something else knows");
+    assert.deepEqual(await answer(all.slice(4)), { folder: game.association, source: "association", picked: null });
+    assert.deepEqual(await answer([]), { folder: null, source: null, picked: null });
+});
+
+test("a non-default install is found with osu! closed: the lists fill from the profile's folder or the association", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    for (const [i, over] of [{ profileFolder: async () => f.game }, { association: async () => f.game }].entries()) {
+        const service = createReplayService({ ...f.opts, userData: path.join(f.root, `u${i}`), tosu: closed, ...over });
+        assert.equal((await service.list({ titles: false })).items.length, 4);
+        assert.deepEqual((await service.skin({})).skins, ["Fixture Skin", "Other"]);
+    }
+});
+
+test("the profile's folder and the association go through the same check: gone, or lazer's, they count for nothing", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const lazer = path.join(f.root, "osulazer", "current");
+    await mkdir(lazer, { recursive: true });
+    await writeFile(path.join(lazer, "osu!.exe"), "exe");
+    for (const [i, nowhere] of [lazer, path.join(f.root, "gone")].entries()) {
+        const service = createReplayService({ ...f.opts, userData: path.join(f.root, `u${i}`), tosu: closed, profileFolder: async () => nowhere, association: async () => nowhere });
+        assert.equal((await service.status()).folder, null);
+    }
+    const broken = createReplayService({ ...f.opts, userData: path.join(f.root, "u-broken"), tosu: closed, profileFolder: async () => { throw new Error("no profile"); }, association: async () => f.game });
+    assert.equal((await broken.status()).source, "association", "a profile that cannot answer does not stop the search");
+    const inside = createReplayService({ ...f.opts, userData: path.join(f.root, "u-inside"), tosu: closed, profileFolder: async () => path.join(f.game, "Songs") });
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    assert.equal((await inside.status()).folder, f.game);
+});
+
+test("an empty %LOCALAPPDATA%\\osu! does not hide the install Windows knows", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const local = path.join(f.root, "local");
+    await mkdir(path.join(local, "osu!"), { recursive: true });
+    const service = createReplayService({ ...f.opts, tosu: closed, env: { LOCALAPPDATA: local }, association: async () => f.game });
+    assert.deepEqual([(await service.status()).source, (await service.status()).folder], ["association", f.game]);
+});
+
+test("a saved Songs heals by itself, with tosu or without: read as the game folder, replay.json left as it was", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const songs = path.join(f.game, "Songs");
+    for (const [i, tosu] of [async () => ({ game: f.game, songs, skin: null }), closed].entries()) {
+        const userData = path.join(f.root, `u${i}`);
+        await saved(userData, songs);
+        const before = await readFile(jsonOf(userData));
+        const service = createReplayService({ ...f.opts, userData, tosu });
+        const status = await service.status();
+        assert.deepEqual([status.folder, status.source, status.picked], [f.game, "picked", f.game]);
+        assert.equal((await service.list({ titles: false })).items.length, 4);
+        const skin = await service.skin({});
+        assert.deepEqual(skin.skins, ["Fixture Skin", "Other"]);
+        assert.equal(skin.chosen, "Fixture Skin");
+        assert.deepEqual(await readFile(jsonOf(userData)), before);
+    }
+});
+
+test("a saved folder that leads nowhere falls through to the next source, kept in case its drive comes back", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const wrong = path.join(f.root, "wrong");
+    await mkdir(wrong, { recursive: true });
+    for (const [i, nowhere] of [path.join(f.root, "gone", "osu!"), wrong].entries()) {
+        const userData = path.join(f.root, `u${i}`);
+        await saved(userData, nowhere);
+        const before = await readFile(jsonOf(userData));
+        const live = createReplayService({ ...f.opts, userData });
+        const status = await live.status();
+        assert.deepEqual([status.folder, status.source, status.picked], [f.game, "tosu", null]);
+        assert.equal((await live.list({ titles: false })).items.length, 4);
+        const quiet = createReplayService({ ...f.opts, userData, tosu: closed });
+        assert.deepEqual((await quiet.status()).folder, null);
+        assert.deepEqual(await readFile(jsonOf(userData)), before);
+    }
+});
+
+test("a pick anywhere inside the game lands on the game folder, and that is what is saved", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const places = [
+        f.game, path.join(f.game, "Songs"), path.join(f.game, "Skins"), path.join(f.game, "Replays"), path.join(f.game, "Data", "r"),
+        path.join(f.game, "Songs", "1 Test - Fixture Roll"), path.join(f.game, "Skins", "Fixture Skin"), path.join(f.game, "Skins", "Fixture Skin", "Notes"),
+    ];
+    for (const [i, where] of places.entries()) {
+        const userData = path.join(f.root, `u${i}`);
+        const service = createReplayService({ ...f.opts, userData, tosu: closed, dialog: dialogGiving(where) });
+        const r = await service.pickFolder();
+        assert.deepEqual([r.ok, r.folder, r.source, r.picked], [true, f.game, "picked", f.game], where);
+        assert.equal(JSON.parse(await readFile(jsonOf(userData), "utf8")).folder, f.game);
+    }
+});
+
+test("a copy without the exe is taken as it is when it holds Replays, Data\\r or Skins; a Songs of its own is not enough", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    for (const [i, part] of [["Replays"], ["Data", "r"], ["Skins"]].entries()) {
+        const copy = path.join(f.root, `copy${i}`);
+        await mkdir(path.join(copy, ...part), { recursive: true });
+        const service = createReplayService({ ...f.opts, userData: path.join(f.root, `u${i}`), tosu: closed, dialog: dialogGiving(copy) });
+        assert.equal((await service.pickFolder()).folder, copy);
+    }
+    const songsOnly = path.join(f.root, "copy-songs");
+    await mkdir(path.join(songsOnly, "Songs"), { recursive: true });
+    const refused = createReplayService({ ...f.opts, userData: path.join(f.root, "u-songs"), tosu: closed, dialog: dialogGiving(songsOnly) });
+    assert.equal((await refused.pickFolder()).ok, false);
+});
+
+test("the walk up goes four parents, no further", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const four = path.join(f.game, "Songs", "a", "b", "c");
+    const five = path.join(four, "d");
+    await mkdir(five, { recursive: true });
+    const reach = createReplayService({ ...f.opts, userData: path.join(f.root, "u4"), tosu: closed, dialog: dialogGiving(four) });
+    assert.equal((await reach.pickFolder()).folder, f.game);
+    const beyond = createReplayService({ ...f.opts, userData: path.join(f.root, "u5"), tosu: closed, dialog: dialogGiving(five) });
+    assert.equal((await beyond.pickFolder()).ok, false);
+});
+
+test("a folder that leads to no osu! is refused with a message: nothing saved, nothing told, what was saved stays", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const lazer = path.join(f.root, "osulazer", "current");
+    await mkdir(lazer, { recursive: true });
+    await writeFile(path.join(lazer, "osu!.exe"), "exe");
+    const empty = path.join(f.root, "empty");
+    await mkdir(empty, { recursive: true });
+    for (const [i, where] of [lazer, empty, path.join(f.root, "gone")].entries()) {
+        const fresh = path.join(f.root, `fresh${i}`);
+        const sent = [];
+        const first = createReplayService({ ...f.opts, userData: fresh, tosu: closed, dialog: dialogGiving(where), send: (...a) => sent.push(a) });
+        const r = await first.pickFolder();
+        assert.equal(r.ok, false);
+        assert.equal(r.cancelled, undefined);
+        assert.match(r.message, /osu!/);
+        assert.equal((await stat(jsonOf(fresh)).catch(() => null)), null, "no replay.json appears");
+        assert.deepEqual(sent, []);
+
+        const kept = path.join(f.root, `kept${i}`);
+        await saved(kept, f.game);
+        const before = await readFile(jsonOf(kept));
+        const second = createReplayService({ ...f.opts, userData: kept, tosu: closed, dialog: dialogGiving(where) });
+        assert.equal((await second.pickFolder()).ok, false);
+        assert.deepEqual(await readFile(jsonOf(kept)), before);
+        assert.equal((await second.status()).folder, f.game);
+    }
+});
+
+test("a pick or a reset tells the window, a refused or cancelled one does not", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const sent = [];
+    let dialog = dialogGiving(path.join(f.game, "Songs"));
+    const service = createReplayService({
+        ...f.opts, tosu: closed, send: (channel, payload) => sent.push([channel, payload]), dialog: { showOpenDialog: (...a) => dialog.showOpenDialog(...a) },
+    });
+    const picked = await service.pickFolder();
+    assert.deepEqual(sent, [["replay-folder", picked]]);
+    assert.deepEqual([picked.ok, picked.folder, picked.source, picked.picked], [true, f.game, "picked", f.game]);
+    sent.length = 0;
+    dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
+    assert.deepEqual(await service.pickFolder(), { ok: false, cancelled: true });
+    assert.deepEqual(sent, []);
+    const reset = await service.resetFolder();
+    assert.deepEqual(sent, [["replay-folder", reset]]);
+    assert.deepEqual([reset.ok, reset.folder, reset.picked], [true, null, null]);
+});
+
+test("a pick or a reset changes the folder and nothing else in replay.json: the after-a-play switch stays off", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    await saved(f.userData, null, false);
+    const service = createReplayService({ ...f.opts, tosu: closed, dialog: dialogGiving(f.game) });
+    assert.equal((await service.pickFolder()).ok, true);
+    assert.equal((await service.status()).afterPlay, false);
+    assert.deepEqual(JSON.parse(await readFile(jsonOf(f.userData), "utf8")), { folder: f.game, afterPlay: false });
+    await service.resetFolder();
+    assert.equal((await service.status()).afterPlay, false);
+    assert.deepEqual(JSON.parse(await readFile(jsonOf(f.userData), "utf8")), { folder: null, afterPlay: false });
+});
+
+test("a pick looks the Songs folder over again, even the same folder as before", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    const scans = [];
+    const service = createReplayService({
+        ...f.opts, tosu: closed, dialog: dialogGiving(f.game), association: async () => f.game,
+        songsIndex: { scan: async (dir) => { scans.push(dir); return { charts: new Map() }; } },
+    });
+    const songs = path.join(f.game, "Songs");
+    await service.list({ titles: true });
+    await service.list({ titles: true });
+    assert.deepEqual(scans, [songs], "fresh: not looked over twice");
+    await service.pickFolder();
+    await service.list({ titles: true });
+    assert.deepEqual(scans, [songs, songs]);
+});
+
+test("a scan of the old folder still under way does not answer for the one just picked", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const other = await installed(path.join(f.root, "other"));
+    await mkdir(path.join(other, "Replays"), { recursive: true });
+    await writeFile(path.join(other, "Replays", "a.osr"), makeOsr({ md5: f.hash, presses: honestPresses(f.notes) }));
+    let finishOld = null;
+    const oldScan = new Promise((resolve) => { finishOld = () => resolve({ charts: new Map() }); });
+    const scans = [];
+    const service = createReplayService({
+        ...f.opts, tosu: closed, dialog: dialogGiving(path.join(other, "Songs")),
+        association: async () => f.game,
+        songsIndex: {
+            scan: async (dir) => {
+                scans.push(dir);
+                return dir === path.join(other, "Songs") ? { charts: new Map([[f.hash, { artist: "Test", title: "From Other", version: "One", path: "x.osu" }]]) } : oldScan;
+            },
+        },
+    });
+    const first = service.list({ titles: true });
+    await new Promise((resolve) => { setTimeout(resolve, 30); });
+    assert.deepEqual(scans, [path.join(f.game, "Songs")]);
+    await service.pickFolder();
+    const listed = await service.list({ titles: true });
+    assert.deepEqual(listed.items.map((i) => i.title), ["From Other"]);
+    finishOld();
+    await first;
+});
+
+// a Songs index whose scans run only as the test says: scans[i] is { dir, progress(done, total), finish() }
+function heldScans() {
+    const scans = [];
+    const songsIndex = {
+        scan: (dir, { onProgress }) => new Promise((resolve) => {
+            scans.push({ dir, progress: (done, total) => onProgress({ done, total }), finish: () => resolve({ charts: new Map() }) });
+        }),
+    };
+    return { scans, songsIndex };
+}
+const firstTurn = () => new Promise((resolve) => { setTimeout(resolve, 30); });
+
+test("a scan of the old folder ending leaves the new folder's in its place, and after the change it says nothing", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const other = await installed(path.join(f.root, "other"));
+    const { scans, songsIndex } = heldScans();
+    const sent = [];
+    const service = createReplayService({
+        ...f.opts, tosu: closed, association: async () => f.game, dialog: dialogGiving(path.join(other, "Songs")), songsIndex,
+        send: (channel, payload) => { if (channel === "replay-progress") sent.push(payload); },
+    });
+    const first = service.list({ titles: true });
+    await firstTurn();
+    scans[0].progress(1, 10);
+    assert.deepEqual(sent, [{ done: 1, total: 10 }]);
+    await service.pickFolder();
+    scans[0].progress(2, 10);
+    assert.deepEqual(sent, [{ done: 1, total: 10 }], "the old folder's scan no longer speaks");
+
+    const second = service.list({ titles: true });
+    await firstTurn();
+    assert.deepEqual(scans.map((s) => s.dir), [path.join(f.game, "Songs"), path.join(other, "Songs")]);
+    scans[1].progress(3, 20);
+    assert.deepEqual(sent.at(-1), { done: 3, total: 20 });
+    scans[0].finish();
+    await first;
+    const third = service.list({ titles: true });
+    await firstTurn();
+    assert.equal(scans.length, 2, "the new folder's scan is still the one under way: no second one");
+    scans[1].finish();
+    await Promise.all([second, third]);
+});
+
+test("a reset to nothing mid-scan: the scan goes on unheard", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.exe"), "exe");
+    await saved(f.userData, f.game);
+    const { scans, songsIndex } = heldScans();
+    const sent = [];
+    const service = createReplayService({ ...f.opts, tosu: closed, songsIndex, send: (channel, payload) => { if (channel === "replay-progress") sent.push(payload); } });
+    const list = service.list({ titles: true });
+    await firstTurn();
+    assert.equal((await service.resetFolder()).folder, null);
+    scans[0].progress(5, 10);
+    assert.deepEqual(sent, []);
+    scans[0].finish();
+    await list;
+});
+
+test("the folder moving mid-scan with no pick (tosu says another Songs): that one gets its own scan, not the old one's answer", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const moved = path.join(f.root, "Songs elsewhere");
+    await mkdir(moved, { recursive: true });
+    const { scans, songsIndex } = heldScans();
+    let songs = null;
+    const service = createReplayService({ ...f.opts, songsIndex, tosu: async () => ({ game: f.game, songs, skin: null }) });
+    const first = service.list({ titles: true });
+    await firstTurn();
+    songs = moved;
+    const second = service.list({ titles: true });
+    await firstTurn();
+    assert.deepEqual(scans.map((s) => s.dir), [path.join(f.game, "Songs"), moved]);
+    for (const scan of scans) scan.finish();
+    await Promise.all([first, second]);
 });
 
 test("the recent list: newest first, mania only, one entry a play, broken files left out", async (t) => {
@@ -487,4 +847,16 @@ test("the channels are hung without I/O", () => {
     registerReplayIpc({ ipcMain: { handle: (c) => handled.push(c) }, paths: {}, tosu: {} });
     assert.ok(handled.includes("replay-open") && handled.includes("replay-skin"));
     assert.equal(new Set(handled).size, handled.length);
+});
+
+test("the local profile's folder reaches the service through its dep", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const handlers = {};
+    registerReplayIpc({
+        ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } }, paths: { userData: path.join(f.root, "u-dep") }, tosu: {}, send: () => {}, log: () => {},
+        localProfile: { osuFolder: async () => f.game },
+    });
+    const status = await handlers["replay-status"]();
+    assert.deepEqual([status.folder, status.source, status.picked], [f.game, "profile", null]);
 });
