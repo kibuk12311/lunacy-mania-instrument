@@ -245,7 +245,7 @@ export default {
     "replay.drift.change": { ru: "Разница", en: "Change" },
     "replay.pace.summary": { ru: "пик карты {nps}, твой {kps}", en: "map peak {nps}, yours {kps}" },
     "replay.pace.legend": { ru: "Серое: ноты в секунду на карте. Голубая линия: твои нажатия.", en: "Grey: the map's notes per second. Blue line: your presses." },
-    "replay.pace.even": { ru: "Нажатия шли вровень с картой: ни отставаний, ни спама.", en: "Your keys kept level with the map: no falling behind, no spam." },
+    "replay.pace.even": { ru: "Затяжных отставаний и спама не было.", en: "No sustained falling behind and no spam." },
     "replay.pace.behind": { ru: "{from}–{to} отстал: {played} из {written}/с", en: "{from}–{to} fell behind: {played} of {written}/s" },
     "replay.pace.spam": { ru: "{from}–{to} спам: {played} при {written}/с", en: "{from}–{to} spam: {played} on {written}/s" },
     "replay.pace.tip": { ru: "{time}: на карте {written}, нажато {played}", en: "{time}: written {written}, pressed {played}" },

@@ -337,6 +337,10 @@ export function initSkinTab() {
         busy = true;
         say(t("skin.building"));
         try {
+            // keys are sized from the skin as it is written: not built from an older file, nor for a skin closed meanwhile
+            const written = await flushSave();
+            if (!session) return;
+            if (written && !written.ok) { say(failText(written), "bad"); return; }
             const r = await api.skinBuild({ id: session.id, options: sessionBuilder.options, parts: [...parts] });
             if (!r?.ok) { say(failText(r), "bad"); return; }
             const patch = { mania4: r.mania };
@@ -363,7 +367,7 @@ export function initSkinTab() {
     function flushSave() {
         clearTimeout(saveTimer);
         saveTimer = null;
-        if (session) void api.skinSave?.({ id: session.id, ini: history.current });
+        return session ? api.skinSave?.({ id: session.id, ini: history.current }) : undefined;
     }
     $("sk-undo").addEventListener("click", () => { history.undo(); scheduleSave(); void refresh(); });
     $("sk-redo").addEventListener("click", () => { history.redo(); scheduleSave(); void refresh(); });

@@ -385,7 +385,7 @@ test("manip: the limits as they stand, three runs at least however few of the pa
 test("manip: the limits as they stand, pairs a quarter of a second of play apart are one run", () => {
     assert.equal(fires(runsPlay(0.25, 1, 12), "manip.family"), null);
     assert.ok(fires(runsPlay(0.3, 1, 12), "manip.family"));
-    assert.equal(fires(handsPlay(tally(50, 8), tally(50, 0)), "manip.hand", { ...HINTS, manip: { ...HINTS.manip, runSec: 3 } }).id, "manip.hand", "each of these pairs a run of its own");
+    assert.equal(fires(handsPlay(tally(50, 8), tally(50, 0)), "manip.hand", { ...HINTS, manip: { ...HINTS.manip, runSec: HINTS.momentSec } }).id, "manip.hand", "each of these pairs a run of its own");
 });
 
 // ---- errors ----
@@ -572,7 +572,7 @@ test("pace: a collapse that ends a failed play is no ceiling", () => {
 
 test("pace: it takes separate moments, one stumble is one however many notes went in it", () => {
     const { minMoments } = HINTS.pace;
-    const play = (moments) => pacePlay({ lost: moments * 4, moments, dense: moments * apart + 4 });
+    const play = (moments) => pacePlay({ lost: moments * 4, moments });
     assert.ok(fires(play(minMoments), "pace.ceiling", paceLimits({ minMoments })));
     assert.equal(fires(play(minMoments - 1), "pace.ceiling", paceLimits({ minMoments })), null);
     assert.ok(fires(play(minMoments - 1), "pace.ceiling", paceLimits({ minMoments: minMoments - 1 })));
@@ -586,30 +586,32 @@ test("pace: lost seconds at most momentSec of play apart are one moment", () => 
     assert.equal(fires(paceOf(written, lostAt(momentSec)), "pace.ceiling", paceLimits()), null, "exactly the limit apart");
     assert.ok(fires(paceOf(written, lostAt(momentSec + 1)), "pace.ceiling", paceLimits()), "a second more");
     assert.equal(fires(paceOf(written, lostAt(momentSec), { rate: 1.5 }), "pace.ceiling", paceLimits()), null, "seconds of play, whatever the rate");
+    assert.equal(fires(paceOf(written, lostAt(momentSec), { rate: 0.75 }), "pace.ceiling", paceLimits()), null);
     assert.ok(fires(paceOf(written, lostAt(momentSec + 1), { rate: 0.75 }), "pace.ceiling", paceLimits()));
 });
 
 test("pace: a moment is grouped once, over all the lost seconds, so a density cannot part it into more moments than there are", () => {
-    // 30 to 42 are one moment, and over the density only 30, 36 and 42, twice momentSec apart: on their own, three of one
+    // 30 to 34 are one moment, and over the density only 30, 32 and 34, twice momentSec apart: on their own, three of one. Smoothed
+    // over three seconds, the seconds with few notes between those with many are the denser ones
     const { momentSec } = HINTS;
-    const written = seconds([29, 5], [3, 20], [3, 5], [3, 20], [3, 5], [3, 20], [30, 5]);
+    const written = seconds([29, 5], [1, 20], [1, 5], [1, 20], [1, 5], [1, 20], [1, 5], [1, 20], [30, 5]);
     const lostAt = { 30: 4, [30 + momentSec]: 1, [30 + momentSec * 2]: 4, [30 + momentSec * 3]: 1, [30 + momentSec * 4]: 4 };
-    assert.equal(momentSec, 3, "the blocks above are drawn for this limit");
-    assert.equal(fires(paceOf(written, lostAt), "pace.ceiling", paceLimits({ minSec: 5, maxUnder: 1, maxChance: 0.5 })), null);
+    assert.equal(momentSec, 1, "the blocks above are drawn for this limit");
+    assert.equal(fires(paceOf(written, lostAt), "pace.ceiling", paceLimits({ minSec: 3, maxUnder: 1, maxChance: 0.5 })), null);
 });
 
 test("pace: a moment counts over a density when most of its lost notes are", () => {
-    // each moment has `over` notes in a second at 20 and `under` in one at 5, momentSec apart
+    // each moment has `over` notes in a second at 10, smoothed, and `under` in one at 5, the play's lowest, momentSec apart
     const { momentSec } = HINTS;
     const play = (over, under) => {
-        const block = 3 * (momentSec + 1);
+        const block = 6;
         const written = seconds([20, 5], ...Array.from({ length: 3 }, () => [[3, 20], [block - 3, 5]]).flat(), [20, 5]);
         const lostAt = {};
-        for (let i = 0; i < 3; i += 1) Object.assign(lostAt, { [21 + i * block]: over, [21 + momentSec + i * block]: under });
+        for (let i = 0; i < 3; i += 1) Object.assign(lostAt, { [23 + i * block]: over, [23 + momentSec + i * block]: under });
         return paceOf(written, lostAt);
     };
     const limits = paceLimits({ minSec: 5, minLost: 3, maxUnder: 1 });
-    assert.equal(momentSec, 3, "the blocks above are drawn for this limit");
+    assert.equal(momentSec, 1, "the blocks above are drawn for this limit");
     assert.ok(fires(play(3, 2), "pace.ceiling", limits));
     assert.equal(fires(play(2, 2), "pace.ceiling", limits), null, "half is not most");
     assert.equal(fires(play(1, 2), "pace.ceiling", limits), null, "and a note of a moment does not make it over");
@@ -637,8 +639,8 @@ test("pace: the limits as they stand", () => {
     assert.equal(fires(pacePlay({ calm: 700, moments: 2 }), "pace.ceiling"), null, "two moments, whatever their chance");
     assert.ok(fires(pacePlay({ calm: 700 }), "pace.ceiling"), "three");
     const stumbles = (gap) => paceOf(seconds([700, 5], [40, 20]), { 710: 0, 712: 4, [712 + gap]: 4, [712 + gap * 2]: 4 });
-    assert.equal(fires(stumbles(3), "pace.ceiling"), null, "three seconds apart: one moment");
-    assert.ok(fires(stumbles(4), "pace.ceiling"), "four: three of them");
+    assert.equal(fires(stumbles(1), "pace.ceiling"), null, "a second apart: one moment");
+    assert.ok(fires(stumbles(2), "pace.ceiling"), "two: three of them");
 });
 
 test("pace: the best of the densities that pass, not the last", () => {
@@ -819,7 +821,7 @@ test("breaks: breaks at most momentSec of play apart are one moment", () => {
     const every = (sec, rate = 1) => breakPlay(Array.from({ length: 6 }, (_, i) => brk(i * sec * 1000, "jump")), (d) => { d.analysis.rate = rate; });
     assert.equal(fires(every(HINTS.momentSec), "breaks.shape", limits), null, "exactly the limit apart");
     assert.ok(fires(every(HINTS.momentSec + 1), "breaks.shape", limits), "a second more");
-    assert.equal(fires(every(HINTS.momentSec + 1, 1.5), "breaks.shape", limits), null, "that much of the map is less of play at a higher rate");
+    assert.equal(fires(every(HINTS.momentSec * 1.5, 1.5), "breaks.shape", limits), null, "that much of the map is less of play at a higher rate");
     assert.ok(fires(every(HINTS.momentSec, 0.75), "breaks.shape", limits), "and more at a lower one");
     const judged = every(HINTS.momentSec);
     const [a, b, c, d, e, f] = judged.report.breaks;
@@ -861,8 +863,8 @@ test("breaks: the limits as they stand, a shape", () => {
     assert.equal(fires(moments(2), "breaks.shape"), null, "two moments, whatever their chance");
     assert.ok(fires(moments(3), "breaks.shape"), "three");
     const every = (sec) => breakPlay(Array.from({ length: 6 }, (_, i) => brk(i * sec * 1000, "jump")));
-    assert.equal(fires(every(3), "breaks.shape"), null, "three seconds apart: one moment");
-    assert.ok(fires(every(4), "breaks.shape"), "four: six of them");
+    assert.equal(fires(every(1), "breaks.shape"), null, "a second apart: one moment");
+    assert.ok(fires(every(2), "breaks.shape"), "two: six of them");
 });
 
 test("breaks: on a long map the shapes are sampled, and tell the same", () => {
@@ -901,9 +903,10 @@ const partPlay = (list, edit = () => {}) => breakPlay(list, (d) => {
     d.report.parts = [partOf(0, 0), partOf(1, 30_000), partOf(2, 60_000)];
     edit(d);
 });
+const partApart = HINTS.breaks.partMomentSec + 1; // seconds of play that keep two moments of a part apart
 
 test("breaks: most of them in one part of the map, with its place", () => {
-    const list = (inPart) => [...Array.from({ length: inPart }, (_, i) => brk(32_000 + i * apart * 1000, "stream", "none", 1)), ...Array.from({ length: 8 - inPart }, (_, i) => brk(i * apart * 1000, "stream", "none", 0))];
+    const list = (inPart) => [...Array.from({ length: inPart }, (_, i) => brk(32_000 + i * partApart * 1000, "stream", "none", 1)), ...Array.from({ length: 8 - inPart }, (_, i) => brk(i * partApart * 1000, "stream", "none", 0))];
     const play = (inPart, edit) => partPlay(list(inPart), edit);
     const limits = breakLimits({ minInPart: 6, partShare: 0.75 });
     const h = fires(play(6), "breaks.part", limits);
@@ -927,8 +930,8 @@ test("breaks: most of them in one part of the map, with its place", () => {
 const inPart = (over = {}) => breakLimits({ minBreaks: 5, minInPart: 4, partShare: 0.5, minPartMoments: 3, ...over });
 // `moments` moments of three breaks a second apart in the part 1, and `others` breaks, each a moment, in the part 0
 const stumblesIn = (moments, others = 0) => [
-    ...Array.from({ length: moments }, (_, i) => [0, 1, 2].map((j) => brk(31_000 + i * (apart + 2) * 1000 + j * 1000, "stream", "none", 1))).flat(),
-    ...Array.from({ length: others }, (_, i) => brk(i * apart * 1000, "stream", "none", 0)),
+    ...Array.from({ length: moments }, (_, i) => [0, 1, 2].map((j) => brk(31_000 + i * (partApart + 2) * 1000 + j * 1000, "stream", "none", 1))).flat(),
+    ...Array.from({ length: others }, (_, i) => brk(i * partApart * 1000, "stream", "none", 0)),
 ];
 
 test("breaks: a part takes separate moments, one stumble is one however many breaks went in it", () => {
@@ -938,41 +941,55 @@ test("breaks: a part takes separate moments, one stumble is one however many bre
     assert.equal(fires(partPlay(stumblesIn(1, 2)), "breaks.part", inPart({ minPartMoments: 1, minInPart: 3, maxChance: 0.5 })), null, "one of three moments, where the notes give more");
 });
 
-test("breaks: breaks in a part at most momentSec of play apart are one moment", () => {
+test("breaks: breaks in a part at most partMomentSec of play apart are one moment", () => {
+    const { partMomentSec } = HINTS.breaks;
     const every = (sec, rate = 1) => partPlay(Array.from({ length: 6 }, (_, i) => brk(31_000 + i * sec * 1000, "stream", "none", 1)), (d) => { d.analysis.rate = rate; });
-    assert.equal(fires(every(HINTS.momentSec), "breaks.part", inPart()), null, "exactly the limit apart");
-    assert.ok(fires(every(HINTS.momentSec + 1), "breaks.part", inPart()), "a second more");
-    assert.equal(fires(every(HINTS.momentSec + 1, 1.5), "breaks.part", inPart()), null, "that much of the map is less of play at a higher rate");
-    assert.ok(fires(every(HINTS.momentSec, 0.75), "breaks.part", inPart()), "and more at a lower one");
+    assert.equal(fires(every(partMomentSec), "breaks.part", inPart()), null, "exactly the limit apart");
+    assert.ok(fires(every(partMomentSec + 1), "breaks.part", inPart()), "a second more");
+    assert.equal(fires(every(partMomentSec * 1.5, 1.5), "breaks.part", inPart()), null, "that much of the map is less of play at a higher rate");
+    assert.ok(fires(every(partMomentSec, 0.75), "breaks.part", inPart()), "and more at a lower one");
+});
+
+test("breaks: the same breaks can be moments of a shape and one moment of a part", () => {
+    // a stumble stays in its part to the last break, so a part goes by a longer gap than a shape
+    const { momentSec, breaks: { partMomentSec } } = HINTS;
+    const gap = momentSec + 1;
+    assert.ok(gap <= partMomentSec, "the gap below lies between the two limits");
+    const list = Array.from({ length: 6 }, (_, i) => brk(31_000 + i * gap * 1000, "jump", "none", 1));
+    assert.ok(fires(partPlay(list), "breaks.shape", breakLimits({ minBreaks: 5, minOnShape: 4, minShare: 0.5, minLift: 1 })), "six moments on the shape");
+    assert.equal(fires(partPlay(list), "breaks.part", inPart()), null, "one in the part");
 });
 
 test("breaks: a moment is grouped once, over all the breaks, so a part cannot take more moments than there are", () => {
-    // one chain momentSec apart, every other one in the part: on their own those are three moments of one
-    const chain = [1, 0, 1, 0, 1].map((index, i) => brk(30_000 + i * HINTS.momentSec * 1000, "stream", "none", index));
+    // one chain partMomentSec apart, every other one in the part: on their own those are three moments of one
+    const chain = [1, 0, 1, 0, 1].map((index, i) => brk(30_000 + i * HINTS.breaks.partMomentSec * 1000, "stream", "none", index));
     assert.equal(fires(partPlay(chain), "breaks.part", inPart({ minInPart: 3, maxChance: 0.5 })), null);
 });
 
 test("breaks: a moment counts in a part when most of its breaks are, against the part's share of the notes", () => {
     const moment = (at, ...indexes) => indexes.map((index, j) => brk(at + j * 1000, "stream", "none", index));
-    const play = (...indexes) => partPlay(Array.from({ length: 3 }, (_, i) => moment(i * 10 * apart * 1000, ...indexes)).flat());
+    const play = (...indexes) => partPlay(Array.from({ length: 3 }, (_, i) => moment(i * 10 * partApart * 1000, ...indexes)).flat());
     const limits = inPart({ minInPart: 3, maxChance: 0.04 });
     assert.ok(fires(play(1, 1, 0), "breaks.part", limits), "three of three in a third of the map: 4 in 100");
     assert.equal(fires(play(1, 1, 0), "breaks.part", inPart({ minInPart: 3, maxChance: 0.03 })), null);
     assert.equal(fires(play(1, 1, 0, 0), "breaks.part", limits), null, "half is not most");
     // the moments of the other parts count: three of five in a third come 21 times in 100
-    const five = [...Array.from({ length: 3 }, (_, i) => moment(31_000 + i * apart * 1000, 1)).flat(), ...moment(0, 0), ...moment(apart * 1000, 2)];
+    const five = [...Array.from({ length: 3 }, (_, i) => moment(31_000 + i * partApart * 1000, 1)).flat(), ...moment(0, 0), ...moment(partApart * 1000, 2)];
     assert.ok(fires(partPlay(five), "breaks.part", inPart({ minInPart: 3, maxChance: 0.21 })));
     assert.equal(fires(partPlay(five), "breaks.part", inPart({ minInPart: 3, maxChance: 0.2 })), null);
 });
 
 test("breaks: the limits as they stand, a part takes more moments than a shape, for it is the top of the parts", () => {
-    const moments = (n, others = 0) => partPlay([...Array.from({ length: n }, (_, i) => brk(31_000 + i * apart * 1000, "stream", "none", 1)), ...Array.from({ length: others }, (_, i) => brk(i * apart * 1000, "stream", "none", 0))]);
-    assert.ok(fires(moments(5, 1), "breaks.part"), "five of six in a third of the map: 18 in 1000");
-    assert.equal(fires(moments(5, 2), "breaks.part"), null, "five of seven: 45 in 1000");
-    const four = moments(4);
-    four.report.breaks.push(brk(31_000 + 500, "stream", "none", 1));
-    assert.equal(fires(four, "breaks.part"), null, "four moments, whatever their chance");
-    assert.ok(fires(moments(5), "breaks.part"), "five");
+    const moments = (n, others = 0) => partPlay([...Array.from({ length: n }, (_, i) => brk(31_000 + i * partApart * 1000, "stream", "none", 1)), ...Array.from({ length: others }, (_, i) => brk(i * partApart * 1000, "stream", "none", 0))]);
+    assert.ok(fires(moments(6, 2), "breaks.part"), "six of eight in a third of the map: 20 in 1000");
+    assert.equal(fires(moments(6, 3), "breaks.part"), null, "six of nine: 42 in 1000");
+    const five = moments(5);
+    five.report.breaks.push(brk(31_000 + 500, "stream", "none", 1));
+    assert.equal(fires(five, "breaks.part"), null, "five moments, whatever their chance");
+    assert.ok(fires(moments(6), "breaks.part"), "six");
+    const every = (sec) => partPlay(Array.from({ length: 6 }, (_, i) => brk(31_000 + i * sec * 1000, "stream", "none", 1)));
+    assert.equal(fires(every(2), "breaks.part"), null, "two seconds apart: one moment");
+    assert.ok(fires(every(3), "breaks.part"), "three: six of them");
 });
 
 // ---- hardest ----

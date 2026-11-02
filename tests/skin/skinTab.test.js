@@ -26,10 +26,10 @@ function api(origin, saved) {
     };
 }
 
-async function openTab(origin, lang = "ru") {
+async function openTab(origin, lang = "ru", over = {}) {
     setLang(lang);
     const saved = [];
-    const dom = fakeDom(api(origin, saved));
+    const dom = fakeDom({ ...api(origin, saved), ...over });
     const { initSkinTab } = await import("../../app/renderer/skinTab.js");
     const tab = initSkinTab();
     await fire(dom.$("sk-create"));
@@ -63,6 +63,59 @@ test("a skin made from scratch: opened, named, Interlude offered; an edit, undo 
     } finally {
         setLang("ru");
     }
+});
+
+test("the builder redraws on the skin as it stands: a change not saved yet is written first", async () => {
+    let written = null;
+    const seen = [];
+    const { $, tab } = await openTab("osu", "ru", {
+        skinSave: async (req) => { await tick(); written = req.ini; return { ok: true }; },
+        skinBuild: async () => { seen.push(written); return { ok: true, options: {}, general: {}, mania: {}, files: 0 }; },
+    });
+    tab.setField("HitPosition", 450);
+    await tick();
+    await fire($("sk-rebuild"));
+    await tick();
+    await tick();
+    assert.equal(seen.length, 1);
+    assert.match(seen[0] ?? "", /HitPosition: 450/);
+});
+
+test("the builder stops when the skin could not be written, and says so", async () => {
+    let built = 0;
+    const { $, tab } = await openTab("osu", "en", {
+        skinSave: async () => ({ ok: false, message: "skin.ini is locked" }),
+        skinBuild: async () => { built += 1; return { ok: true, options: {}, general: {}, mania: {}, files: 0 }; },
+    });
+    try {
+        tab.setField("HitPosition", 450);
+        await tick();
+        await fire($("sk-rebuild"));
+        await tick();
+        await tick();
+        assert.equal(built, 0, "keys would be sized from the old file");
+        assert.match($("sk-status").textContent, /skin\.ini is locked/);
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("a skin closed while it is being written is not built", async () => {
+    const waiting = [];
+    let built = 0;
+    const { $, tab } = await openTab("osu", "ru", {
+        skinSave: () => new Promise((resolve) => { waiting.push(resolve); }),
+        skinBuild: async () => { built += 1; return { ok: true, options: {}, general: {}, mania: {}, files: 0 }; },
+    });
+    tab.setField("HitPosition", 450);
+    await tick();
+    const pressed = fire($("sk-rebuild"));
+    await tick();
+    await fire($("sk-close"));
+    for (const resolve of waiting) resolve({ ok: true });
+    await pressed;
+    await tick();
+    assert.equal(built, 0);
 });
 
 test("an osu! skin opened for editing: no Interlude button, the reason said; English texts", async () => {

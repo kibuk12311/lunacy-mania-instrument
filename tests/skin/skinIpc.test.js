@@ -127,6 +127,30 @@ test("osu!'s Skins folder: listed, a skin copied out, the original left alone", 
     }
 });
 
+test("the builder's keys fit the skin they go in, unless the layout is written with them", async () => {
+    const { game, service, cleanup } = await setup();
+    try {
+        const s = await service.open({ folder: "Fixture" });
+        const key = async (id, b) => pngSize(await readFile(path.join(service.paths.workRoot, id, `${b.mania.KeyImage0}.png`)));
+        await service.save({ id: s.id, ini: patchSkinIni(s.ini, { mania4: { ColumnWidth: "40,40,50,40", HitPosition: "450" } }) });
+        const own = await service.build({ id: s.id, options: {}, parts: ["keys"] });
+        assert.deepEqual(await key(s.id, own), { width: 80, height: 48 }, "the widest column, from the hit line down");
+        assert.equal(own.options.hitPosition, 410, "the form's choices stay the form's");
+        assert.ok(!("HitPosition" in own.mania), "and the skin's layout is not touched");
+        const both = await service.build({ id: s.id, options: {}, parts: ["keys", "layout"] });
+        assert.deepEqual(await key(s.id, both), { width: 96, height: 112 }, "the layout written with them is the options'");
+        await service.save({ id: s.id, ini: patchSkinIni(s.ini, { mania4: { ColumnWidth: "0,0,0,0", HitPosition: "900" } }) });
+        assert.deepEqual(await key(s.id, await service.build({ id: s.id, options: {}, parts: ["keys"] })), { width: 8, height: 1 }, "a value out of range is taken to its end");
+        await service.save({ id: s.id, ini: patchSkinIni(s.ini, { mania4: { ColumnWidth: "500,60,60,60", HitPosition: "100" } }) });
+        assert.deepEqual(await key(s.id, await service.build({ id: s.id, options: {}, parts: ["keys"] })), { width: 192, height: 384 }, "either end");
+        await writeFile(path.join(game, "Skins", "No ini", "mania-key1.png"), png());
+        const bare = await service.open({ folder: "No ini" });
+        assert.deepEqual(await key(bare.id, await service.build({ id: bare.id, options: {}, parts: ["keys"] })), { width: 48, height: 125 }, "osu!'s defaults where a skin says nothing");
+    } finally {
+        await cleanup();
+    }
+});
+
 test("export: an .osk in Documents\\…\\скины with the skin's files (old builds left out), opened; a folder copy; never overwritten", async () => {
     const { service, opened, root, cleanup } = await setup();
     try {

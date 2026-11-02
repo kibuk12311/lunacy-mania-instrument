@@ -2,7 +2,7 @@
 // files it made, choices checked, parts drawn alone; the PNG writer and the stroke font.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSkin, skinIniText, normalizeOptions, patternColours, sizes, JUDGEMENTS, DEFAULT_OPTIONS, SHAPES, FONTS } from "../../src/skin/build.js";
+import { buildSkin, skinIniText, normalizeOptions, patternColours, sizes, JUDGEMENTS, DEFAULT_OPTIONS, SHAPES, FONTS, KEY_STYLES } from "../../src/skin/build.js";
 import { decodePng, encodePng, pngSize } from "../../src/skin/png.js";
 import { textStrokes, renderText, FONT_CHARS } from "../../src/skin/font.js";
 import { parseSkinIni, pairsOf, getValue } from "../../src/skin/skinIni.js";
@@ -60,13 +60,15 @@ test("a whole skin: every value skin.ini names is a file it made, at @1x and @2x
         }
         // the pictures are drawn, not empty (the blank one aside)
         for (const [name, data] of names) if (!name.includes("blank")) assert.ok(opaque(data) > 0, `${shape} ${name} has pixels`);
-        // a note is as wide as a column picture is (64 / 128 px); a key fills from the hit line down at this width
+        // a note is as wide as a column picture is (64 / 128 px); a key is its column's width and from the hit line down
+        // at osu!'s 768 px high screen, where osu! keeps a key's own height
         const note = pngSize(names.get(imageCandidates(cfg.images.NoteImage0)[1].toLowerCase()));
         assert.equal(note.width, 64);
         if (shape !== "bar") assert.equal(note.height, 64);
         else assert.ok(note.height < 32);
         const key = pngSize(names.get(imageCandidates(cfg.images.KeyImage0)[1].toLowerCase()));
-        assert.equal(key.height, Math.round((64 * (480 - 410)) / 60));
+        assert.equal(key.width, 96);
+        assert.equal(key.height, 112);
     }
 });
 
@@ -91,11 +93,52 @@ test("parts: only what is asked is drawn and set; no lighting points at a blank 
     assert.equal(judgements.files.length, 12);
 });
 
-test("sizes follow the choices: wider columns give shorter key pictures, bigger bars are taller", () => {
+test("sizes follow the choices: wider columns give wider keys of the same height, a lower hit line shorter ones, bigger bars are taller", () => {
     const narrow = sizes(normalizeOptions({ columnWidth: 40 }));
     const wide = sizes(normalizeOptions({ columnWidth: 80 }));
-    assert.ok(narrow.key[1] > wide.key[1]);
+    assert.deepEqual(narrow.key, [64, 112]);
+    assert.deepEqual(wide.key, [128, 112]);
+    assert.deepEqual(sizes(normalizeOptions({ hitPosition: 440 })).key, [96, 64]);
     assert.ok(sizes(normalizeOptions({ shape: "bar", noteSize: 100 })).note[1] > sizes(normalizeOptions({ shape: "bar", noteSize: 50 })).note[1]);
+});
+
+test("keys fit the columns and hit line they are given, and the options stay the options", () => {
+    const r = buildSkin({}, { parts: ["keys"], stage: { columnWidth: 40, hitPosition: 450 } });
+    const names = new Map(r.files.map((f) => [f.name, f.data]));
+    assert.deepEqual(pngSize(names.get(`${r.mania.KeyImage0}.png`)), { width: 64, height: 48 });
+    assert.deepEqual(pngSize(names.get(`${r.mania.KeyImage0}@2x.png`)), { width: 128, height: 96 });
+    assert.equal(r.options.columnWidth, DEFAULT_OPTIONS.columnWidth);
+    assert.equal(r.options.hitPosition, DEFAULT_OPTIONS.hitPosition);
+});
+
+test("a key runs from the hit line down however low the line is, in every style", () => {
+    for (const keyStyle of KEY_STYLES) {
+        for (const [hitPosition, height] of [[470, 16], [476, 6], [479, 2], [480, 1]]) {
+            const r = buildSkin({ keyStyle }, { parts: ["keys"], stage: { columnWidth: 60, hitPosition } });
+            const names = new Map(r.files.map((f) => [f.name, f.data]));
+            assert.equal(pngSize(names.get(`${r.mania.KeyImage0}.png`)).height, height, `${keyStyle} at ${hitPosition}`);
+            assert.equal(pngSize(names.get(`${r.mania.KeyImage0}@2x.png`)).height, height * 2);
+        }
+    }
+});
+
+test("a key's colour strip stays along its top, however short and wide the key is", () => {
+    const red = Array(4).fill("#ff0000");
+    for (const [columnWidth, hitPosition] of [[60, 410], [60, 470], [100, 460], [100, 470]]) {
+        const r = buildSkin({ columnWidth, hitPosition, keyStyle: "plain", colours: red }, { parts: ["keys"] });
+        for (const suffix of ["", "@2x"]) {
+            const { width, height, data } = decodePng(r.files.find((f) => f.name === `${r.mania.KeyImage0}${suffix}.png`).data);
+            const at = (y) => data.subarray((y * width + Math.floor(width / 2)) * 4, (y * width + Math.floor(width / 2)) * 4 + 4);
+            const rows = Array.from({ length: height }, (_, y) => y).filter((y) => at(y)[0] > 200 && at(y)[1] < 60 && at(y)[3] > 200);
+            const scene = `${columnWidth}/${hitPosition}${suffix}`;
+            assert.ok(rows.length, `${scene}: the strip is there`);
+            assert.ok(rows.at(-1) < height * 0.5, `${scene}: in the top half, rows ${rows[0]}-${rows.at(-1)} of ${height}`);
+            assert.ok(at(Math.ceil(height * 0.12))[3] > 200, `${scene}: the key starts at the hit line`);
+            assert.ok(data[(Math.floor(height / 2) * width + Math.ceil(width * 0.04)) * 4 + 3] > 200, `${scene}: and runs out to its sides`);
+            const corner = Math.ceil(Math.min(width, height) * 0.12);
+            assert.ok(data[(corner * width + corner) * 4 + 3] > 200, `${scene}: its corners rounded by its short side`);
+        }
+    }
 });
 
 test("the stroke font: every letter the judgements use exists, and texts are drawn in each look", () => {

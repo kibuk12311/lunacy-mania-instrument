@@ -22,7 +22,7 @@ export const HINTS = frozen({
     perSection: 2, // hints at the top of a fold
     top: 3, // hints in the block above the folds
     strongest: 3,
-    momentSec: 3, // what falls this many seconds of play apart or closer is one moment
+    momentSec: 1, // what falls this many seconds of play apart or closer is one moment
     judgements: { weight: 1, minNotes: 100, minMisses: 5, minLost: 1, minShare: 0.16, mostShare: 0.5 },
     fingers: { weight: 1, minHits: 100, minGap: 45, minRatio: 1.18, minBreaks: 2 },
     hands: { weight: 0.9, minHits: 200, minMs: 6, minChords: 20 },
@@ -43,9 +43,10 @@ export const HINTS = frozen({
     holds: { weight: 1, minHolds: 15, minCount: 4, minLate: 0.13, minEarly: 0.2 },
     ghosts: { weight: 0.8, minTotal: 12, minColumnShare: 0.55, minFlowShare: 0.6, maxChance: 0.01 },
     // minOnShape: breaks on the shape, in at least minMoments moments; minLift: how many times more of the breaks are on it than of
-    // the notes; shapeNotes: the notes looked at to tell that, a longer map is sampled. minPartMoments: a part is the top of several,
-    // and stumbles are large against a part, so it takes more of them.
-    breaks: { weight: 1.2, minBreaks: 5, minOnShape: 4, minMoments: 3, minShare: 0.5, minLift: 1.2, minCause: 0.6, maxChance: 0.02, shapeNotes: 20_000, minParts: 3, minInPart: 4, partShare: 0.6, minPartMoments: 5 },
+    // the notes; shapeNotes: the notes looked at to tell that, a longer map is sampled. partMomentSec, minPartMoments: a part is a
+    // stretch of the map, so a stumble stays in it to its last break where a shape changes under it, and a part is the top of
+    // several: it takes a longer gap between moments and more of them.
+    breaks: { weight: 1.2, minBreaks: 5, minOnShape: 4, minMoments: 3, minShare: 0.5, minLift: 1.2, minCause: 0.6, maxChance: 0.02, shapeNotes: 20_000, minParts: 3, minInPart: 4, partShare: 0.6, partMomentSec: 2, minPartMoments: 6 },
     hardest: { weight: 1.2, minNotes: 50, minDelta: 3.5 },
     parts: { weight: 1, minParts: 3, minNotes: 50, minDrop: 4.5 },
     families: { weight: 1, minNotes: 100, minGap: 90, minRatio: 1.55 },
@@ -383,7 +384,7 @@ function breakPart({ report, analysis, facts }, limits) {
     const top = most(parts.map((part) => ({ part, own: breaks.filter((b) => b.part === part.index) })), (p) => p.own.length);
     const n = top.own.length;
     if (n < own.minInPart || n / breaks.length < own.partShare) return null;
-    const moments = momentsOf(breaks, secondOf(analysis), limits.momentSec);
+    const moments = momentsOf(breaks, secondOf(analysis), own.partMomentSec);
     const on = momentsOn(moments, (b) => b.part === top.part.index);
     if (on < own.minPartMoments || chanceOf(on, moments.length, top.part.notes / sumOf(parts.map((p) => p.notes))) > own.maxChance) return null;
     return hint("breaks.part", "breaks", "replay.hint.break.part", { n, of: breaks.length, from: top.part.fromMs, to: top.part.toMs }, own.weight * over(n / breaks.length, own.partShare, limits), top.own[0].t - 1000);

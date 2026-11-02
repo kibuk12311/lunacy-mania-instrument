@@ -82,8 +82,9 @@ export function drawTail(image, shape, colour, { size = 0.85 } = {}) {
 export function drawKey(image, shape, colour, { pressed = false, style = "plain", theme = "dark", column = 0 } = {}) {
     const { width: w, height: h } = image;
     const dark = theme === "light" ? [228, 228, 238] : [24, 22, 34];
-    const edge = Math.max(1, w * 0.04);
-    const panel = roundBox(w / 2, h / 2, w / 2 - edge, h / 2 - edge, w * 0.12);
+    const side = Math.min(w, h);
+    const edge = Math.max(1, side * 0.04);
+    const panel = roundBox(w / 2, h / 2, w / 2 - edge, h / 2 - edge, side * 0.12);
     const fill = style === "glow"
         ? vertical(pressed ? lighter(colour, 0.2) : mix(dark, colour, 0.35), dark, 0, h * 0.9)
         : (pressed ? () => [...mix(dark, colour, 0.45), 1] : () => [...dark, 1]);

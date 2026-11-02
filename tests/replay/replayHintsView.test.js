@@ -126,6 +126,23 @@ test("words of a hint in Russian, with a Russian decimal comma", async (t2) => {
     }
 });
 
+test("the pace fold's line with no stretch to tell says just that, so a hint about lost notes beside it holds", async (t2) => {
+    const ceiling = { id: "pace.ceiling", section: "pace", key: "replay.hint.pace.ceiling", params: { keep: 21 }, weight: 1 };
+    const { ctx } = await ctxWith(t2, { top: [], bySection: {} });
+    assert.equal(ctx.report.pace.stretches.length, 0, "a play with no stretch to tell");
+    assert.equal(t("replay.pace.even"), "No sustained falling behind and no spam.");
+    const said = textOf(fold(reportSections({ ...ctx, hints: { top: [], bySection: { pace: [ceiling] } } }), "pace"));
+    assert.match(said, /You hold up to 21 presses a second/);
+    assert.match(said, /No sustained falling behind/, "the line stays under a hint");
+    assert.doesNotMatch(said, /kept level/);
+    setLang("ru");
+    try {
+        assert.equal(t("replay.pace.even"), "Затяжных отставаний и спама не было.");
+    } finally {
+        setLang("en");
+    }
+});
+
 test("nothing stands out: no block, no box", async (t2) => {
     const { ctx } = await ctxWith(t2, { top: [], bySection: {} });
     const sections = reportSections(ctx);

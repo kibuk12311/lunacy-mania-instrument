@@ -296,15 +296,27 @@ export function createSkinService({
         return start({ id, origin: "template", source: null, name: result.options.name, builder: result.options, builds: 1 });
     }
 
+    // The columns and hit line of the open skin's 4K section, as skin.ini says them or osu!'s defaults, within what the
+    // editor allows. A picture has one width, so the widest column's: the others take it down.
+    async function stageOf(id) {
+        const file = await iniPath(workDir(id));
+        const { text } = file ? decodeIni(await fs.readFile(file)) : { text: "" };
+        const { columnWidth, hitPosition } = maniaConfig(pairsOf(parseSkinIni(text), { mania: 4 }));
+        const within = (key, value) => Math.min(fieldByKey.get(key).max, Math.max(fieldByKey.get(key).min, value));
+        return { columnWidth: within("columnwidth", Math.max(...columnWidth)), hitPosition: within("hitposition", hitPosition) };
+    }
+
     // the builder redraws parts of the open skin: new files in a new folder (undo keeps the old ones), the values
-    // for skin.ini handed back for the tab to apply as one step
+    // for skin.ini handed back for the tab to apply as one step. Keys are sized for the skin they go in: unless the
+    // layout is written with them, its own columns and hit line stand, whatever the form says.
     async function build({ id, options, parts } = {}) {
         const entry = (await recent.get()).find((e) => e.id === id);
         if (!entry) return { ok: false, message: t("skin.err.noSkin") };
         const chosen = Array.isArray(parts) && parts.length ? parts.filter((p) => PARTS.includes(p)) : PARTS;
         if (!chosen.length) return { ok: false, message: t("skin.err.noParts") };
         const n = (entry.builds ?? 0) + 1;
-        const result = buildSkin(options, { dir: `${OWN_DIR}/b${n}`, parts: chosen });
+        const stage = chosen.includes("keys") && !chosen.includes("layout") ? await stageOf(id) : null;
+        const result = buildSkin(options, { dir: `${OWN_DIR}/b${n}`, parts: chosen, stage });
         await writeFiles(workDir(id), result.files);
         await recent.update((all) => all.map((e) => (e.id === id ? { ...e, builds: n, builder: result.options, at: now() } : e)));
         return { ok: true, options: result.options, general: result.general, mania: result.mania, files: result.files.length };

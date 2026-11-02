@@ -1,9 +1,10 @@
 // osu!'s 640 × 480 mania stage drawn from a skin's own images and [Mania] 4K values: columns at ColumnStart with their
 // widths, spacing and lines, keys at the bottom, notes and holds falling to HitPosition, column light at LightPosition,
 // hit lighting and the judgement at ScorePosition. Downscroll or upscroll, scroll speed 10–40. An image the skin does not
-// have is drawn as a plain shape. Sizes follow osu!: column-wide pictures keep their aspect, everything else is drawn
-// at its size on a 768 px high screen. Used by the Skin tab's preview (skinPreview.js) and the Replay tab's playback
-// (replayView.js). The caller sets the canvas transform to stage units and clears it.
+// have is drawn as a plain shape. Sizes follow osu!: notes and hold ends keep their aspect at the column's width, keys
+// and the column light are stretched to that width alone, everything else is drawn at its size on a 768 px high screen.
+// Used by the Skin tab's preview (skinPreview.js) and the Replay tab's playback (replayView.js). The caller sets the
+// canvas transform to stage units and clears it.
 import { KEYS } from "../../src/skin/maniaFields.js";
 
 export const STAGE_W = 640;
@@ -95,6 +96,8 @@ export function createStagePainter() {
         };
         // column-wide height of a picture
         const tall = (p, w) => (p.img.naturalHeight * w) / (p.img.naturalWidth || 1);
+        // height of a picture only its width is fitted to the column of: its own at 768 px high
+        const ownHeight = (p) => p.img.naturalHeight * NATIVE * px(p);
         const noteW = (c) => cfg.widthForNoteHeightScale || widths[c];
 
         // lanes and lines
@@ -120,7 +123,7 @@ export function createStagePainter() {
             const since = auto.lastHit[c];
             const on = auto.pressed[c] ? 1 : since !== null && since < 220 ? 1 - (since - 70) / 150 : 0;
             if (!light || on <= 0) continue;
-            const h = tall(light, widths[c]);
+            const h = ownHeight(light);
             image(light, lefts[c], cfg.lightPosition - h, widths[c], h, { flip: true, alpha: Math.min(1, on), source: tinted(light, cfg.lights[c]) });
         }
 
@@ -128,7 +131,7 @@ export function createStagePainter() {
             for (let c = 0; c < KEYS; c += 1) {
                 const key = pic(auto.pressed[c] ? `KeyImage${c}D` : `KeyImage${c}`) ?? pic(`KeyImage${c}`);
                 if (key) {
-                    const h = tall(key, widths[c]);
+                    const h = ownHeight(key);
                     image(key, lefts[c], H - h, widths[c], h, { flip: cfg.keyFlip });
                 } else box(lefts[c] + 1, hit, widths[c] - 2, H - hit, auto.pressed[c] ? "#3a3552" : "#1c1928");
             }

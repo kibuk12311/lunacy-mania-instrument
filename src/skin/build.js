@@ -20,8 +20,12 @@ export const JUDGEMENTS = [
     ["Hit0", "hit0", "MISS", "MISS", "#ff6b6b"],
 ];
 
+// A stage unit of 480 is this many px on the 768 px high screen osu! sizes pictures on.
+const PX_PER_UNIT = 768 / 480;
+
 // The picture sizes at @1x (px). Notes are as wide as osu! draws a column at 768 px high and twice that at @2x;
-// a key image fills from the hit line to the bottom at the chosen column width.
+// a key image fills from the hit line to the bottom: osu! fits only its width to the column, so it is made at that
+// size and nothing stretches it. o: the options, or the columns and hit line of the skin the keys go in.
 export function sizes(o) {
     const W = 64;
     const barH = Math.round(W * 0.3 * (o.noteSize / 85));
@@ -29,7 +33,7 @@ export function sizes(o) {
         note: [W, o.shape === "bar" ? Math.max(8, barH) : W],
         body: [W, W],
         tail: [W, Math.round(W * 0.22)],
-        key: [W, Math.max(16, Math.round((W * (480 - o.hitPosition)) / o.columnWidth))],
+        key: [Math.round(o.columnWidth * PX_PER_UNIT), Math.max(1, Math.round((480 - o.hitPosition) * PX_PER_UNIT))],
         hint: [W, 20],
         border: [8, 128],
         light: [W, 192],
@@ -63,10 +67,12 @@ function draw(kind, o, scale, extra = {}) {
 const accentOf = (o) => (o.theme === "light" ? [60, 60, 80] : hexRgb(o.colours[1]));
 const rgbText = (c, a) => (a === undefined ? c.join(",") : `${c.join(",")},${a}`);
 
-// options, { dir: folder the files go in (relative, "/"), parts: which to make (all by default) } →
+// options, { dir: folder the files go in (relative, "/"), parts: which to make (all by default), stage: { columnWidth,
+// hitPosition } of the skin the pictures go in, when they are not the options' own } →
 // { files: [{ name, data }], general: { key: value }, mania: { key: value | null } }
-export function buildSkin(rawOptions, { dir = "lunacy", parts = PARTS } = {}) {
+export function buildSkin(rawOptions, { dir = "lunacy", parts = PARTS, stage = null } = {}) {
     const o = normalizeOptions(rawOptions);
+    const fitted = { ...o, ...stage };
     const want = new Set(parts.filter((p) => PARTS.includes(p)));
     const files = [];
     const mania = {};
@@ -76,8 +82,8 @@ export function buildSkin(rawOptions, { dir = "lunacy", parts = PARTS } = {}) {
         const id = `${kind}|${extra.colour ?? ""}|${extra.column ?? ""}|${extra.side ?? ""}`;
         if (cache.has(id)) return cache.get(id);
         const path = `${dir}/${name}`;
-        files.push({ name: `${path}.png`, data: draw(kind, o, 1, extra).png() });
-        files.push({ name: `${at2x(path)}.png`, data: draw(kind, o, 2, extra).png() });
+        files.push({ name: `${path}.png`, data: draw(kind, fitted, 1, extra).png() });
+        files.push({ name: `${at2x(path)}.png`, data: draw(kind, fitted, 2, extra).png() });
         cache.set(id, path);
         return path;
     };
