@@ -24,7 +24,7 @@ const meanOf = (list) => round1(spread(list.filter((r) => r.delta !== null).map(
 
 // The hit errors along the play: { slices: [{ fromMs, toMs, hits, mean, ur }], slopeMsPerMin, first, last, urChange,
 // meanChange, accuracyChange } or null when the play is too short to say. slopeMsPerMin: the straight line through all
-// the errors, + the presses getting later. first / last: the first and last third { mean, ur, accuracy }.
+// the errors, + the presses getting later. first / last: the first and last third { mean, ur, accuracy, hits }.
 export function timingDrift(results, { fromMs, toMs, rate = 1 }, limits = DRIFT) {
     const hits = results.filter((r) => r.delta !== null);
     if (hits.length < limits.minHits || (toMs - fromMs) / rate / 1000 < limits.minSec) return null;
@@ -45,7 +45,10 @@ export function timingDrift(results, { fromMs, toMs, rate = 1 }, limits = DRIFT)
         top += (minutes[i] - mx) * (r.delta - my);
         bottom += (minutes[i] - mx) ** 2;
     });
-    const third = (list) => (list.filter((r) => r.delta !== null).length >= limits.thirdMinHits ? { mean: meanOf(list), ur: groupUr(list), accuracy: accuracyIn(list) } : null);
+    const third = (list) => {
+        const count = list.filter((r) => r.delta !== null).length;
+        return count >= limits.thirdMinHits ? { mean: meanOf(list), ur: groupUr(list), accuracy: accuracyIn(list), hits: count } : null;
+    };
     const first = third(results.filter((r) => r.t < fromMs + span / 3));
     const last = third(results.filter((r) => r.t >= toMs - span / 3));
     const both = first && last;

@@ -2,16 +2,14 @@
 // Messages: {id, kind: "analyze", osuText, rate} → {id, result}. The create tab's kinds (generate, timing, remap)
 // carry {payload} and may post {id, progress} before their {id, result} (app/generatorJobs.js).
 import { analyzeChart } from "../src/core/analyze.js";
-import { readFile } from "node:fs/promises";
 import { setLang } from "../src/i18n/i18n.js";
 // >>> create (mapgen v3)
-import { createGeneratorJobs } from "./generatorJobs.js";
+import { createGeneratorJobs, readAppModel } from "./generatorJobs.js";
 import { createGpuWorkerLink } from "./gpuWorkerLink.js";
 
-const readModel = (name) => readFile(new URL(`../models/${name}`, import.meta.url), "utf8").then(JSON.parse);
 // stream W: the GPU renderer's nn-v2 encoder, asked for on the first nn-v2 job (app/gpuWorkerLink.js)
 const gpuLink = createGpuWorkerLink({ post: (message) => process.parentPort.postMessage(message) });
-const createJobs = createGeneratorJobs({ readModel, analyze: analyzeChart, gpu: gpuLink.autoGpu, nnBackend: gpuLink.backend });
+const createJobs = createGeneratorJobs({ readModel: readAppModel, analyze: analyzeChart, gpu: gpuLink.autoGpu, nnBackend: gpuLink.backend });
 // <<< create
 // >>> analysis v2: details — {kind: "details", osuText, rate} → {kind: "details", details} | {kind: "error", message}
 import { detailsJob } from "../src/analysis/timeline.js";

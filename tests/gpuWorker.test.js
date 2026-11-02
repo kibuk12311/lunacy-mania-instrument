@@ -277,5 +277,5 @@ test("the GPU page: a strict CSP, one module script, no Node; its preload only p
     const worker = readFileSync(new URL("../app/analysisWorker.js", import.meta.url), "utf8");
     const block = worker.slice(worker.indexOf("// >>> create (stream W)"), worker.indexOf("// <<< create", worker.indexOf("// >>> create (stream W)")));
     assert.match(block, /gpuLink\.accept\(data, ports\)/);
-    assert.match(worker, /createGeneratorJobs\(\{ readModel, analyze: analyzeChart, gpu: gpuLink\.autoGpu, nnBackend: gpuLink\.backend \}\)/);
+    assert.match(worker, /createGeneratorJobs\(\{ readModel: readAppModel, analyze: analyzeChart, gpu: gpuLink\.autoGpu, nnBackend: gpuLink\.backend \}\)/);
 });

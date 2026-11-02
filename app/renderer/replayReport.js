@@ -1,6 +1,7 @@
 // The Replay tab's sections, each a fold that remembers whether it is open: judgements, fingers, hands, manip, hit errors,
 // the timing along the map, keys against notes, holds, ghost presses, combo breaks, the hardest parts, dan by part, patterns
 // and earlier plays. A section with no data is left out; a value that cannot be known shows as a dash, never as zero.
+// Above the first fold the strongest hints of the play, and at the top of a fold its own (src/replay/hints.js).
 // Builds from src/replay/report.js's answer; what the window does on a click comes in through `ctx`.
 import { t, getLang } from "../../src/i18n/i18n.js";
 import { numericToLabel } from "../../src/core/labels.js";
@@ -34,6 +35,22 @@ const FINGER_SHORT = {
     R1: "replay.finger.short.R1", R2: "replay.finger.short.R2", R3: "replay.finger.short.R3", R4: "replay.finger.short.R4", R5: "replay.finger.short.R5",
 };
 const HAND_TEXT = { left: "replay.hand.left", right: "replay.hand.right" };
+const HINT_FINGER = {
+    L5: "replay.hint.finger.L5", L4: "replay.hint.finger.L4", L3: "replay.hint.finger.L3", L2: "replay.hint.finger.L2", L1: "replay.hint.finger.L1",
+    R1: "replay.hint.finger.R1", R2: "replay.hint.finger.R2", R3: "replay.hint.finger.R3", R4: "replay.hint.finger.R4", R5: "replay.hint.finger.R5",
+};
+const HINT_MANY = {
+    stream: "replay.hint.many.stream", jumpstream: "replay.hint.many.jumpstream", handstream: "replay.hint.many.handstream",
+    chordjack: "replay.hint.many.chordjack", jack: "replay.hint.many.jack", tech: "replay.hint.many.tech",
+};
+const HINT_ON_FAMILY = {
+    stream: "replay.hint.onFamily.stream", jumpstream: "replay.hint.onFamily.jumpstream", handstream: "replay.hint.onFamily.handstream",
+    chordjack: "replay.hint.onFamily.chordjack", jack: "replay.hint.onFamily.jack", tech: "replay.hint.onFamily.tech",
+};
+const HINT_ON_SHAPE = {
+    hold: "replay.hint.on.hold", chordjack: "replay.hint.on.chordjack", jack: "replay.hint.on.jack", quad: "replay.hint.on.quad", hand: "replay.hint.on.hand",
+    jump: "replay.hint.on.jump", trill: "replay.hint.on.trill", roll: "replay.hint.on.roll", stream: "replay.hint.on.stream", single: "replay.hint.on.single",
+};
 
 export const el = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -125,6 +142,33 @@ function table(heads, rows, className = "") {
 }
 const rows = (...list) => list.map((cells) => ({ cells }));
 
+// A hint's params as they read: names of things in words, times of the map, dans; a number the language's way.
+function hintText(hint, { timeOf }) {
+    const said = {
+        finger: (f) => t(HINT_FINGER[f]), families: (f) => t(HINT_MANY[f] ?? f), family: (f) => t(FAMILY_TEXT[f] ?? f).toLowerCase(), on: (f) => t(HINT_ON_FAMILY[f] ?? f),
+        shape: (s) => t(HINT_ON_SHAPE[s]), from: timeOf, to: timeOf, easy: danText, hard: danText,
+    };
+    const number = (x) => (getLang() === "en" ? String(x) : String(x).replace(".", ","));
+    return t(hint.key, Object.fromEntries(Object.entries(hint.params).map(([name, value]) => [name, said[name] ? said[name](value) : number(value)])));
+}
+
+// One hint; with a place on the map it is a button that goes there.
+function hintRow(hint, ctx) {
+    if (hint.seek === undefined) return el("div", "rp-hint", hintText(hint, ctx));
+    const row = button(hintText(hint, ctx), "rp-hint rp-hint-seek", () => ctx.seek(hint.seek));
+    row.title = t("replay.hint.seek");
+    return row;
+}
+
+// The strongest of the play, above the first fold; nothing when nothing stands out.
+function mainPoints(ctx) {
+    const { top } = ctx.hints;
+    if (!top.length) return null;
+    const box = el("div", "rp-main");
+    box.append(el("div", "rp-main-title", t("replay.hint.main")), ...top.map((h) => hintRow(h, ctx)));
+    return box;
+}
+
 // Judgements: the replay's own counts beside the recount.
 export function judgementTable(replay, analysis) {
     const out = el("table", "rp-table");
@@ -145,14 +189,14 @@ export function judgementTable(replay, analysis) {
     return out;
 }
 
-function judgementsSection({ replay, analysis }) {
+function judgementsSection({ replay, analysis, hinted }) {
     const notes = [];
     if (analysis?.scoreV2) notes.push(el("div", "muted", t("replay.judge.v2")));
     else if (analysis?.comparison) notes.push(el("div", analysis.comparison.same ? "rp-same" : "muted", analysis.comparison.same ? t("replay.judge.same") : t("replay.judge.differs", analysis.comparison)));
     if (analysis?.holds) notes.push(el("div", "muted", t("replay.judge.holds")));
     if (analysis?.holdHeavy && !analysis.comparison?.same) notes.push(el("div", "muted", t("replay.judge.holdHeavy")));
     if (analysis && analysis.played < analysis.notes) notes.push(el("div", "muted", t("replay.judge.part", analysis)));
-    return fold("judgements", t("replay.html.judgements"), "", judgementTable(replay, analysis), notes);
+    return fold("judgements", t("replay.html.judgements"), "", hinted.judgements, judgementTable(replay, analysis), notes);
 }
 
 // One select per column.
@@ -196,18 +240,18 @@ const groupRows = (list, withBreaks) => rows(
     ...(withBreaks ? [[t("replay.stat.breaks"), ...list.map((g) => String(g.breaks))]] : []),
 );
 
-function fingersSection({ report, fingers, onFingers }) {
+function fingersSection({ report, fingers, onFingers, hinted }) {
     const list = report.fingers;
     const anyBreak = list.some((f) => f.breaks);
     const line = report.breaker ? t("replay.finger.breaker", { finger: fingerName(report.breaker.finger), n: report.breaker.breaks, of: report.breaker.of }) : "";
     return fold(
-        "fingers", t("replay.html.fingers"), line, fingerPicker(fingers, onFingers),
+        "fingers", t("replay.html.fingers"), line, hinted.fingers, fingerPicker(fingers, onFingers),
         table(["", ...list.map((f) => fingerShort(f.finger))], groupRows(list, anyBreak), "rp-wide"),
         el("div", "muted", t("replay.finger.note")),
     );
 }
 
-function handsSection({ report }) {
+function handsSection({ report, hinted }) {
     const { hands, balance, manip } = report;
     const list = ["left", "right"].filter((id) => hands[id]).map((id) => ({ id, ...hands[id], manip: manip.hands[id] }));
     if (list.length < 2) return null;
@@ -229,10 +273,10 @@ function handsSection({ report }) {
     if (known(balance?.leftAhead) && Math.abs(balance.leftAhead) >= 0.5) {
         kids.push(el("div", "muted", t(balance.leftAhead > 0 ? "replay.hand.leftAhead" : "replay.hand.rightAhead", { ms: Math.abs(balance.leftAhead).toFixed(1) })));
     }
-    return fold("hands", t("replay.html.hands"), line, kids);
+    return fold("hands", t("replay.html.hands"), line, hinted.hands, kids);
 }
 
-function manipSection({ report, timeOf }) {
+function manipSection({ report, timeOf, hinted }) {
     const { manip, parts, families } = report;
     if (!manip.pairs) return null;
     const kids = [];
@@ -249,10 +293,10 @@ function manipSection({ report, timeOf }) {
     }
     const partRows = parts.filter((p) => p.pairs).map((p) => [t("replay.part.row", { from: timeOf(p.fromMs), to: timeOf(p.toMs) }), `${p.glued} / ${p.pairs}`, percent(p.percent), plainMs(p.squeezed?.mean ?? null)]);
     if (partRows.length > 1) kids.push(el("div", "flabel rp-sub", t("replay.html.byPart")), table(heads, rows(...partRows)));
-    return fold("manip", t("replay.html.manipMore"), manip.squeezed ? t("replay.manip.squeezedLine", { mean: manip.squeezed.mean.toFixed(1) }) : "", kids);
+    return fold("manip", t("replay.html.manipMore"), manip.squeezed ? t("replay.manip.squeezedLine", { mean: manip.squeezed.mean.toFixed(1) }) : "", hinted.manip, kids);
 }
 
-function errorsSection({ analysis }) {
+function errorsSection({ analysis, hinted }) {
     if (analysis.meanError === null) return null;
     const w = analysis.windows;
     const { rate } = analysis;
@@ -262,12 +306,12 @@ function errorsSection({ analysis }) {
     };
     const summary = t("replay.err.summary", { mean: num1(analysis.meanError), sd: num1(analysis.sd) });
     return fold(
-        "errors", t("replay.html.errors"), summary, errorBars(analysis.histogram, kindOfMs),
+        "errors", t("replay.html.errors"), summary, hinted.errors, errorBars(analysis.histogram, kindOfMs),
         el("div", "flabel rp-sub", t("replay.html.columns")), columnBias(analysis.byColumn),
     );
 }
 
-function driftSection({ report, analysis, timeOf, seek }) {
+function driftSection({ report, analysis, timeOf, seek, hinted }) {
     if (analysis.meanError === null) return null;
     const { drift } = report;
     const reach = analysis.windows.n50 / analysis.rate;
@@ -288,10 +332,10 @@ function driftSection({ report, analysis, timeOf, seek }) {
             )));
         }
     }
-    return fold("drift", t("replay.html.errorsLine"), line, kids);
+    return fold("drift", t("replay.html.errorsLine"), line, hinted.drift, kids);
 }
 
-function paceSection({ report, analysis, timeOf, seek }) {
+function paceSection({ report, analysis, timeOf, seek, hinted }) {
     const { pace } = report;
     if (!pace) return null;
     const { rate, fromMs } = analysis;
@@ -308,16 +352,16 @@ function paceSection({ report, analysis, timeOf, seek }) {
         }
         kids.push(list);
     } else kids.push(el("div", "muted", t("replay.pace.even")));
-    return fold("pace", t("replay.html.pace"), t("replay.pace.summary", { nps: pace.peakWritten, kps: pace.peakPlayed }), kids);
+    return fold("pace", t("replay.html.pace"), t("replay.pace.summary", { nps: pace.peakWritten, kps: pace.peakPlayed }), hinted.pace, kids);
 }
 
-function holdsSection({ report }) {
+function holdsSection({ report, hinted }) {
     const list = report.fingers.filter((f) => f.holds);
     if (!list.length) return null;
     const total = list.reduce((sum, f) => sum + f.holds.count, 0);
     const late = list.reduce((sum, f) => sum + f.holds.late, 0);
     return fold(
-        "holds", t("replay.html.holds"), t("replay.hold.summary", { n: total, late }),
+        "holds", t("replay.html.holds"), t("replay.hold.summary", { n: total, late }), hinted.holds,
         table(["", ...list.map((f) => fingerShort(f.finger))], rows(
             [t("replay.hold.count"), ...list.map((f) => String(f.holds.count))],
             [t("replay.hold.clean"), ...list.map((f) => String(f.holds.clean))],
@@ -332,20 +376,20 @@ function holdsSection({ report }) {
     );
 }
 
-function ghostsSection({ report, analysis, timeOf, seek }) {
+function ghostsSection({ report, analysis, timeOf, seek, hinted }) {
     const { ghosts } = report;
     if (!ghosts) return null;
     const span = analysis.toMs - analysis.fromMs;
     const binStart = (i) => analysis.fromMs + (span * i) / ghosts.bins.length;
     return fold(
-        "ghosts", t("replay.html.ghosts"), t("replay.ghost.summary", { n: ghosts.total }),
+        "ghosts", t("replay.html.ghosts"), t("replay.ghost.summary", { n: ghosts.total }), hinted.ghosts,
         el("div", "", t("replay.ghost.split", { flow: ghosts.inFlow, idle: ghosts.idle })),
         countStrip(ghosts.bins, { timeOf: (i) => timeOf(binStart(i)), onSeek: (i) => seek(binStart(i)) }),
         el("div", "muted", t("replay.ghost.columns", { list: ghosts.byColumn.map((n, c) => `${c + 1}: ${n}`).join(" · ") })),
     );
 }
 
-function breaksSection({ replay, report, analysis, fingers, seek }) {
+function breaksSection({ replay, report, analysis, fingers, seek, hinted }) {
     const { breaks } = report;
     const { rate } = analysis;
     const kids = [];
@@ -369,10 +413,10 @@ function breaksSection({ replay, report, analysis, fingers, seek }) {
         if (breaks.length > BREAK_ROWS) list.append(el("div", "muted", t("replay.miss.more", { n: breaks.length - BREAK_ROWS })));
         kids.push(list);
     }
-    return fold("breaks", t("replay.html.misses"), analysis.misses.length ? t("replay.break.line", { n: breaks.length }) : t("replay.break.clean"), kids);
+    return fold("breaks", t("replay.html.misses"), analysis.misses.length ? t("replay.break.line", { n: breaks.length }) : t("replay.break.clean"), hinted.breaks, kids);
 }
 
-function hardestSection({ report, timeOf, seek }) {
+function hardestSection({ report, timeOf, seek, hinted }) {
     const { hardest } = report;
     if (!hardest) return null;
     const list = el("div", "rp-parts");
@@ -389,10 +433,10 @@ function hardestSection({ report, timeOf, seek }) {
         row.addEventListener("click", () => seek(p.fromMs));
         list.append(row);
     }
-    return fold("hardest", t("replay.html.hardest"), t(hardest.basis === "dan" ? "replay.part.byDan" : "replay.part.byNps"), list);
+    return fold("hardest", t("replay.html.hardest"), t(hardest.basis === "dan" ? "replay.part.byDan" : "replay.part.byNps"), hinted.hardest, list);
 }
 
-function partsSection({ report, later, timeOf, seek }) {
+function partsSection({ report, later, timeOf, seek, hinted }) {
     const { parts } = report;
     if (!parts.length) return null;
     const out = el("table", "rp-table rp-wide");
@@ -409,22 +453,22 @@ function partsSection({ report, later, timeOf, seek }) {
         tr.addEventListener("click", () => seek(p.fromMs));
         out.append(tr);
     }
-    return fold("parts", t("replay.html.parts"), later ? "" : t("replay.part.waiting"), out);
+    return fold("parts", t("replay.html.parts"), later ? "" : t("replay.part.waiting"), hinted.parts, out);
 }
 
-function familiesSection({ report, later }) {
+function familiesSection({ report, later, hinted }) {
     const { families } = report;
     if (!later) return fold("families", t("replay.html.familiesAll"), t("replay.family.waiting"));
     if (!families.length) return null;
     return fold(
-        "families", t("replay.html.familiesAll"), "",
+        "families", t("replay.html.familiesAll"), "", hinted.families,
         table(["", t("replay.stat.notes"), t("replay.stat.accuracy"), t("replay.part.miss"), t("replay.stat.ur"), t("replay.manip.title")], rows(
             ...families.map((f) => [t(FAMILY_TEXT[f.family] ?? f.family), String(f.notes), acc2(f.accuracy), String(f.misses), num1(f.ur), f.pairs ? percent(f.percent) : "—"]),
         ), "rp-wide"),
     );
 }
 
-function earlierSection({ replay, analysis, report, earlier }) {
+function earlierSection({ replay, analysis, report, earlier, hinted }) {
     const plays = earlier?.plays ?? [];
     if (!plays.length) return null;
     const heads = [t("replay.earlier.when"), t("replay.stat.accuracy"), t("replay.part.miss"), t("replay.stat.ur"), t("replay.manip.title")];
@@ -438,14 +482,20 @@ function earlierSection({ replay, analysis, report, earlier }) {
     const delta = known(best) && known(analysis.accuracy) ? Math.round((analysis.accuracy - best) * 100) / 100 : null;
     const line = known(delta) ? t(delta >= 0 ? "replay.earlier.best" : "replay.earlier.below", { delta: Math.abs(delta).toFixed(2) }) : "";
     const more = earlier.total > plays.length ? el("div", "muted", t("replay.earlier.more", { n: earlier.total - plays.length })) : null;
-    return fold("earlier", t("replay.html.earlier"), line, table(heads, list, "rp-wide"), more);
+    return fold("earlier", t("replay.html.earlier"), line, hinted.earlier, table(heads, list, "rp-wide"), more);
 }
 
-// ctx: { replay, analysis, report, later, earlier, fingers, timeOf (ms of the map → text), seek, onFingers }.
+// ctx: { replay, analysis, report, later, earlier, fingers, hints (src/replay/hints.js), timeOf (ms of the map → text), seek, onFingers }.
 export function reportSections(ctx) {
-    if (!ctx.analysis) return [judgementsSection(ctx)];
+    const hinted = Object.fromEntries(Object.entries(ctx.hints.bySection).map(([id, list]) => {
+        const box = el("div", "rp-hints");
+        box.append(...list.map((h) => hintRow(h, ctx)));
+        return [id, box];
+    }));
+    const all = { ...ctx, hinted };
+    if (!ctx.analysis) return [mainPoints(ctx), judgementsSection(all)].filter(Boolean);
     return [
-        judgementsSection(ctx), fingersSection(ctx), handsSection(ctx), manipSection(ctx), errorsSection(ctx), driftSection(ctx), paceSection(ctx),
-        holdsSection(ctx), ghostsSection(ctx), breaksSection(ctx), hardestSection(ctx), partsSection(ctx), familiesSection(ctx), earlierSection(ctx),
+        mainPoints(ctx), judgementsSection(all), fingersSection(all), handsSection(all), manipSection(all), errorsSection(all), driftSection(all), paceSection(all),
+        holdsSection(all), ghostsSection(all), breaksSection(all), hardestSection(all), partsSection(all), familiesSection(all), earlierSection(all),
     ].filter(Boolean);
 }

@@ -11,8 +11,9 @@
 //   slow). Every experimental choice falls back to mapper.json, with a sizeNote { want, got } (got: the choice that
 //   ran, "auto" for mapper.json, null for the rules).
 // - critic.json is optional: when it loads it goes to the generator as opts.critic, else null.
-// - Model folders: the app's models/; for dev, first the folders in the LUNACY_MODEL_DIR environment variable
-//   (several joined by ";" on Windows), e.g. LUNACY_MODEL_DIR=A:\SneezeyTrain\candidates;A:\SneezeyTrain\critic
+// - Model folders: the app's models/ (appModelDir; in a packaged app beside app.asar); for dev, first the folders in the
+//   LUNACY_MODEL_DIR environment variable (several joined by ";" on Windows), e.g.
+//   LUNACY_MODEL_DIR=A:\SneezeyTrain\candidates;A:\SneezeyTrain\critic
 // - Stream W's hook (the GPU): nnBackend() → the GPU renderer's nn-v2 encoder (app/gpuWorkerLink.js) or null. It is
 //   asked for only when the picked model is nn-v2, and given to the generator as opts.nnBackend, where the nn-v2 row
 //   source runs its encoder on it (src/gen/nn/webgpu/gpuSource.js infillSourceFor); null or absent: all CPU, and the
@@ -27,7 +28,15 @@ export const CLASSIC_FILE = "mapper.json";
 export const MODEL_FILES = [NN2_FILES.l, NN2_FILES.m, NN2_FILES.sd, NN2_FILES.s, XGB3_FILE, CLASSIC_FILE];
 export const CRITIC_FILE = "critic.json";
 export const MODEL_SIZES = ["auto", "xgb3", "s", "m", "l"];
-export const APP_MODEL_DIR = fileURLToPath(new URL("../models/", import.meta.url));
+// The folder of the files above, the one place that decides it, from the module's own URL so that main, the utility
+// processes and an ELECTRON_RUN_AS_NODE run agree: ../models/, or in a packaged app the models folder beside app.asar
+// (extraResources: a model that did not change keeps its bytes in the installer, so an update does not download it).
+// The dan model is not one of them: it stays inside the asar (src/core/model.js).
+export function appModelDir(moduleUrl = import.meta.url) {
+    const root = new URL("../", moduleUrl);
+    return fileURLToPath(new URL(root.pathname.endsWith("/app.asar/") ? "../models/" : "models/", root));
+}
+export const APP_MODEL_DIR = appModelDir();
 // the picker choice each file answers to
 const CHOICE_OF_FILE = { [NN2_FILES.l]: "l", [NN2_FILES.m]: "m", [NN2_FILES.sd]: "s", [NN2_FILES.s]: "s", [XGB3_FILE]: "xgb3", [CLASSIC_FILE]: "auto" };
 const ORDER = {
@@ -75,6 +84,9 @@ const splitDirs = (dirs) => (Array.isArray(dirs) ? dirs : String(dirs ?? "").spl
 export function modelDirs({ env = process.env, appDir = APP_MODEL_DIR } = {}) {
     return [...splitDirs(env.LUNACY_MODEL_DIR), appDir];
 }
+
+// The parsed model from the app's models/, or rejects (the worker's readModel).
+export const readAppModel = (name, dir = APP_MODEL_DIR) => readFile(path.join(dir, name), "utf8").then(JSON.parse);
 
 // A reader over the LUNACY_MODEL_DIR folders (or the ones given), or null when there are none.
 export function devModelReader(dirs = process.env.LUNACY_MODEL_DIR) {

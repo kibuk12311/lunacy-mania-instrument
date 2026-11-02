@@ -9,6 +9,7 @@
 // When a play ends (the local profile's recorder sees it from tosu) the replay osu! stable writes for it into Data\r is
 // looked for by the map's md5 and the file's time, and the window is told: only told, so nothing takes focus from the game.
 // Stable's own header counts are 16 bits; a replay's are put right in analyzeReplay, the list's here (LIST_WRAP_BYTES).
+// The hints (src/replay/hints.js) get the lean of the player's latest plays from here too: see bias().
 import path from "node:path";
 import * as nodeFs from "node:fs/promises";
 import { createJsonStore } from "./jsonStore.js";
@@ -28,11 +29,12 @@ import { readOsr, unpackFrames, keyPresses, fullCounts, MANIA, COUNT_WRAP } from
 import { analyzeReplay } from "../src/replay/analyze.js";
 import { accuracyPercent, KINDS } from "../src/replay/judge.js";
 import { handsOf, validFingers } from "../src/replay/fingers.js";
+import { HINTS } from "../src/replay/hints.js";
 import { t } from "../src/i18n/i18n.js";
 
 export const LIST_MAX = 40;
 export const FOLDERS = [{ dir: "Replays", id: "exported" }, { dir: path.join("Data", "r"), id: "local" }];
-const LIST_READ_MAX = 240; // files read for their header per list: most recent first, other modes are skipped over
+export const LIST_READ_MAX = 240; // files read for their header per list: most recent first, other modes are skipped over
 const MAX_REPLAY_BYTES = 64 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 128 * 1024 * 1024;
 const INDEX_FRESH_MS = 60_000; // the Songs folder is looked over at most this often, unless a map is not found
@@ -69,17 +71,21 @@ export async function tosuFolders(port, fetchImpl = globalThis.fetch) {
     }
 }
 
-// The .cfg of the Windows user last playing: osu!.<user>.cfg, "Key = Value" lines → { skin, songs } (nulls without one).
+// The .cfg of the Windows user last playing: osu!.<user>.cfg, "Key = Value" lines → { skin, songs, player, maniaSpeed, speedPerMap,
+// speedByBpm } (nulls without one, and for a line that is not there): the name logged in with, the scroll speed, whether it is
+// kept per map, whether it follows the BPM.
 export async function readOsuConfig(game, fs = nodeFs) {
-    const none = { skin: null, songs: null };
+    const none = { skin: null, songs: null, player: null, maniaSpeed: null, speedPerMap: null, speedByBpm: null };
     const names = (await fs.readdir(game).catch(() => [])).map(String).filter((n) => /^osu!\..+\.cfg$/i.test(n));
     const dated = await Promise.all(names.map(async (name) => ({ name, at: (await fs.stat(path.join(game, name)).catch(() => null))?.mtimeMs ?? 0 })));
     const newest = dated.sort((a, b) => b.at - a.at)[0];
     if (!newest) return none;
     const text = await fs.readFile(path.join(game, newest.name), "utf8").catch(() => "");
-    const value = (key) => clean(new RegExp(`^${key}\\s*=\\s*(.*?)\\s*$`, "m").exec(text)?.[1] ?? null);
+    const value = (key) => clean(new RegExp(`^${key}[ \\t]*=[ \\t]*(.*?)\\s*$`, "m").exec(text)?.[1] ?? null);
     const dir = value("BeatmapDirectory");
-    return { skin: value("Skin"), songs: dir ? path.resolve(game, dir) : null };
+    const number = (key) => (value(key) === null || !Number.isFinite(Number(value(key))) ? null : Number(value(key)));
+    const flag = (key) => (number(key) === null ? null : number(key) !== 0);
+    return { skin: value("Skin"), songs: dir ? path.resolve(game, dir) : null, player: value("Username"), maniaSpeed: number("ManiaSpeed"), speedPerMap: flag("UsePerBeatmapManiaSpeed"), speedByBpm: flag("ManiaSpeedBPMScale") };
 }
 
 // A map's audio file name from the .osu's [General].
@@ -112,6 +118,7 @@ export function createReplayService({
     let current = null; // the replay open: { id, file, text, mapPath, rate, analysis, notes, keys, od, header }
     let nextId = 1;
     let lastEnded = 0; // which play's replay is being waited for: a newer play ends the wait for an older one
+    const timings = new Map(); // what a replay says of the player's timing, by file and time: see timingOf
 
     const isDir = async (p) => Boolean((await fs.stat(p).catch(() => null))?.isDirectory());
 
@@ -170,18 +177,23 @@ export function createReplayService({
         return (notes - h.total) % COUNT_WRAP === 0 ? fullCounts(h.counts, notes) : h.counts;
     }
 
-    async function list({ titles = false, limit = LIST_MAX } = {}) {
-        const place = await folder();
-        if (!place.folder) return { ok: true, ...place, items: [] };
+    // The .osr files of osu!'s two folders, newest first: [{ file, kind, at (the file's time), size }].
+    async function replayFiles(game) {
         const found = [];
         for (const { dir, id } of FOLDERS) {
-            const full = path.join(place.folder, dir);
+            const full = path.join(game, dir);
             for (const name of (await fs.readdir(full).catch(() => [])).map(String).filter((n) => n.toLowerCase().endsWith(".osr"))) {
                 const stat = await fs.stat(path.join(full, name)).catch(() => null);
                 if (stat?.isFile()) found.push({ file: path.join(full, name), kind: id, at: stat.mtimeMs, size: stat.size });
             }
         }
-        found.sort((a, b) => b.at - a.at);
+        return found.sort((a, b) => b.at - a.at);
+    }
+
+    async function list({ titles = false, limit = LIST_MAX } = {}) {
+        const place = await folder();
+        if (!place.folder) return { ok: true, ...place, items: [] };
+        const found = await replayFiles(place.folder);
         const maps = titles ? await mapIndex(place.folder).catch(() => null) : null;
         const items = [];
         const seen = new Set();
@@ -358,7 +370,7 @@ export function createReplayService({
 
     // The player's earlier plays of the map open, each worked out like the open one: newest first, up to EARLIER_MAX.
     // fingers: the tab's (they decide the hands, so the manip here counts what the open play's manip counts).
-    // → { plays: [{ at, rate, modNames, accuracy, misses, maxCombo, ur, manip, pairs }], total }.
+    // → { plays: [{ at, rate, modNames, accuracy, misses, maxCombo, ur, manip, pairs, whole, exact }], total }.
     async function earlier({ id, fingers = null } = {}) {
         const open = current;
         if (!open || open.id !== id || !open.analysis) return { ok: false, stale: true };
@@ -386,12 +398,80 @@ export function createReplayService({
                 const frames = unpackFrames(h.packed, keys);
                 const a = analyzeReplay({ header: h, notes, keys, od, frames, columns: keyPresses(frames, keys), hands });
                 if (a.reason) continue;
-                plays.push({ at: h.at, rate: h.rate, modNames: h.modNames, accuracy: a.accuracy, misses: a.counts.miss, maxCombo: a.headerCombo, ur: a.ur, manip: a.manip.percent, pairs: a.manip.pairs });
+                plays.push({ at: h.at, rate: h.rate, modNames: h.modNames, accuracy: a.accuracy, misses: a.counts.miss, maxCombo: a.headerCombo, ur: a.ur, manip: a.manip.percent, pairs: a.manip.pairs, whole: a.played >= a.notes, exact: !a.holdHeavy || Boolean(a.comparison?.same) });
             } catch {
                 // left out
             }
         }
         return { ok: true, id, plays, total: before.length };
+    }
+
+    // What a replay says of the player's timing, worked out once for a file and its time: { play, player, md5, at, mean, hits },
+    // or null for one that has nothing to say (not mania, not 4K, cut short, unreadable). One whose map is not there is null too,
+    // and so is one of another player, with no work on it: neither is kept, the map may come and that player's replay be opened.
+    async function timingOf(entry, maps, player) {
+        const name = `${entry.file}:${entry.at}`;
+        if (timings.has(name)) return timings.get(name);
+        let timing = null;
+        try {
+            const h = readOsr(await fs.readFile(entry.file));
+            const map = maps.get(h.md5);
+            if (h.mode === MANIA && (!map || h.player !== player)) return null;
+            if (h.mode === MANIA) {
+                const text = (await fs.readFile(map.path)).toString("utf8").replace(/^\uFEFF/, "");
+                const { notes, keys } = parseManiaNotes(text);
+                const frames = unpackFrames(h.packed, keys);
+                const a = analyzeReplay({ header: h, notes, keys, od: overallDifficulty(text), frames, columns: keyPresses(frames, keys) });
+                if (!a.reason && a.meanError !== null && a.played >= a.notes) {
+                    timing = { play: `${h.md5}:${h.at ?? entry.at}:${h.score}`, player: h.player, md5: h.md5, at: h.at ?? entry.at, mean: a.meanError, hits: a.results.filter((r) => r.delta !== null).length };
+                }
+            }
+        } catch {
+            // a replay that cannot be read has nothing to say
+        }
+        timings.set(name, timing);
+        return timing;
+    }
+
+    // HitPosition of the skin set in osu! for 4K, found as skin() finds it but for skin.ini alone; null when no such skin is there.
+    async function hitPositionOf(game, configured) {
+        const root = path.join(game, "Skins");
+        const set = String((await tosu()).skin ?? configured ?? "").toLowerCase();
+        const name = (await fs.readdir(root, { withFileTypes: true }).catch(() => [])).find((e) => e.isDirectory() && e.name.toLowerCase() === set)?.name;
+        if (!name) return null;
+        const ini = (await fs.readdir(path.join(root, name)).catch(() => [])).map(String).find((f) => f.toLowerCase() === "skin.ini");
+        const text = ini ? decodeIni(await fs.readFile(path.join(root, name, ini))).text : "";
+        return maniaConfig(pairsOf(parseSkinIni(text), { mania: 4 })).hitPosition;
+    }
+
+    // How the player's presses lean: the mean error of the newest plays of the open replay's player with a map here, each played
+    // to the end with hits enough, one at a time so the window's other calls get through; the tab does not wait for it.
+    // → { plays: [{ md5, at, mean, hits }] newest first, position: { hitPosition, maniaSpeed, speedPerMap, speedByBpm } }.
+    // The speeds are only handed on: no step of HitPosition is told (src/replay/hints.js). The skin and the speeds are this osu!'s:
+    // someone else's replay gets nothing, a .cfg with no name (osu! kept none) no HitPosition, as it may not be the player's.
+    async function bias({ id } = {}) {
+        const open = current;
+        if (!open || open.id !== id || !open.analysis) return { ok: false, stale: true };
+        const nothing = { ok: true, id, plays: [], position: null };
+        const place = await folder();
+        const { player, skin: configured, maniaSpeed, speedPerMap, speedByBpm } = await readOsuConfig(place.folder, fs);
+        if (player && player.toLowerCase() !== open.header.player.toLowerCase()) return nothing;
+        const maps = place.folder ? await mapIndex(place.folder).catch(() => null) : null;
+        if (!maps) return nothing;
+        const { plays: wanted, minHits } = HINTS.position;
+        const plays = [];
+        const seen = new Set();
+        for (const entry of (await replayFiles(place.folder)).slice(0, LIST_READ_MAX)) {
+            if (plays.length >= wanted) break;
+            await sleep(0);
+            if (current?.id !== id) return { ok: false, stale: true };
+            if (entry.size > MAX_REPLAY_BYTES) continue;
+            const timing = await timingOf(entry, maps, open.header.player);
+            if (!timing || timing.player !== open.header.player || timing.hits < minHits || seen.has(timing.play)) continue;
+            seen.add(timing.play); // the same play exported into Replays and kept in Data\r: once
+            plays.push({ md5: timing.md5, at: timing.at, mean: timing.mean, hits: timing.hits });
+        }
+        return { ok: true, id, plays, position: { hitPosition: player ? await hitPositionOf(place.folder, configured) : null, maniaSpeed, speedPerMap, speedByBpm } };
     }
 
     // The newest replay of a play that just ended, null when there is none yet: a file of its map written since it began.
@@ -503,7 +583,7 @@ export function createReplayService({
 
     return {
         status: safe(async () => ({ ok: true, ...(await folder()), afterPlay: (await store.get()).afterPlay })),
-        list: safe(list), open: safe(open), audio: safe(audio), skin: safe(skin), details: safe(details), earlier: safe(earlier),
+        list: safe(list), open: safe(open), audio: safe(audio), skin: safe(skin), details: safe(details), earlier: safe(earlier), bias: safe(bias),
         pickFolder: safe(pickFolder), resetFolder: safe(() => setFolder(null)), setAfterPlay: safe(setAfterPlay), playEnded: safe(playEnded),
     };
 }
@@ -524,6 +604,7 @@ export function registerReplayIpc({ ipcMain, paths, dialog, window, log, send, t
     ipcMain.handle("replay-skin", (_e, req) => s.skin(req));
     ipcMain.handle("replay-details", (_e, req) => s.details(req));
     ipcMain.handle("replay-earlier", (_e, req) => s.earlier(req));
+    ipcMain.handle("replay-bias", (_e, req) => s.bias(req));
     ipcMain.handle("replay-after-play", (_e, req) => s.setAfterPlay(req));
     ipcMain.handle("replay-pick-folder", () => s.pickFolder());
     ipcMain.handle("replay-reset-folder", () => s.resetFolder());

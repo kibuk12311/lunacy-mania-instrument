@@ -118,8 +118,20 @@ test("timing drift: the slope of a play sliding later, the thirds, and nothing f
     assert.equal(d.slices.length, DRIFT.slices);
     assert.ok(d.meanChange > 6);
     assert.ok(d.last.mean > d.first.mean);
+    assert.deepEqual([d.first.hits, d.last.hits], [200, 200], "the thirds tell how much stands behind them");
     assert.equal(timingDrift(hits.slice(0, 20), { fromMs: 0, toMs: 2000 }), null);
     assert.equal(timingDrift(hits, { fromMs: 0, toMs: 10000 }), null, "under half a minute");
+});
+
+test("timing drift: a third counts its hits, not the notes missed in it", () => {
+    const { thirdMinHits } = DRIFT;
+    const play = (first) => [
+        ...Array.from({ length: first }, (_, i) => hit(i * 100, 0)),
+        ...Array.from({ length: 40 }, (_, i) => miss((first + i) * 100, 0)),
+        ...Array.from({ length: 300 }, (_, i) => hit(40_000 + i * 100, 1)),
+    ];
+    assert.equal(timingDrift(play(thirdMinHits), { fromMs: 0, toMs: 70_000 }).first.hits, thirdMinHits, "the misses are not hits");
+    assert.equal(timingDrift(play(thirdMinHits - 1), { fromMs: 0, toMs: 70_000 }).first, null, "and do not lift a third over its minimum");
 });
 
 test("keys against notes: falling behind and spam are found, an even play has neither", () => {

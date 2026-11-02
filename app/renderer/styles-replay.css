@@ -53,6 +53,17 @@
 .rp-skin-row { align-items: center; gap: 8px; flex-wrap: nowrap; }
 
 .rp-details { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* the hints: the strongest of the play above the folds, a fold's own at the top of its body; one with a place is a button */
+.rp-main { display: flex; flex-direction: column; gap: 4px; background: var(--panel); border: 1px solid var(--gold); border-radius: 8px; padding: 6px 10px 8px; font-size: 12px; min-width: 0; }
+.rp-main-title { font-weight: 600; color: var(--gold); }
+.rp-hints { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rp-hint {
+    display: block; width: 100%; box-sizing: border-box; text-align: left; background: transparent; border: 0; border-left: 2px solid var(--gold); border-radius: 0;
+    padding: 1px 4px 1px 7px; color: #dddddd; font: inherit; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere;
+}
+.rp-hint-seek { border-left-color: var(--blue); cursor: pointer; }
+.rp-hint-seek::after { content: " ▸"; color: var(--blue); }
+.rp-hint-seek:hover { background: var(--line); }
 /* a fold of the analysis: the title and a line that stay when it is shut */
 .rp-sec { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; font-size: 12px; min-width: 0; }
 .rp-sec > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 0; cursor: pointer; list-style: none; }

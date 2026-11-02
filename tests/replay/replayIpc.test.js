@@ -3,16 +3,18 @@
 // from the shared analysis; and nothing under the osu! folder ever changes.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm, utimes } from "node:fs/promises";
+import * as nodeFs from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm, rename, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { createReplayService, registerReplayIpc, readOsuConfig, audioFileOf, overallDifficulty, tosuFolders, ENDED_WAIT_MS, NEXT_PLAY_GRACE_MS } from "../../app/replayIpc.js";
+import { createReplayService, registerReplayIpc, readOsuConfig, audioFileOf, overallDifficulty, tosuFolders, ENDED_WAIT_MS, NEXT_PLAY_GRACE_MS, LIST_READ_MAX } from "../../app/replayIpc.js";
 import { createSongsMd5Index } from "../../app/osuSongsScan.js";
 import { makeOsr, honestPresses, gluedPresses, rollNotes, chartText } from "../fixtures/makeOsr.js";
 import { encodePng } from "../../src/skin/png.js";
 import { MOD_BITS } from "../../src/localProfile/scoresDb.js";
 import { BINS, BREAK } from "../../src/analysis/timeline.js";
+import { HINTS } from "../../src/replay/hints.js";
 
 const md5 = (text) => createHash("md5").update(text).digest("hex");
 const png = (w = 4, h = 4) => encodePng(w, h, new Uint8Array(w * h * 4).fill(200));
@@ -49,7 +51,7 @@ async function fixture() {
     await writeFile(path.join(skin, "Notes", "n1@2x.png"), png(8, 8));
     await writeFile(path.join(skin, "mania-key1.png"), png());
     await mkdir(path.join(game, "Skins", "Other"), { recursive: true });
-    await writeFile(path.join(game, "osu!.TestPlayer.cfg"), "BeatmapDirectory = Songs\r\nSkin = Fixture Skin\r\n");
+    await writeFile(path.join(game, "osu!.TestPlayer.cfg"), "BeatmapDirectory = Songs\r\nSkin = Fixture Skin\r\nUsername = TestPlayer\r\n");
     await writeFile(path.join(game, "osu!.cfg"), "CredentialEndpoint =\r\n");
     const userData = path.join(root, "user-data");
     const opts = {
@@ -541,7 +543,7 @@ test("the skin set in osu! is read as it is: the .cfg, then tosu, a choice, the 
     t.after(f.cleanup);
     const before = await snapshot(f.game);
     const service = createReplayService(f.opts);
-    assert.deepEqual(await readOsuConfig(f.game), { skin: "Fixture Skin", songs: path.join(f.game, "Songs") });
+    assert.deepEqual(await readOsuConfig(f.game), { skin: "Fixture Skin", songs: path.join(f.game, "Songs"), player: "TestPlayer", maniaSpeed: null, speedPerMap: null, speedByBpm: null });
     const skin = await service.skin({});
     assert.equal(skin.chosen, "Fixture Skin");
     assert.equal(skin.current, "Fixture Skin");
@@ -810,6 +812,31 @@ test("earlier plays of the map: the same player's, older than the one open, each
     assert.equal((await service.earlier({ id: 99 })).stale, true);
 });
 
+test("earlier plays of the map: each says whether its recount can be told as it is", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const notes = rollNotes({ count: 40, stepMs: 300 }).map((n) => ({ ...n, end: n.t + 150 }));
+    const text = chartText(notes, { title: "Fixture Holds" });
+    const hash = md5(text);
+    await mkdir(path.join(f.game, "Songs", "2 Holds"));
+    await writeFile(path.join(f.game, "Songs", "2 Holds", "x.osu"), text);
+    const presses = honestPresses(notes, { sdMs: 8 });
+    const worked = (await createReplayService(f.opts).open({ file: await put(`${hash}-1.osr`, { at: 1000 }) })).analysis;
+    assert.ok(worked.holdHeavy && !worked.comparison.same, "a map of holds, with a header the recount does not match");
+    async function put(name, { at, counts = {} }) {
+        const file = path.join(f.game, "Data", "r", name);
+        await writeFile(file, makeOsr({ md5: hash, presses, at, score: at, counts }));
+        return file;
+    }
+    const open = await put(`${hash}-2.osr`, { at: Date.UTC(2026, 9, 2) });
+    await put(`${hash}-3.osr`, { at: Date.UTC(2026, 9, 1), counts: worked.counts });
+    await put(`${hash}-4.osr`, { at: Date.UTC(2026, 8, 30) });
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: open });
+    const { plays } = await service.earlier({ id: opened.id });
+    assert.deepEqual(plays.slice(0, 2).map((p) => p.exact), [true, false]);
+});
+
 test("nothing earlier: an empty answer", async (t) => {
     const f = await fixture();
     t.after(f.cleanup);
@@ -817,6 +844,268 @@ test("nothing earlier: an empty answer", async (t) => {
     const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
     const r = await service.earlier({ id: opened.id });
     assert.deepEqual(r.plays, []);
+});
+
+// `count` maps of their own, a play of each `leanMs` off the notes, written after the fixture's own replays, the first the newest
+const LEAN_FROM = Date.now() + 86_400_000;
+async function leaningPlays(f, { count = HINTS.position.plays + 2, leanMs = 7, player = "TestPlayer", hits = HINTS.position.minHits + 20, cut = 0, first = 0, mods = 0 } = {}) {
+    const files = [];
+    for (let i = first; i < first + count; i += 1) {
+        const notes = rollNotes({ count: hits, stepMs: 70 + i });
+        const text = chartText(notes, { title: `Lean ${i}` });
+        const hash = md5(text);
+        const dir = path.join(f.game, "Songs", `${100 + i} Test - Lean`);
+        await mkdir(dir, { recursive: true });
+        await writeFile(path.join(dir, `Test - Lean ${i} (TestPlayer) [Rolls].osu`), text);
+        const at = LEAN_FROM - i * 1000;
+        const presses = honestPresses(notes, { sdMs: 6, seed: i + 1 }).map((p) => ({ ...p, t: p.t + leanMs, up: p.up + leanMs })).slice(0, hits - cut);
+        const file = path.join(f.game, "Data", "r", `${hash}-${i}.osr`);
+        await writeFile(file, makeOsr({ md5: hash, player, presses, at, score: 1000 + i, mods }));
+        await utimes(file, new Date(at), new Date(at));
+        files.push(file);
+    }
+    return files;
+}
+const closeTo = (actual, expected, near = 1) => assert.ok(Math.abs(actual - expected) <= near, `${actual} is not near ${expected}`);
+
+test("the lean of the latest plays: the newest of the player's, each with its map, played to the end, up to the limit", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const before = await leaningPlays(f);
+    const snapshotBefore = await snapshot(f.game);
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const r = await service.bias({ id: opened.id });
+    assert.equal(r.ok, true);
+    assert.equal(r.id, opened.id);
+    assert.equal(r.plays.length, HINTS.position.plays);
+    assert.equal(before.length, HINTS.position.plays + 2);
+    assert.deepEqual(r.plays.map((p) => p.at), [...r.plays.map((p) => p.at)].sort((a, b) => b - a), "newest first");
+    assert.equal(r.plays[0].at, LEAN_FROM);
+    assert.equal(new Set(r.plays.map((p) => p.md5)).size, HINTS.position.plays, "each its own map");
+    for (const p of r.plays) {
+        closeTo(p.mean, 7);
+        assert.equal(p.hits, HINTS.position.minHits + 20);
+        assert.deepEqual(Object.keys(p).sort(), ["at", "hits", "md5", "mean"]);
+    }
+    assert.deepEqual(await snapshot(f.game), snapshotBefore, "the osu! folder is only read");
+});
+
+test("the lean of the latest plays: what has nothing to say is left out", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const good = await leaningPlays(f, { count: 3, first: 0 });
+    await leaningPlays(f, { count: 2, first: 10, player: "Someone Else" });
+    await leaningPlays(f, { count: 2, first: 20, hits: HINTS.position.minHits - 1 });
+    await leaningPlays(f, { count: 2, first: 30, hits: HINTS.position.minHits + 60, cut: 40 }); // hits enough, but not to the end
+    await leaningPlays(f, { count: 2, first: 40, mods: MOD_BITS.RD });
+    const noMap = await leaningPlays(f, { count: 1, first: 50 });
+    await rm(path.join(f.game, "Songs", "150 Test - Lean"), { recursive: true });
+    await writeFile(path.join(f.game, "Data", "r", "broken.osr"), Buffer.from([1, 2, 3]));
+    await utimes(path.join(f.game, "Data", "r", "broken.osr"), new Date(LEAN_FROM), new Date(LEAN_FROM));
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const r = await service.bias({ id: opened.id });
+    const newest = r.plays.filter((p) => p.at >= LEAN_FROM - 100_000);
+    assert.equal(newest.length, good.length, "the other player's, the short ones, those cut short, Random's and the one with no map are not counted");
+    assert.ok(noMap.length === 1 && newest.every((p) => Math.abs(p.mean - 7) < 1));
+});
+
+test("the lean of the latest plays: one play kept twice counts once", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const [file] = await leaningPlays(f, { count: 1 });
+    const copy = path.join(f.game, "Replays", "exported.osr");
+    await writeFile(copy, await readFile(file));
+    await utimes(copy, new Date(LEAN_FROM + 5000), new Date(LEAN_FROM + 5000));
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const r = await service.bias({ id: opened.id });
+    assert.equal(r.plays.filter((p) => p.at === LEAN_FROM).length, 1);
+});
+
+test("the lean of the latest plays: each replay is worked out once for its file and time, and goes on when the file does", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const files = await leaningPlays(f, { count: HINTS.position.plays });
+    const reads = [];
+    const fs = { ...nodeFs, readFile: (file, ...rest) => { reads.push(String(file)); return nodeFs.readFile(file, ...rest); } };
+    const service = createReplayService({ ...f.opts, fs });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const first = await service.bias({ id: opened.id });
+    const read = (file) => reads.filter((r) => r === file).length;
+    assert.ok(files.every((file) => read(file) === 1), "each read once");
+    reads.length = 0;
+    const again = await service.bias({ id: opened.id });
+    assert.deepEqual(again.plays, first.plays);
+    assert.ok(files.every((file) => read(file) === 0), "the second time from memory");
+    const later = new Date(LEAN_FROM + 1000);
+    await utimes(files[3], later, later);
+    reads.length = 0;
+    await service.bias({ id: opened.id });
+    assert.equal(read(files[3]), 1, "a file with a new time is read again");
+    assert.equal(read(files[4]), 0, "and only it");
+});
+
+test("the lean of the latest plays: never all at once, and a stale answer is dropped", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await leaningPlays(f, { count: 4 });
+    let pauses = 0;
+    let onPause = () => {};
+    const service = createReplayService({ ...f.opts, sleep: async () => { pauses += 1; await onPause(); } });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    await service.bias({ id: opened.id });
+    assert.ok(pauses >= 4, `a pause before each replay (${pauses})`);
+    onPause = async () => {
+        onPause = () => {};
+        await service.open({ file: path.join(f.game, "Replays", "glued.osr") });
+    };
+    assert.deepEqual(await service.bias({ id: opened.id }), { ok: false, stale: true }, "another replay was opened meanwhile");
+    assert.equal((await service.bias({ id: 99 })).stale, true);
+    assert.equal((await service.bias({})).stale, true);
+});
+
+test("the lean of the latest plays: no folder, an empty answer", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    let game = f.game;
+    const service = createReplayService({ ...f.opts, tosu: async () => ({ game, songs: null, skin: null }) });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    game = null;
+    assert.deepEqual(await service.bias({ id: opened.id }), { ok: true, id: opened.id, plays: [], position: null });
+    assert.equal((await service.bias({ id: opened.id + 1 })).stale, true, "asked of a replay not open");
+});
+
+test("the lean of the latest plays: told only of the player this osu! is set to, whose skin it is, and with no work otherwise", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await leaningPlays(f, { count: 3, first: 0 });
+    const others = await leaningPlays(f, { count: 3, first: 10, player: "Someone Else" });
+    const reads = [];
+    const fs = { ...nodeFs, readFile: (file, ...rest) => { reads.push(String(file)); return nodeFs.readFile(file, ...rest); } };
+    const service = createReplayService({ ...f.opts, fs });
+    const theirs = await service.open({ file: others[0] });
+    reads.length = 0;
+    assert.deepEqual(await service.bias({ id: theirs.id }), { ok: true, id: theirs.id, plays: [], position: null }, "this machine's HitPosition is no one else's");
+    assert.deepEqual(reads.filter((file) => file.endsWith(".osr")), [], "no replay was read for it");
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const mine = await service.bias({ id: opened.id });
+    assert.equal(mine.plays.filter((p) => p.at >= LEAN_FROM - 2000).length, 3);
+    assert.equal(mine.position.hitPosition, 420);
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "Skin = Fixture Skin\r\nUsername = testplayer \r\n");
+    assert.equal((await service.bias({ id: opened.id })).position.hitPosition, 420, "osu! keeps a name as it was typed at login");
+});
+
+test("the lean of the latest plays: a .cfg that keeps no name cannot tell whose skin it is, so the skin's value is not told", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await leaningPlays(f, { count: 3, first: 0 });
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "Username = \r\nSkin = Fixture Skin\r\nManiaSpeed = 24\r\n");
+    assert.equal((await readOsuConfig(f.game)).player, null, "an empty line does not take the text of the next one");
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const r = await service.bias({ id: opened.id });
+    assert.equal(r.plays.filter((p) => p.at >= LEAN_FROM - 2000).length, 3, "the lean is still that of the replay's player");
+    assert.deepEqual(r.position, { hitPosition: null, maniaSpeed: 24, speedPerMap: null, speedByBpm: null });
+});
+
+test("the lean of the latest plays: another player's replays take no work, and are that player's when theirs is opened", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "Skin = Fixture Skin\r\n");
+    await leaningPlays(f, { count: 3, first: 0 });
+    const others = await leaningPlays(f, { count: 3, first: 10, player: "Someone Else" });
+    const maps = [];
+    const fs = { ...nodeFs, readFile: (file, ...rest) => { if (String(file).endsWith(".osu")) maps.push(String(file)); return nodeFs.readFile(file, ...rest); } };
+    const service = createReplayService({ ...f.opts, fs });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    maps.length = 0;
+    const mine = await service.bias({ id: opened.id });
+    assert.equal(mine.plays.filter((p) => p.at >= LEAN_FROM - 2000).length, 3);
+    assert.deepEqual(maps.filter((file) => file.includes("11")), [], "no map of theirs was read");
+    const theirs = await service.open({ file: others[0] });
+    const r = await service.bias({ id: theirs.id });
+    assert.deepEqual(r.plays.map((p) => p.at), [0, 1, 2].map((i) => LEAN_FROM - (10 + i) * 1000), "and none of the first player's, kept in memory");
+});
+
+test("the lean of the latest plays: a file too big to be a replay is not read", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const [big, ...rest] = await leaningPlays(f, { count: 3 });
+    const reads = [];
+    const fs = {
+        ...nodeFs,
+        stat: async (file, ...more) => {
+            const s = await nodeFs.stat(file, ...more);
+            return file === big ? { isFile: () => true, isDirectory: () => false, mtimeMs: s.mtimeMs, size: 1e12 } : s;
+        },
+        readFile: (file, ...more) => { reads.push(String(file)); return nodeFs.readFile(file, ...more); },
+    };
+    const service = createReplayService({ ...f.opts, fs });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const r = await service.bias({ id: opened.id });
+    assert.equal(r.plays.filter((p) => p.at >= LEAN_FROM - 2000).length, rest.length);
+    assert.equal(reads.includes(big), false);
+});
+
+test("the lean of the latest plays: only so many of the newest files are looked at, whatever they hold", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await leaningPlays(f, { count: 1 });
+    const filler = Array.from({ length: LIST_READ_MAX }, (_, i) => path.join(f.game, "Data", "r", `filler-${i}.osr`));
+    for (const [i, file] of filler.entries()) {
+        await writeFile(file, "not a replay");
+        await utimes(file, new Date(LEAN_FROM + 1000 + i), new Date(LEAN_FROM + 1000 + i));
+    }
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const found = async () => (await service.bias({ id: opened.id })).plays.filter((p) => p.at === LEAN_FROM).length;
+    assert.equal(await found(), 0);
+    await rm(filler[0]);
+    assert.equal(await found(), 1, "one file less and it is within reach");
+});
+
+test("the lean of the latest plays: a replay whose map comes later counts from then on", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    await leaningPlays(f, { count: 1, first: 60 });
+    const at = path.join(f.game, "Songs", "160 Test - Lean");
+    const away = path.join(f.root, "away");
+    await rename(at, away);
+    let clock = Date.now();
+    const service = createReplayService({ ...f.opts, now: () => clock });
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const found = async () => (await service.bias({ id: opened.id })).plays.filter((p) => p.at === LEAN_FROM - 60_000).length;
+    assert.equal(await found(), 0);
+    await rename(away, at);
+    clock += 3_600_000; // the Songs folder is looked over again
+    assert.equal(await found(), 1);
+});
+
+test("the lean of the latest plays comes with what the skin and the .cfg say", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const service = createReplayService(f.opts);
+    const opened = await service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const position = async () => (await service.bias({ id: opened.id })).position;
+    assert.deepEqual(await position(), { hitPosition: 420, maniaSpeed: null, speedPerMap: null, speedByBpm: null }, "lines the .cfg does not have stay unknown");
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "BeatmapDirectory = Songs\r\nSkin = Fixture Skin\r\nUsername = TestPlayer\r\nManiaSpeed = 24\r\nUsePerBeatmapManiaSpeed = 0\r\nManiaSpeedBPMScale = 1\r\n");
+    assert.deepEqual(await position(), { hitPosition: 420, maniaSpeed: 24, speedPerMap: false, speedByBpm: true });
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "Skin = Other\r\nUsername = TestPlayer\r\n");
+    assert.equal((await position()).hitPosition, 402, "a skin with no 4K section: osu!'s default");
+    await writeFile(path.join(f.game, "osu!.TestPlayer.cfg"), "Skin = Not There\r\nUsername = TestPlayer\r\n");
+    assert.equal((await position()).hitPosition, null);
+    const tosu = createReplayService({ ...f.opts, tosu: async () => ({ game: f.game, songs: null, skin: "Fixture Skin" }) });
+    const other = await tosu.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    assert.equal((await tosu.bias({ id: other.id })).position.hitPosition, 420, "what tosu says of the skin goes first");
+});
+
+test("the channel for the lean is registered and the window can reach it", async () => {
+    const channels = [];
+    registerReplayIpc({ ipcMain: { handle: (name) => { channels.push(name); } }, paths: { userData: os.tmpdir() }, tosu: {}, send: () => {}, log: () => {} });
+    assert.ok(channels.includes("replay-bias"));
+    assert.match(await readFile(new URL("../../app/preload.cjs", import.meta.url), "utf8"), /replayBias: \(request\) => ipcRenderer\.invoke\("replay-bias", request\)/);
 });
 
 test("the recorder's end of a play reaches the service only from the window's load on", async () => {

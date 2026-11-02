@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -45,8 +45,7 @@
       "app/**",
       "src/**",
       "vendor/leoblack/**",
-      "models/**",
-      "!models/archive/**",
+      "models/dan_model.json",
       "package.json",
       "!**/*.osu",
       "!node_modules/ffmpeg-static/**",
@@ -96,6 +95,14 @@
         "to": "key-reader",
         "filter": [
           "key-reader.exe"
+        ]
+      },
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "mapper*.json",
+          "critic*.json"
         ]
       }
     ],

@@ -1,8 +1,9 @@
 // The «Реплей» tab: a replay of osu!mania 4K dropped or picked, or from the recent ones of osu!'s folders, played back on
 // the player's own skin with the song, and taken apart: the manip percent first, then everything replayReport.js folds out,
-// per finger and per hand. When a play ends main says so and the tab opens that play's replay by itself, or says why there
-// is none; it never asks for the window's focus. The second source, the profile's plays, says plainly what a play without
-// key data can and cannot show. Main does the reading (app/replayIpc.js); osu!'s folders are only read.
+// per finger and per hand, with what stands out said in words (src/replay/hints.js). When a play ends main says so and the
+// tab opens that play's replay by itself, or says why there is none; it never asks for the window's focus. The second source,
+// the profile's plays, says plainly what a play without key data can and cannot show. Main does the reading
+// (app/replayIpc.js); osu!'s folders are only read.
 import { t } from "../../src/i18n/i18n.js";
 import { createReplayPlayer } from "./replayPlayer.js";
 import { createReplayView, playTime } from "./replayView.js";
@@ -10,6 +11,7 @@ import { reportSections, el, button, percent, acc2, num1, dateText } from "./rep
 import { manipStrip } from "./replayCharts.js";
 import { MANIP } from "../../src/replay/manip.js";
 import { buildReport } from "../../src/replay/report.js";
+import { buildHints, biasTells } from "../../src/replay/hints.js";
 import { validFingers, handsOf } from "../../src/replay/fingers.js";
 
 const SOURCE_KEY = "replay-source";
@@ -109,6 +111,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     let later = null; // the map's dans and pattern families, once they come
     let earlier = null; // the earlier plays of the map, once they come
     let earlierAsked = 0; // the fingers can change while they are on their way: only the last answer counts
+    let bias = null; // how the player's latest plays lean, once it comes and tells anything
     const status = (text = "", cls = "") => {
         const box = $("rp-status");
         box.textContent = text;
@@ -280,7 +283,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             manipBox.querySelector(".rp-how").open = wasOpen;
         } else manipBox.replaceChildren();
         $("rp-details").replaceChildren(...reportSections({
-            replay, analysis, report, later, earlier, fingers, timeOf, seek,
+            replay, analysis, report, later, earlier, fingers, timeOf, seek, hints: buildHints({ report, analysis, replay, later, earlier, bias }),
             onFingers: (next) => {
                 const handsBefore = JSON.stringify(handsOf(fingers));
                 fingers = validFingers(next);
@@ -296,6 +299,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         opened = result;
         later = null;
         earlier = null;
+        bias = null;
         player.unload();
         const { replay, map, analysis, reason } = result;
         $("rp-map").textContent = map ? mapName(map) : t("replay.list.unknownMap", { md5: replay.md5.slice(0, 8) });
@@ -318,6 +322,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         void loadAudio(result);
         void loadDetails(result);
         void loadEarlier(result);
+        void loadBias(result);
     }
 
     async function loadAudio(result) {
@@ -354,6 +359,13 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         const r = await api.replayEarlier?.({ id: result.id, fingers });
         if (asked !== earlierAsked || opened?.id !== result.id || !r?.ok || !r.plays.length) return;
         earlier = r;
+        drawReport();
+    }
+
+    async function loadBias(result) {
+        const r = await api.replayBias?.({ id: result.id });
+        if (opened?.id !== result.id || !biasTells(r)) return;
+        bias = r;
         drawReport();
     }
 

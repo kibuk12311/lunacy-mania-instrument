@@ -217,6 +217,7 @@ contextBridge.exposeInMainWorld("danApi", {
     replaySkin: (request) => ipcRenderer.invoke("replay-skin", request),
     replayDetails: (request) => ipcRenderer.invoke("replay-details", request),
     replayEarlier: (request) => ipcRenderer.invoke("replay-earlier", request),
+    replayBias: (request) => ipcRenderer.invoke("replay-bias", request),
     replayAfterPlay: (request) => ipcRenderer.invoke("replay-after-play", request),
     replayPickFolder: () => ipcRenderer.invoke("replay-pick-folder"),
     replayResetFolder: () => ipcRenderer.invoke("replay-reset-folder"),

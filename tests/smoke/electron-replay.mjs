@@ -8,7 +8,9 @@
 // another skin / the plain field from the select); the song decoded and playing (the clock moves, seek, speed, pause);
 // presses and manip lines drawn; a play ending in osu! (the replay appears in Data\r, the tab opens it by itself, without
 // a call on the window's focus, and a play with no replay says why); the statistics' folds on a mixed map (fingers picked and
-// remembered, hands, holds, jacks, ghost presses, combo breaks, earlier plays; a section with no data is not there); a replay
+// remembered, hands, holds, jacks, ghost presses, combo breaks, earlier plays; a section with no data is not there); the hints
+// (the block above the folds, a fold's own, a hint with a place seeking there, the lean of the latest plays with the skin's
+// HitPosition, nothing where nothing stands out); a replay
 // whose map is missing; the profile's plays saying what needs a replay; 440 px with no sideways scroll, then narrower; with
 // a replay open a pick of the other install's Songs in Settings (a wrong one refused first) landing on its game folder, the
 // list and the skin select filling and the path following, a reset rereading, the same from the tab's own button; every
@@ -104,7 +106,7 @@ put("Skins/Fixture Bars/skin.ini", `${skinIniText(built)}\r\n// 7K, left alone\r
 const circle = buildSkin({ shape: "circle", palette: "ice", name: "Fixture Circles", author: "TestPlayer", judgements: "numbers", font: "round" }, { dir: "art" });
 for (const f of circle.files) put(`Skins/Fixture Circles/${f.name}`, f.data);
 put("Skins/Fixture Circles/skin.ini", skinIniText(circle).replace(/^Keys: 4/m, "Keys: 4\r\nUpsideDown: 1")); // upscroll, as a player's own skin can be
-put("osu!.TestPlayer.cfg", "BeatmapDirectory = Songs\r\nSkin = Fixture Bars\r\n");
+put("osu!.TestPlayer.cfg", "BeatmapDirectory = Songs\r\nSkin = Fixture Bars\r\nUsername = TestPlayer\r\n");
 
 function snapshot(dir, sub = "", out = {}) {
     for (const e of readdirSync(path.join(dir, sub), { withFileTypes: true })) {
@@ -153,6 +155,15 @@ const replayOf = (presses, hash, list) => {
 const earlierMix = mixedPlay({ seed: 3, sd: 16, dropFrom: 330 });
 const earlierA = replayOf(earlierMix, mixedHash, mixed);
 put(`Data/r/${mixedHash}-1000.osr`, makeOsr({ md5: mixedHash, presses: earlierMix, counts: earlierA.counts, maxCombo: earlierA.combo.max, at: Date.UTC(2026, 8, 20, 18) }));
+// the latest plays, on maps of their own, all a little late: what the hit position's hint goes by
+const LEAN_MS = 9;
+for (let i = 0; i < 8; i += 1) {
+    const leanNotes = rollNotes({ count: 260, stepMs: 90 + i, startMs: 1000 });
+    const leanText = chartText(leanNotes, { title: `Fixture Lean ${i}`, artist: "Test", version: "Rolls" });
+    put(`Songs/${10 + i} Test - Fixture Lean/Test - Fixture Lean ${i} (TestPlayer) [Rolls].osu`, leanText);
+    const presses = honestPresses(leanNotes, { sdMs: 7, seed: 30 + i }).map((p) => ({ ...p, t: p.t + LEAN_MS, up: p.up + LEAN_MS }));
+    put(`Data/r/${md5(leanText)}-${3000 + i}.osr`, makeOsr({ md5: md5(leanText), presses, at: Date.UTC(2026, 9, 6, 12 + i) }));
+}
 before = snapshot(game);
 
 // ---- a second install with a replay and a skin of its own, and what is no osu! though it has an osu!.exe: lazer's folder ----
@@ -161,7 +172,7 @@ putIn(otherGame, "osu!.exe", "exe");
 putIn(otherGame, "Songs/1 Test - Fixture Roll/Test - Fixture Roll (TestPlayer) [Rolls].osu", text);
 const otherFile = putIn(otherGame, "Replays/other.osr", makeOsr({ md5: hash, presses: honestPlay.slice(0, 20), counts: { max: 15, n300: 5 }, maxCombo: 20, at: Date.UTC(2026, 9, 5, 12) }));
 putIn(otherGame, "Skins/Other Bars/skin.ini", "[General]\r\nName: Other Bars\r\n");
-putIn(otherGame, "osu!.TestPlayer.cfg", "BeatmapDirectory = Songs\r\nSkin = Other Bars\r\n");
+putIn(otherGame, "osu!.TestPlayer.cfg", "BeatmapDirectory = Songs\r\nSkin = Other Bars\r\nUsername = TestPlayer\r\n");
 const otherBefore = snapshot(otherGame);
 const lazerFolder = path.dirname(putIn(path.join(outDir, "osulazer", "current"), "osu!.exe", "exe"));
 const replayJson = path.join(outDir, "user-data", "replay.json");
@@ -192,7 +203,7 @@ app.whenReady().then(async () => {
     });
     const channels = {
         "replay-status": "status", "replay-list": "list", "replay-open": "open", "replay-audio": "audio", "replay-skin": "skin", "replay-details": "details",
-        "replay-earlier": "earlier", "replay-after-play": "setAfterPlay", "replay-pick-folder": "pickFolder", "replay-reset-folder": "resetFolder",
+        "replay-earlier": "earlier", "replay-bias": "bias", "replay-after-play": "setAfterPlay", "replay-pick-folder": "pickFolder", "replay-reset-folder": "resetFolder",
     };
     for (const [channel, method] of Object.entries(channels)) ipcMain.handle(channel, (_e, req) => service[method](req));
     const history = {
@@ -405,6 +416,36 @@ app.whenReady().then(async () => {
     await sleep(300);
     await shot(`replay-ended-${lang}.png`);
 
+    // the hints: the strongest above the folds, each fold's own at its top, the lean of the latest plays with the skin's line
+    check(await waitFor(`document.querySelector("#rp-details .rp-main")?.textContent.includes("HitPosition")`), "the lean of the latest plays reaches the block above the folds");
+    const blocks = await js(`(() => {
+        const box = document.querySelector("#rp-details .rp-main");
+        return {
+            first: document.getElementById("rp-details").firstElementChild === box, title: box.querySelector(".rp-main-title").textContent, rows: box.querySelectorAll(".rp-hint").length,
+            most: Math.max(...[...document.querySelectorAll("#rp-details .rp-sec")].map((f) => f.querySelectorAll(".rp-sec-body > .rp-hints > .rp-hint").length)),
+            atTop: [...document.querySelectorAll("#rp-details .rp-hints")].every((b) => b.parentElement.firstElementChild === b),
+            words: [...document.querySelectorAll("#rp-details .rp-hint")].map((r) => r.textContent),
+        };
+    })()`);
+    console.log("hints:", JSON.stringify(blocks.words));
+    check(blocks.first && blocks.title === t("replay.hint.main"), `the block comes first (${blocks.title})`);
+    check(blocks.rows >= 1 && blocks.rows <= 3, `one to three in it (${blocks.rows})`);
+    check(blocks.most >= 1 && blocks.most <= 2, `at most two at the top of a fold (${blocks.most})`);
+    check(blocks.atTop, "at the very top of the fold's body");
+    const skinLine = await js(`(async () => (await window.danApi.replaySkin({})).config.hitPosition)()`);
+    check((await secText("errors")).includes("HitPosition") && (await secText("errors")).includes(String(skinLine)), `the hit position's hint in its fold, with the skin's value (${skinLine})`);
+    check(blocks.words.every((w) => !/\{\w+\}/.test(w) && !w.includes("replay.hint") && !w.includes("undefined") && !w.includes("NaN")), "every hint reads whole");
+    const seekHint = `document.querySelector("#rp-details button.rp-hint-seek")`;
+    if (await js(`Boolean(${seekHint})`)) {
+        const was = await seekValue();
+        await js(`${seekHint}.click(); true`);
+        await sleep(250);
+        check((await seekValue()) !== was, "a hint with a place goes there");
+    } else check(false, "a hint with a place is there");
+    await scrollToSec("judgements");
+    await js(`document.querySelector("#rp-details .rp-main").scrollIntoView({ block: "start" }); true`);
+    await shot(`replay-hints-${lang}.png`);
+
     // the statistics, fold by fold
     check((await js(`${sec("fingers")}.open`)), "the fingers' section opens by default");
     const fingers = await secText("fingers");
@@ -447,6 +488,8 @@ app.whenReady().then(async () => {
     await sleep(300);
     const widths = await js(`(() => { const n = document.querySelector(".tabs"); const s = document.getElementById("replay-tab"); return { doc: document.documentElement.scrollWidth - innerWidth, tab: s.scrollWidth - s.clientWidth, bar: n.scrollWidth - n.clientWidth }; })()`);
     check((await sideways()) <= 0, `no sideways scroll at 320 px (${JSON.stringify(widths)})`);
+    await js(`document.querySelector("#rp-details .rp-main").scrollIntoView({ block: "start" }); true`);
+    await shot(`replay-320-hints-${lang}.png`);
     await scrollToEnd(0);
     await shot(`replay-320-${lang}.png`);
     await scrollToSec("fingers");

@@ -1,4 +1,17 @@
 // "replay" texts (the Replay tab: replays of osu!mania 4K, app/replayIpc.js, app/renderer/replayTab.js): key → { ru, en }.
+// «со 120», but «с 90» and «с 200»
+const fromNumber = (n) => (Number(n) >= 100 && Number(n) < 200 ? "со" : "с");
+// Whether a number takes the singular: «из 21 холда», «из 12,5 нажатия», but «из 11 холдов», «из 22 холдов»
+const takesOne = (n) => {
+    const x = Number(String(n).replace(",", "."));
+    return !Number.isInteger(x) || (x % 10 === 1 && x % 100 !== 11);
+};
+const upToPresses = (n) => (takesOne(n) ? "нажатия" : "нажатий");
+const ofHolds = (n) => (takesOne(n) ? "холда" : "холдов");
+const ofBreaks = (n) => (takesOne(n) ? "срыва" : "срывов");
+const ofGhosts = (n) => (takesOne(n) ? "лишнего нажатия" : "лишних нажатий");
+const letGo = (n) => (takesOne(n) ? "отпущен" : "отпущены"); // «21 из 40 холдов отпущен»
+
 export default {
     // the tab and its markup
     "replay.html.tab": { ru: "Реплей", en: "Replay" },
@@ -264,6 +277,99 @@ export default {
     "replay.earlier.below": { ru: "на {delta} % ниже лучшей", en: "{delta} % under the best" },
     "replay.earlier.more": { ru: "Не показано старых игр: {n}.", en: "Older plays not shown: {n}." },
     "replay.miss.more": { ru: "ещё {n}", en: "{n} more" },
+
+    // the hints (src/replay/hints.js): a replay shows what happened, not why, so a guessed cause says «похоже» / "looks like"
+    "replay.hint.main": { ru: "Главное", en: "Main points" },
+    "replay.hint.seek": { ru: "Перейти к этому месту", en: "Go to this place" },
+    "replay.hint.judge.misses": { ru: "Из потерянных {lost} % точности {misses} % ушло на промахи.", en: "Of the {lost} % of accuracy lost, {misses} % went on misses." },
+    "replay.hint.judge.mostlyMisses": { ru: "Из потерянных {lost} % точности {misses} % ушло на промахи, а не на тайминг.", en: "Of the {lost} % of accuracy lost, {misses} % went on misses, not on timing." },
+    "replay.hint.finger.L5": { ru: "Левый мизинец", en: "The left little finger" },
+    "replay.hint.finger.L4": { ru: "Левый безымянный", en: "The left ring finger" },
+    "replay.hint.finger.L3": { ru: "Левый средний", en: "The left middle finger" },
+    "replay.hint.finger.L2": { ru: "Левый указательный", en: "The left index finger" },
+    "replay.hint.finger.L1": { ru: "Левый большой", en: "The left thumb" },
+    "replay.hint.finger.R1": { ru: "Правый большой", en: "The right thumb" },
+    "replay.hint.finger.R2": { ru: "Правый указательный", en: "The right index finger" },
+    "replay.hint.finger.R3": { ru: "Правый средний", en: "The right middle finger" },
+    "replay.hint.finger.R4": { ru: "Правый безымянный", en: "The right ring finger" },
+    "replay.hint.finger.R5": { ru: "Правый мизинец", en: "The right little finger" },
+    "replay.hint.finger.uneven": { ru: "{finger} самый неровный: UR на {gap} выше остальных.", en: "{finger} is the least even: UR {gap} above the others." },
+    "replay.hint.finger.unevenBreaks": { ru: ({ of }) => `{finger} самый неровный: UR на {gap} выше остальных, на нём {breaks} из {of} ${ofBreaks(of)}.`, en: "{finger} is the least even: UR {gap} above the others, with {breaks} of {of} combo breaks on it." },
+    "replay.hint.hand.left": { ru: "Левая рука спешит на {ms} мс.", en: "The left hand runs {ms} ms ahead of the right." },
+    "replay.hint.hand.right": { ru: "Правая рука спешит на {ms} мс.", en: "The right hand runs {ms} ms ahead of the left." },
+    "replay.hint.hand.leftChords": { ru: "Левая рука спешит на {ms} мс, аккорды могут расходиться.", en: "The left hand runs {ms} ms ahead of the right, so chords can come apart." },
+    "replay.hint.hand.rightChords": { ru: "Правая рука спешит на {ms} мс, аккорды могут расходиться.", en: "The right hand runs {ms} ms ahead of the left, so chords can come apart." },
+    "replay.hint.many.stream": { ru: "стримы", en: "streams" },
+    "replay.hint.many.jumpstream": { ru: "джампстримы", en: "jumpstreams" },
+    "replay.hint.many.handstream": { ru: "хендстримы", en: "handstreams" },
+    "replay.hint.many.chordjack": { ru: "чордджеки", en: "chordjacks" },
+    "replay.hint.many.jack": { ru: "джеки", en: "jacks" },
+    "replay.hint.many.tech": { ru: "тех-паттерны", en: "tech" },
+    "replay.hint.manip.family": { ru: "Сильнее всего склеены {families}, {percent} %.", en: "Glued the most: {families}, {percent} %." },
+    "replay.hint.manip.familyForgiven": { ru: "Сильнее всего склеены {families}, {percent} %: здесь окно это прощает, на более жёстком OD будут 100-ки.", en: "Glued the most: {families}, {percent} %. The window lets it through here, on a stricter OD it would give 100s." },
+    "replay.hint.manip.leftHand": { ru: "На левой руке склеено больше: {percent} % против {other} % на правой.", en: "The left hand glues more: {percent} % against {other} % on the right." },
+    "replay.hint.manip.rightHand": { ru: "На правой руке склеено больше: {percent} % против {other} % на левой.", en: "The right hand glues more: {percent} % against {other} % on the left." },
+    "replay.hint.manip.part": { ru: "Больше всего склеено на {from}–{to}: {percent} %.", en: "Glued the most at {from}–{to}: {percent} %." },
+    "replay.hint.err.columnLate": { ru: "{col}-я колонка на {ms} мс позже остальных.", en: "Column {col} is {ms} ms later than the others." },
+    "replay.hint.err.columnEarly": { ru: "{col}-я колонка на {ms} мс раньше остальных.", en: "Column {col} is {ms} ms earlier than the others." },
+    "replay.hint.position.late": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс позже. Если целишься глазами, попробуй увеличить HitPosition (сейчас {hit}). Если играешь на слух, лучше подойдёт оффсет. Судейство от этого не меняется, сдвигается только точка, за которой следит глаз: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms late on average. If you aim by eye, try a larger HitPosition (now {hit}). If you play by ear, an offset suits better. Judging stays the same, only the point your eye follows moves: play a few maps and compare.",
+    },
+    "replay.hint.position.early": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс раньше. Если целишься глазами, попробуй уменьшить HitPosition (сейчас {hit}). Если играешь на слух, лучше подойдёт оффсет. Судейство от этого не меняется, сдвигается только точка, за которой следит глаз: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms early on average. If you aim by eye, try a smaller HitPosition (now {hit}). If you play by ear, an offset suits better. Judging stays the same, only the point your eye follows moves: play a few maps and compare.",
+    },
+    "replay.hint.position.lateUnknown": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс позже. Если целишься глазами, попробуй увеличить HitPosition. Если играешь на слух, лучше подойдёт оффсет. Судейство от этого не меняется, сдвигается только точка, за которой следит глаз: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms late on average. If you aim by eye, try a larger HitPosition. If you play by ear, an offset suits better. Judging stays the same, only the point your eye follows moves: play a few maps and compare.",
+    },
+    "replay.hint.position.earlyUnknown": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс раньше. Если целишься глазами, попробуй уменьшить HitPosition. Если играешь на слух, лучше подойдёт оффсет. Судейство от этого не меняется, сдвигается только точка, за которой следит глаз: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms early on average. If you aim by eye, try a smaller HitPosition. If you play by ear, an offset suits better. Judging stays the same, only the point your eye follows moves: play a few maps and compare.",
+    },
+    "replay.hint.position.lateEnd": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс позже. HitPosition уже у нижнего края ({hit}), так что попробуй оффсет: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms late on average. HitPosition is already at the bottom ({hit}), so try an offset: play a few maps and compare.",
+    },
+    "replay.hint.position.earlyEnd": {
+        ru: "В последних играх ты жмёшь в среднем на {ms} мс раньше. HitPosition уже у верхнего края ({hit}), так что попробуй оффсет: сыграй пару карт и сравни.",
+        en: "In your recent plays you press {ms} ms early on average. HitPosition is already at the top ({hit}), so try an offset: play a few maps and compare.",
+    },
+    "replay.hint.drift.tired": { ru: ({ start }) => `К концу UR вырос ${fromNumber(start)} {start} до {end}, похоже на усталость.`, en: "UR rose towards the end, from {start} to {end}: it looks like fatigue." },
+    "replay.hint.drift.denser": { ru: ({ start }) => `К концу UR вырос ${fromNumber(start)} {start} до {end}: конец карты плотнее, похоже, дело в нём.`, en: "UR rose towards the end, from {start} to {end}: the end of the map is denser, it looks like that is why." },
+    "replay.hint.drift.later": { ru: "К концу нажатия уходят на {ms} мс позже.", en: "Towards the end your presses move {ms} ms later." },
+    "replay.hint.drift.earlier": { ru: "К концу нажатия уходят на {ms} мс раньше.", en: "Towards the end your presses move {ms} ms earlier." },
+    "replay.hint.pace.ceiling": { ru: ({ keep }) => `Уверенно держишь до {keep} ${upToPresses(keep)} в секунду, выше начинаешь срезать ноты.`, en: "You hold up to {keep} presses a second, above that notes start to go unpressed." },
+    "replay.hint.pace.behind": { ru: ({ written }) => `На {from}–{to} ты отставал: {played} из {written} ${upToPresses(written)} в секунду.`, en: "At {from}–{to} you fell behind: {played} of {written} presses a second." },
+    "replay.hint.hold.late": { ru: ({ n, of }) => `{n} из {of} ${ofHolds(of)} ${letGo(n)} поздно, в среднем на {ms} мс.`, en: "{n} of {of} holds were let go late, by {ms} ms on average." },
+    "replay.hint.hold.early": { ru: ({ n, of }) => `{n} из {of} ${ofHolds(of)} ${letGo(n)} рано, в среднем на {ms} мс.`, en: "{n} of {of} holds were let go early, by {ms} ms on average." },
+    "replay.hint.ghost.column": { ru: ({ of }) => `{n} из {of} ${ofGhosts(of)} на {col}-й колонке, прямо в потоке: похоже, палец дёргается вместе с соседним.`, en: "{n} of {of} ghost presses are on column {col}, right in the flow: it looks like the finger twitches along with its neighbour." },
+    "replay.hint.on.hold": { ru: "на холдах", en: "on holds" },
+    "replay.hint.on.chordjack": { ru: "на чордджеках", en: "on chordjacks" },
+    "replay.hint.on.jack": { ru: "на джеках", en: "on jacks" },
+    "replay.hint.on.quad": { ru: "на квадах", en: "on quads" },
+    "replay.hint.on.hand": { ru: "на хендах", en: "on hands" },
+    "replay.hint.on.jump": { ru: "на джампах", en: "on jumps" },
+    "replay.hint.on.trill": { ru: "на трелях", en: "on trills" },
+    "replay.hint.on.roll": { ru: "на роллах", en: "on rolls" },
+    "replay.hint.on.stream": { ru: "на стримах", en: "on streams" },
+    "replay.hint.on.single": { ru: "на одиночных нотах", en: "on single notes" },
+    "replay.hint.break.shape": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}.`, en: "{n} of {of} combo breaks {shape}." },
+    "replay.hint.break.none": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, ноты не нажаты: похоже, это отставание, а не мимо.`, en: "{n} of {of} combo breaks {shape}, the notes not pressed: it looks like falling behind, not a slip." },
+    "replay.hint.break.early": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, нажато раньше окна: похоже, это спешка.`, en: "{n} of {of} combo breaks {shape}, pressed before the window: it looks like rushing." },
+    "replay.hint.break.released": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, отпущены раньше конца.`, en: "{n} of {of} combo breaks {shape}, let go before the end." },
+    "replay.hint.break.part": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} на {from}–{to}.`, en: "{n} of {of} combo breaks at {from}–{to}." },
+    "replay.hint.hard.part": { ru: "{from}–{to} на {delta} % хуже остальной карты, начни тренировку с этого куска.", en: "{from}–{to} went {delta} % under the rest of the map, start practising with this stretch." },
+    "replay.hint.part.dan": { ru: "До {easy} держишь {hold} %, с {hard} падаешь до {fall} %.", en: "Up to {easy} you hold {hold} %, from {hard} you drop to {fall} %." },
+    "replay.hint.onFamily.stream": { ru: "на стриме", en: "on stream" },
+    "replay.hint.onFamily.jumpstream": { ru: "на джампстриме", en: "on jumpstream" },
+    "replay.hint.onFamily.handstream": { ru: "на хендстриме", en: "on handstream" },
+    "replay.hint.onFamily.chordjack": { ru: "на чордджеке", en: "on chordjack" },
+    "replay.hint.onFamily.jack": { ru: "на джеке", en: "on jack" },
+    "replay.hint.onFamily.tech": { ru: "на техе", en: "on tech" },
+    "replay.hint.family.weak": { ru: "Слабее всего {family}: UR {ur} против {otherUr} {on}.", en: "Weakest is {family}: UR {ur} against {otherUr} {on}." },
+    "replay.hint.earlier.progress": { ru: "Точность та же, но UR лучше на {ur}: прогресс есть, даже если процент не вырос.", en: "Accuracy is the same but UR is {ur} better: that is progress, even if the percent did not move." },
 
     // the playfield
     "replay.play.play": { ru: "▶ Играть", en: "▶ Play" },
