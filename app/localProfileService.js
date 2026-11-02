@@ -344,16 +344,19 @@ export function createLocalProfileService({
 
     // who wants to know a play just ended, recorded or not (the Replay tab)
     const endListeners = new Set();
+    function tellEnded(p) {
+        for (const listener of endListeners) {
+            try {
+                listener(p);
+            } catch (e) {
+                log(`local profile: a listener of a play's end failed: ${e?.message}`);
+            }
+        }
+    }
     const recorder = createPlayRecorder({
         onPlay: (p) => {
             serial(() => recordLive(p)).catch((e) => log(`local profile: live play not kept: ${e?.message}`));
-            for (const listener of endListeners) {
-                try {
-                    listener(p);
-                } catch (e) {
-                    log(`local profile: a listener of a play's end failed: ${e?.message}`);
-                }
-            }
+            tellEnded(p);
         },
     });
 
@@ -632,6 +635,9 @@ export function createLocalProfileService({
             endListeners.add(fn);
             return () => endListeners.delete(fn);
         },
+        // a play that ended where the recorder does not look (Interlude, app/interludeLive.js): told to the same listeners
+        // and not recorded, as Interlude's plays come into the profile by its import
+        tellPlayEnded: (p) => tellEnded(p),
         recordLive: (p) => serial(() => recordLive(p)),
         skill,
         status,

@@ -143,6 +143,27 @@ test("the pace fold's line with no stretch to tell says just that, so a hint abo
     }
 });
 
+test("on an Interlude play a hint about the window names the ruleset's judgement, not osu!'s OD", async (t2) => {
+    const forgiven = { id: "manip.family", section: "manip", key: "replay.hint.manip.familyForgiven", params: { families: "jumpstream", percent: 62 }, weight: 1 };
+    const { ctx } = await ctxWith(t2, { top: [forgiven], bySection: {} });
+    const [osu] = reportSections(ctx);
+    assert.match(osu.children[1].textContent, /stricter OD/);
+    // src/replay/hints.js gives an Interlude play its own key, with the worst judgement the forgiven notes got
+    const own = { ...forgiven, key: "replay.hint.manip.familyForgivenIl", params: { ...forgiven.params, judgement: "Perfect" } };
+    const judgements = ["max", "n300", "n200", "n100", "n50", "miss"].map((slot, i) => ({ name: `J${i + 1}`, color: "#ffffff", breaksCombo: i > 2, slot, early: i < 5 ? -20 * (i + 1) : null, late: i < 5 ? 20 * (i + 1) : null }));
+    const analysis = { ...ctx.analysis, source: "interlude", ruleset: { name: "SC J4", judgements }, judgementCounts: Object.values(ctx.analysis.counts), accuracyText: "99.00%" };
+    const il = { ...ctx, analysis, replay: { ...ctx.replay, source: "interlude" }, hints: { top: [own], bySection: {} } };
+    assert.equal(reportSections(il)[0].children[1].textContent, "Glued the most: jumpstreams, 62 %. The window lets it through here: most of those notes still get Perfect or better. A stricter ruleset would judge them lower.");
+    setLang("ru");
+    try {
+        const said = reportSections(il)[0].children[1].textContent;
+        assert.doesNotMatch(said, /OD|100-ки/);
+        assert.match(said, /получает Perfect или лучше/);
+    } finally {
+        setLang("en");
+    }
+});
+
 test("nothing stands out: no block, no box", async (t2) => {
     const { ctx } = await ctxWith(t2, { top: [], bySection: {} });
     const sections = reportSections(ctx);

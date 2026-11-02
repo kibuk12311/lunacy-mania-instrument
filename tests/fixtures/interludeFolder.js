@@ -1,7 +1,8 @@
 // A fake portable Interlude folder in a temp directory for tests: Interlude.exe (an empty file), Songs\charts.db with
 // the charts table of prelude/src/Data/ChartDatabase/DbCharts.fs, Songs\.assets (audio and background by hash),
-// Songs\.origins (an imported .osu), Data\scores.db (the scores table of DbScores.fs) and, if asked, collections.json.
-// The databases are made in WAL mode like Interlude's own. Only synthetic charts (tests/fixtures/makeChart.js).
+// Songs\.origins (an imported .osu), Data\scores.db (the scores table of DbScores.fs) and, if asked, collections.json,
+// Data\options.json and .ruleset files. The databases are made in WAL mode like Interlude's own. Only synthetic charts
+// (tests/fixtures/makeChart.js) and made-up replays (tests/fixtures/makeIlReplay.js).
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -12,8 +13,11 @@ import { osuToChart, chartHash, encodeChart, osuMd5 } from "../../src/interlude/
 const sha = (b) => createHash("sha256").update(b).digest("hex").toUpperCase();
 
 // charts: [{ hash (instead of the one the chart gets), osuText (its Title/Artist/Version/Creator lines are set to the ones given), title, artist, version, creator, beatmapId, beatmapsetId, keepOriginal, audio: Buffer,
-// background: Buffer, origins }]; plays: [{ index (of charts), at, rate }]; collections: text of collections.json.
-export async function makeInterludeFolder({ charts = [], plays = [], collections = null } = {}) {
+// background: Buffer, origins }]; plays: [{ index (of charts), at, rate, replay (the Replay blob, makeIlReplay's; one
+// byte when none), mods (a map of mod id → state, or the Mods text as it is), failed, imported, keys }]; collections:
+// text of collections.json; options: Data\options.json (an object, or the text as it is); rulesets: { id: the ruleset's
+// JSON (an object, or the text as it is) }, written into rulesetDir (Rulesets, or Data\Rulesets).
+export async function makeInterludeFolder({ charts = [], plays = [], collections = null, options = null, rulesets = null, rulesetDir = "Rulesets" } = {}) {
     const root = await mkdtemp(path.join(tmpdir(), "interlude-"));
     await mkdir(path.join(root, "Songs", ".assets"), { recursive: true });
     await mkdir(path.join(root, "Data"), { recursive: true });
@@ -62,9 +66,18 @@ export async function makeInterludeFolder({ charts = [], plays = [], collections
     scores.exec(`CREATE TABLE scores (Id INTEGER PRIMARY KEY NOT NULL, ChartId TEXT NOT NULL, Timestamp INTEGER NOT NULL,
         Replay BLOB NOT NULL, Rate REAL NOT NULL, Mods TEXT NOT NULL, IsImported INTEGER NOT NULL, Keys INTEGER NOT NULL,
         IsFailed INTEGER NOT NULL DEFAULT 0)`);
-    const score = scores.prepare("INSERT INTO scores (ChartId, Timestamp, Replay, Rate, Mods, IsImported, Keys) VALUES (?, ?, x'00', ?, '{}', 0, 4)");
-    for (const p of plays) score.run(out[p.index].hash, p.at, p.rate ?? 1);
+    const score = scores.prepare("INSERT INTO scores (ChartId, Timestamp, Replay, Rate, Mods, IsImported, Keys, IsFailed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const p of plays) {
+        const mods = typeof p.mods === "string" ? p.mods : JSON.stringify(p.mods ?? {});
+        score.run(out[p.index].hash, p.at, p.replay ?? Buffer.from([0]), p.rate ?? 1, mods, p.imported ? 1 : 0, p.keys ?? 4, p.failed ? 1 : 0);
+    }
     scores.close();
     if (collections !== null) await writeFile(path.join(root, "Data", "collections.json"), collections, "utf8");
+    const text = (v) => (typeof v === "string" ? v : JSON.stringify(v, null, 4));
+    if (options !== null) await writeFile(path.join(root, "Data", "options.json"), text(options), "utf8");
+    if (rulesets !== null) {
+        await mkdir(path.join(root, rulesetDir), { recursive: true });
+        for (const [id, json] of Object.entries(rulesets)) await writeFile(path.join(root, rulesetDir, `${id}.ruleset`), text(json), "utf8");
+    }
     return { root, charts: out };
 }

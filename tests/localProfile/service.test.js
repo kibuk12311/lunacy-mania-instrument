@@ -118,6 +118,23 @@ test("live: whoever listens hears of every play that ends, kept or not, with wha
     assert.equal(heard.length, 2);
 });
 
+test("live: a play that ended in Interlude reaches the same listeners and is not recorded (Interlude's plays come by import)", async () => {
+    const { s, store, events } = await service();
+    const heard = [];
+    s.onPlayEnded(() => { throw new Error("a listener's mistake"); });
+    const stop = s.onPlayEnded((play) => heard.push(play));
+    const play = { client: "interlude", chart: "testHash", rate: 1.1, startedAt: NOW - 90_000, endedAt: NOW, outcome: "finished", artist: "Test", title: "Synthetic", version: "4K Test" };
+    s.tellPlayEnded(play);
+    assert.deepEqual(heard, [play]);
+    await settle();
+    assert.equal((await store.plays()).length, 0, "nothing kept");
+    assert.equal(events.filter(([c]) => c === "local-profile-changed").length, 0);
+    assert.equal(s.playing(), false, "and the recorder knows of no play going on");
+    stop();
+    s.tellPlayEnded(play);
+    assert.equal(heard.length, 1);
+});
+
 test("live: a map tosu changed under the play is not analysed from the wrong .osu; record off keeps nothing", async () => {
     const { s, a, store } = await service({ text: makeChart({ bpm: 170 }) });
     await playLive(s, "c".repeat(32));

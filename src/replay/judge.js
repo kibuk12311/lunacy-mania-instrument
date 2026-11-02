@@ -148,10 +148,11 @@ export function judgeReplay(notes, columns, { od, modNames = [], rate = 1, keys 
     return { windows: w, results, strays, given };
 }
 
-// The judgements' counts: { max, n300, n200, n100, n50, miss }.
+// The judgements' counts: { max, n300, n200, n100, n50, miss }. A result with no judgement (kind null: an Interlude note
+// its ruleset does not judge, src/replay/analyzeInterlude.js) is not counted.
 export function countKinds(results) {
     const counts = Object.fromEntries(KINDS.map((k) => [k, 0]));
-    for (const r of results) counts[r.kind] += 1;
+    for (const r of results) if (counts[r.kind] !== undefined) counts[r.kind] += 1;
     return counts;
 }
 
@@ -176,3 +177,17 @@ export function comboOf(results) {
 
 // Accuracy in percent as osu! shows it (MAX counts as a 300), null with no judgements.
 export const accuracyPercent = (counts) => accuracyOf(counts);
+
+// Accuracy in percent of any set of results (a finger's, a part's): an Interlude play's carry their points and how many
+// judgements each note got (src/replay/analyzeInterlude.js), so it is Σ points ÷ Σ weight, as its ruleset counts it
+// (it can be negative); an osu! play's are counted as osu! does. null with no judgements.
+export function resultsAccuracy(list) {
+    if (!list.length || list[0].weight === undefined) return accuracyPercent(countKinds(list));
+    let points = 0;
+    let weight = 0;
+    for (const r of list) {
+        points += r.points;
+        weight += r.weight;
+    }
+    return weight > 0 ? (points / weight) * 100 : null;
+}

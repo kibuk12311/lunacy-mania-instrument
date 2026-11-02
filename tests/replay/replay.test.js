@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { lzmaDecode } from "../../src/replay/lzma.js";
 import { readOsr, parseFrames, unpackFrames, keyPresses, unwrapped, fullCounts } from "../../src/replay/osr.js";
-import { hitWindows, judgeReplay, countKinds, comboOf, holdKind, playedColumn, accuracyPercent } from "../../src/replay/judge.js";
+import { hitWindows, judgeReplay, countKinds, comboOf, holdKind, playedColumn, accuracyPercent, resultsAccuracy } from "../../src/replay/judge.js";
 import { MANIP, isGlued, isLoose, isThin, manipPairs, manipSummary, manipByPart, manipByFamily, chancePercent } from "../../src/replay/manip.js";
 import { analyzeReplay, unstableRate, errorHistogram, keysPerSecond, compareCounts } from "../../src/replay/analyze.js";
 import { parseManiaNotes } from "../../src/overlay/maniaNotes.js";
@@ -168,6 +168,15 @@ test("combo and accuracy", () => {
     assert.deepEqual(comboOf(results), { maxCombo: 2, breaks: [{ t: 3, col: 1, combo: 2 }] });
     assert.deepEqual(countKinds(results), { max: 1, n300: 1, n200: 1, n100: 0, n50: 0, miss: 1 });
     assert.ok(Math.abs(accuracyPercent(countKinds(results)) - (100 * 800) / 1200) < 1e-9);
+});
+
+test("accuracy of a group of osu! results is osu!'s of their counts, as it always was", () => {
+    const notes = rollNotes({ count: 200, stepMs: 60 });
+    const a = analyze(notes, honestPresses(notes, { sdMs: 25, seed: 7 }).filter((_, i) => i % 17));
+    for (const list of [a.results, a.results.filter((r) => r.col === 2), a.results.slice(0, 50), []]) {
+        assert.equal(resultsAccuracy(list), accuracyPercent(countKinds(list)));
+    }
+    assert.ok(a.counts.miss > 0 && a.counts.n200 > 0, "a play with more than one kind");
 });
 
 test("stats: UR, histogram, keys per second, comparison with the header", () => {

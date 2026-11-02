@@ -2,7 +2,8 @@
 // tests/fixtures/interlude-reader-lines.json by tools/record-interlude-lines.mjs) through the app's parts —
 // the overlay adapter (src/overlay/interludeData.js) and a whole play in the overlay session, the reader process with
 // its restarts (app/interludeReader.js, a fake child process), the card following the selection and its priority
-// against osu! (app/interludeLive.js + the selection controller), the error texts in both languages, the settings in
+// against osu! (app/interludeLive.js + the selection controller), a play's end as the Replay tab hears of it (finished,
+// quit, a retry; practice, replays and autoplay are no play), the error texts in both languages, the settings in
 // interlude.json, and the overlay windows kept up when Windows minimizes or hides them.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -500,6 +501,162 @@ test("live: status lines → the state the window shows; a missing field keeps i
     live.off();
     assert.equal(live.state().status, "off");
     assert.ok(states_.length >= 6);
+});
+
+// ---- a play's end (the Replay tab waits for its row of scores.db) ----
+
+// lines fed one by one with the clock at each line's time; → the ends heard and the log
+function playFollower() {
+    const ended = [];
+    const logs = [];
+    let clock = 0;
+    const card = { showExternal: () => {}, showInfo: () => {} };
+    const live = createInterludeLive({
+        interlude: fakeClient(), card, onPlayEnded: (p) => ended.push(p), log: (m) => logs.push(m), now: () => clock, ...instantTimers,
+    });
+    const feed = (msg, at = clock) => {
+        clock = at;
+        live.onMessage(msg);
+    };
+    return { live, ended, logs, feed };
+}
+// a made-up state line: screen, the chart selected (null: none) and, on the play screens, the play going on
+const stateLine = (screen, { hash = "testHash", rate = 1.1, playId = 1, play = true, autoplay = false } = {}) => ({
+    v: 1, client: "interlude", version: "0.7.28.7", pid: 1, screen,
+    chart: hash ? { hash, title: "Test Song", artist: "Test Artist", diff: "4K Test", keys: 4, rate, mods: [] } : null,
+    autoplay, play: play ? { playId, rate, timeMs: 0, judgements: [0, 0, 0, 0, 0, 0], events: [] } : null,
+});
+
+test("play end: the recorded session's two plays, the first cut short by a retry, the second finished on the score screen", () => {
+    const { ended, feed } = playFollower();
+    for (const l of lines) feed(l.msg, l.at);
+    const first = plays.find((l) => l.msg.play.playId === 1);
+    const retry = plays.find((l) => l.msg.play.playId === 2);
+    const score = states.find((l) => l.msg.screen === "score");
+    assert.deepEqual(ended, [
+        { client: "interlude", chart: "hashB", rate: 1.25, startedAt: first.at, endedAt: retry.at, outcome: "quit", artist: "xi", title: "Blue Zenith", version: "4K Insane", ruleset: first.msg.play.ruleset },
+        { client: "interlude", chart: "hashB", rate: 1.25, startedAt: retry.at, endedAt: score.at, outcome: "finished", artist: "xi", title: "Blue Zenith", version: "4K Insane", ruleset: retry.msg.play.ruleset },
+    ]);
+    assert.equal(typeof first.msg.play.ruleset, "string", "the reader names the ruleset on a play's lines");
+});
+
+test("the ruleset Interlude judges by, from its play lines: passed on with the play's end, kept until Interlude closes or is no longer followed", () => {
+    const { live, ended, feed } = playFollower();
+    const judged = (screen, ruleset, over = {}) => {
+        const line = stateLine(screen, over);
+        if (line.play && ruleset) line.play.ruleset = ruleset;
+        return line;
+    };
+    assert.equal(live.ruleset(), null, "no play seen yet: options.json is all there is");
+    feed(judged("play", "osu!mania (OD9)"), 1000);
+    assert.equal(live.ruleset(), "osu!mania (OD9)");
+    feed(judged("play", "osu!mania (OD9)"), 1100);
+    feed(stateLine("levelselect", { play: false }), 2000);
+    // switched in level select, then played: Interlude writes options.json only as it closes
+    feed(judged("play", "SC (J4)", { playId: 2 }), 3000);
+    feed(judged("play", null, { playId: 2 }), 3100); // a line that does not say keeps what was said
+    feed(stateLine("score", { play: false }), 4000);
+    assert.deepEqual(ended.map((p) => p.ruleset), ["osu!mania (OD9)", "SC (J4)"]);
+    assert.equal(live.ruleset(), "SC (J4)", "kept after the play, for the list and the plays opened");
+    feed(judged("play", null, { playId: 3 }), 5000);
+    feed(stateLine("levelselect", { play: false }), 6000);
+    assert.equal(ended.at(-1).ruleset, null, "no line said: null");
+    live.onMessage({ v: 1, status: "waiting", reason: "not running" });
+    assert.equal(live.ruleset(), null, "Interlude closed: options.json has it now");
+    feed(judged("play", "SC (J4)"), 7000);
+    live.onReader({ state: "crashed", retryMs: 1000 });
+    assert.equal(live.ruleset(), null);
+    feed(judged("play", "SC (J4)"), 8000);
+    live.off();
+    assert.equal(live.ruleset(), null);
+});
+
+test("play end: level select mid-play is a quit; a retry is a new play; the score screen ends one as finished", () => {
+    const { ended, feed, logs } = playFollower();
+    feed(stateLine("levelselect", { play: false }), 1000);
+    feed(stateLine("play"), 2000);
+    feed(stateLine("play"), 2033);
+    feed(stateLine("play", { play: false }), 2100); // the one line with no play as the screen is left: not the end yet
+    assert.equal(ended.length, 0);
+    feed(stateLine("unknown", { play: false }), 2150);
+    assert.equal(ended.length, 0, "a screen not read yet says nothing");
+    feed(stateLine("levelselect", { play: false }), 2200);
+    assert.deepEqual(ended.map((p) => [p.outcome, p.startedAt, p.endedAt, p.chart, p.rate]), [["quit", 2000, 2200, "testHash", 1.1]]);
+
+    feed(stateLine("play", { playId: 2 }), 3000);
+    feed(stateLine("play", { playId: 3 }), 4000);
+    feed(stateLine("play", { playId: 3 }), 4500);
+    feed(stateLine("score", { play: false }), 9000);
+    feed(stateLine("score", { play: false }), 9300);
+    feed(stateLine("levelselect", { play: false }), 9600);
+    assert.deepEqual(ended.slice(1).map((p) => [p.outcome, p.startedAt, p.endedAt]), [["quit", 3000, 4000], ["finished", 4000, 9000]]);
+    assert.ok(logs.some((m) => /testHash at 1\.1x finished/.test(m)));
+});
+
+test("play end: the score screen before the chart's end (Interlude's 'On quit out: Show score', or a fail) is a quit; at its end, finished", () => {
+    const { ended, feed } = playFollower();
+    // a line of a 2-minute chart's play, at timeMs into it
+    const at = (timeMs, playId = 1) => {
+        const line = stateLine("play", { playId });
+        line.play.timeMs = timeMs;
+        line.play.durationMs = 120_000;
+        return line;
+    };
+    // Escape 10 s in: Interlude opens the score screen and saves nothing
+    feed(at(-1500), 1000);
+    feed(at(10_000), 12_500);
+    feed(stateLine("score", { play: false }), 12_600);
+    // the next play runs to its end: its last line is a frame before the score screen, past the last note
+    feed(stateLine("levelselect", { play: false }), 15_000);
+    feed(at(0, 2), 20_000);
+    feed(at(119_980, 2), 140_000);
+    feed(stateLine("play", { playId: 2, play: false }), 140_030);
+    feed(stateLine("score", { play: false }), 140_060);
+    // one that ends a few frames short of the last line read still counts as at its end
+    feed(stateLine("levelselect", { play: false }), 150_000);
+    feed(at(0, 3), 160_000);
+    feed(at(119_200, 3), 280_000);
+    feed(stateLine("score", { play: false }), 280_100);
+    assert.deepEqual(ended.map((p) => [p.outcome, p.startedAt, p.endedAt]), [
+        ["quit", 1000, 12_600], ["finished", 20_000, 140_060], ["finished", 160_000, 280_100],
+    ]);
+    assert.ok(ended.every((p) => !("timeMs" in p) && !("durationMs" in p)), "where the play was is not passed on");
+});
+
+test("play end: practice, watching a replay, autoplay and a score screen opened from level select are no play", () => {
+    const { ended, feed } = playFollower();
+    feed(stateLine("practice"), 1000);
+    feed(stateLine("practice", { playId: 2 }), 2000);
+    feed(stateLine("levelselect", { play: false }), 3000);
+    feed(stateLine("replay"), 4000);
+    feed(stateLine("score", { play: false }), 5000);
+    feed(stateLine("play", { autoplay: true }), 6000);
+    feed(stateLine("score", { play: false }), 7000);
+    feed(stateLine("play", { hash: null }), 8000);
+    feed(stateLine("levelselect", { play: false }), 9000);
+    assert.deepEqual(ended, []);
+});
+
+test("play end: Interlude closing, the reader stopping or following turned off forget the play; a listener's mistake is only logged", () => {
+    const { live, ended, feed, logs } = playFollower();
+    feed(stateLine("play"), 1000);
+    live.onMessage({ v: 1, status: "waiting", reason: "not running" });
+    feed(stateLine("levelselect", { play: false }), 2000);
+    feed(stateLine("play"), 3000);
+    live.onReader({ state: "crashed", retryMs: 1000 });
+    feed(stateLine("score", { play: false }), 4000);
+    feed(stateLine("play"), 5000);
+    live.off();
+    feed(stateLine("score", { play: false }), 6000);
+    assert.deepEqual(ended, []);
+
+    const throwing = createInterludeLive({
+        interlude: fakeClient(), card: { showExternal: () => {}, showInfo: () => {} }, log: (m) => logs.push(m), ...instantTimers,
+        onPlayEnded: () => { throw new Error("a listener's mistake"); },
+    });
+    throwing.onMessage(stateLine("play"));
+    throwing.onMessage(stateLine("score", { play: false }));
+    assert.ok(logs.some((m) => /not passed on: a listener's mistake/.test(m)));
 });
 
 // ---- settings in interlude.json ----

@@ -10,9 +10,13 @@
 // looked for by the map's md5 and the file's time, and the window is told: only told, so nothing takes focus from the game.
 // Stable's own header counts are 16 bits; a replay's are put right in analyzeReplay, the list's here (LIST_WRAP_BYTES).
 // The hints (src/replay/hints.js) get the lean of the player's latest plays from here too: see bias().
+// Interlude's own plays (app/replayInterlude.js) are listed beside osu!'s replays and open the same way, by their id
+// (interlude:<chart>:<at>) instead of a file; what is osu!'s alone (the lean, HitPosition) they do not get. A play that
+// ends in Interlude is waited for in the same way, as its new row of Interlude's scores.db.
 import path from "node:path";
 import * as nodeFs from "node:fs/promises";
 import { createJsonStore } from "./jsonStore.js";
+import { createIlReplays } from "./replayInterlude.js";
 import { songsIndexAt } from "./osuSongsScan.js";
 import { songsIndexFile } from "./localProfileIpc.js";
 import { gameFolderOf, osuAssociation } from "./osuFolder.js";
@@ -97,14 +101,28 @@ export const overallDifficulty = (osuText) => {
 
 const shownCounts = (h) => ({ ...h.counts, accuracy: accuracyPercent(h.counts) });
 
+// Two lists of plays, each newest first, into one newest first, each keeping its own order; at most limit.
+function newestOf(own, other, limit) {
+    if (!other.length) return own;
+    const out = [];
+    let i = 0;
+    let j = 0;
+    while (out.length < limit && (i < own.length || j < other.length)) {
+        if (j >= other.length || (i < own.length && own[i].at >= other[j].at)) out.push(own[i++]);
+        else out.push(other[j++]);
+    }
+    return out;
+}
+
 // fs, tosu ({ game, songs, skin }) and the index are injected; profileFolder() → the folder the local profile keeps;
 // association() → the folder Windows knows (app/osuFolder.js); analysis / worker / cache: the shared analysis, used only
-// for the parts' dans and the pattern families.
+// for the parts' dans and the pattern families; interlude: app/interludeClient.js's client, for Interlude's own plays;
+// interludeRuleset() → the name of the ruleset the live reader saw Interlude judge its last play by, or null.
 export function createReplayService({
     userData, env = process.env, fs = nodeFs, dialog = null, window = () => null, log = () => {}, send = () => {},
     tosu = async () => ({ game: null, songs: null, skin: null }), profileFolder = async () => null, association = async () => null, songsIndex = null,
     analysis = null, worker = null, cache = null, now = () => Date.now(), sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
-    playing = () => false,
+    playing = () => false, interlude = null, interludeRuleset = () => null,
 }) {
     const store = createJsonStore({
         file: path.join(userData, "replay.json"), fallback: { folder: null, afterPlay: true },
@@ -115,10 +133,14 @@ export function createReplayService({
     let scannedAt = 0;
     let scannedDir = null;
     let scanning = null; // the scan under way: { dir, run }
-    let current = null; // the replay open: { id, file, text, mapPath, rate, analysis, notes, keys, od, header }
-    let nextId = 1;
+    // the replay open: { id, file, text, mapPath, rate, analysis, notes, keys, od, header }, or an Interlude play's
+    // { id, source: "interlude", text, rate, analysis, notes, keys, play, chart, at, raw, audioFile, ruleset }
+    let current = null;
+    let nextId = 1; // each open takes its id as it is asked (a file picked in the dialog, once picked)
+    const latest = (id) => nextId === id + 1; // no other open was asked after this one
     let lastEnded = 0; // which play's replay is being waited for: a newer play ends the wait for an older one
     const timings = new Map(); // what a replay says of the player's timing, by file and time: see timingOf
+    const il = createIlReplays({ interlude, liveRuleset: interludeRuleset, log, now, sleep });
 
     const isDir = async (p) => Boolean((await fs.stat(p).catch(() => null))?.isDirectory());
 
@@ -190,9 +212,10 @@ export function createReplayService({
         return found.sort((a, b) => b.at - a.at);
     }
 
+    // osu!'s replays and Interlude's plays, newest first; interlude: { linked, ok, reason } of Interlude's folder.
     async function list({ titles = false, limit = LIST_MAX } = {}) {
-        const place = await folder();
-        if (!place.folder) return { ok: true, ...place, items: [] };
+        const [place, own] = await Promise.all([folder(), il.list({ limit })]);
+        if (!place.folder) return { ok: true, ...place, items: own.items, interlude: own.interlude };
         const found = await replayFiles(place.folder);
         const maps = titles ? await mapIndex(place.folder).catch(() => null) : null;
         const items = [];
@@ -218,7 +241,7 @@ export function createReplayService({
                 // a replay that cannot be read is left out of the list
             }
         }
-        return { ok: true, ...place, items };
+        return { ok: true, ...place, items: newestOf(items, own.items, limit), interlude: own.interlude };
     }
 
     function publicReplay(file, h) {
@@ -228,15 +251,37 @@ export function createReplayService({
         };
     }
 
-    async function chooseFile(given) {
-        if (given) return String(given);
+    async function chooseFile() {
         const r = await dialog?.showOpenDialog(window(), { title: t("replay.pickTitle"), properties: ["openFile"], filters: [{ name: "osu! replay", extensions: ["osr"] }] });
         return !r || r.canceled || !r.filePaths?.[0] ? null : r.filePaths[0];
     }
 
-    async function open({ file = null } = {}) {
-        const chosen = await chooseFile(file);
+    // An Interlude play by its id, judged by the ruleset asked for (else the one Interlude judges by). A play refused (gone
+    // from scores.db, the folder or the library unreadable) leaves the replay open as it was, as a refused .osr does.
+    async function openInterlude({ play, ruleset = null }) {
+        const id = nextId;
+        nextId += 1;
+        const { answer, state } = await il.open({ play, ruleset });
+        if (!latest(id)) return { ok: false, stale: true };
+        if (!answer.ok) return answer;
+        current = state ? { id, source: "interlude", ...state } : null;
+        return { ...answer, id };
+    }
+
+    // A replay by its file (an .osr, or an Interlude play by its id); with neither, one picked in the dialog. Opens can
+    // finish out of order (one map takes longer to find or read than another): only the one asked last becomes the replay
+    // open, and every other is answered { ok: false, stale: true }, so the window shows the same replay as main keeps.
+    async function open({ file = null, play = null, ruleset = null } = {}) {
+        if (play !== null && play !== undefined) return openInterlude({ play, ruleset });
+        const chosen = file ? String(file) : await chooseFile();
         if (!chosen) return { ok: false, cancelled: true };
+        const id = nextId;
+        nextId += 1;
+        const answer = await openOsr(chosen, id);
+        return latest(id) ? answer : { ok: false, stale: true };
+    }
+
+    async function openOsr(chosen, id) {
         if (!/\.osr$/i.test(chosen)) return { ok: false, message: t("replay.err.notReplay") };
         const stat = await fs.stat(chosen).catch(() => null);
         if (!stat?.isFile()) return { ok: false, message: t("replay.err.noFile") };
@@ -250,16 +295,19 @@ export function createReplayService({
         if (header.mode !== MANIA) return { ok: false, message: t("replay.err.notMania") };
         const place = await folder();
         const replay = publicReplay(chosen, header);
-        const id = nextId;
-        nextId += 1;
-        current = null;
         let map = null;
         if (place.folder) {
             const maps = await mapIndex(place.folder).catch(() => null);
             map = maps?.get(header.md5) ?? null;
             if (!map && maps) map = (await mapIndex(place.folder, { force: true }).catch(() => null))?.get(header.md5) ?? null;
         }
-        if (!map) return { ok: true, id, replay, map: null, analysis: null, reason: "nomap", folder: place.folder };
+        // `current` changes only where an open ends, and only for the one asked last: an open overtaken meanwhile (by one
+        // refused or still under way) leaves the replay on screen open, so its song, details and earlier plays still come.
+        // A replay that cannot be unpacked is refused, and the one before stays open, as for any other refused open.
+        if (!map) {
+            if (latest(id)) current = null;
+            return { ok: true, id, replay, map: null, analysis: null, reason: "nomap", folder: place.folder };
+        }
         const bytes = await fs.readFile(map.path);
         const text = bytes.toString("utf8").replace(/^﻿/, "");
         const { notes, keys } = parseManiaNotes(text);
@@ -279,7 +327,7 @@ export function createReplayService({
             artist: map.artist, title: map.title, version: map.version, od, keys, audio: Boolean(audioFileOf(text)),
             notes: notes.map((n) => ({ t: n.t, col: n.col, end: n.end })),
         };
-        current = { id, file: chosen, text, mapPath: map.path, rate: header.rate, analysis: result.reason ? null : result, notes, keys, od, header };
+        if (latest(id)) current = { id, file: chosen, text, mapPath: map.path, rate: header.rate, analysis: result.reason ? null : result, notes, keys, od, header };
         log(`replay: ${notes.length} notes, ${result.reason ?? `manip ${result.manip.percent}%`}`);
         return {
             ok: true, id, replay, map: mapInfo, presses: columns, analysis: result.reason ? null : result, reason: result.reason ?? null,
@@ -290,6 +338,10 @@ export function createReplayService({
     // The song of the replay open: its bytes, from the map's own folder.
     async function audio({ id } = {}) {
         if (!current || current.id !== id) return { ok: false, stale: true };
+        if (current.source === "interlude") {
+            const own = await il.audio(current);
+            return own.ok ? { ok: true, id, data: own.data } : own;
+        }
         const name = audioFileOf(current.text);
         if (!name) return { ok: false, message: t("replay.err.noAudio") };
         const dir = path.dirname(current.mapPath);
@@ -374,6 +426,10 @@ export function createReplayService({
     async function earlier({ id, fingers = null } = {}) {
         const open = current;
         if (!open || open.id !== id || !open.analysis) return { ok: false, stale: true };
+        if (open.source === "interlude") {
+            const own = await il.earlier(open, { fingers, stillOpen: () => current?.id === id });
+            return own ? { ok: true, id, ...own } : { ok: false, stale: true };
+        }
         const place = await folder();
         const none = { ok: true, id, plays: [], total: 0 };
         if (!place.folder) return none;
@@ -453,6 +509,7 @@ export function createReplayService({
         const open = current;
         if (!open || open.id !== id || !open.analysis) return { ok: false, stale: true };
         const nothing = { ok: true, id, plays: [], position: null };
+        if (open.source === "interlude") return nothing; // HitPosition and the lean are osu!'s
         const place = await folder();
         const { player, skin: configured, maniaSpeed, speedPerMap, speedByBpm } = await readOsuConfig(place.folder, fs);
         if (player && player.toLowerCase() !== open.header.player.toLowerCase()) return nothing;
@@ -510,8 +567,11 @@ export function createReplayService({
     // tab should not jump. Also with waiting: true, once, when a pass's replay is taking its time (no word yet on whether it
     // will come). A replay that was only watched in osu! gets its own file looked for all the same, in case it was a real
     // play with the very same counts, but no "no replay" at the end of that: nothing is said.
+    // A play of Interlude's (client "interlude") has its row of scores.db waited for instead: see interludeEnded.
     async function playEnded(play) {
-        if (!(await store.get()).afterPlay || !play?.md5) return null;
+        if (!(await store.get()).afterPlay) return null;
+        if (play?.client === "interlude") return interludeEnded(play);
+        if (!play?.md5) return null;
         lastEnded += 1;
         const turn = lastEnded;
         const told = {
@@ -548,6 +608,38 @@ export function createReplayService({
             await sleep(now() - from < ENDED_SLOW_AFTER_MS ? ENDED_STEP_MS : ENDED_SLOW_STEP_MS);
             if (turn !== lastEnded) return null;
         }
+    }
+
+    // A play ended in Interlude (app/interludeLive.js, passed on by the local profile: { chart, rate, startedAt, endedAt,
+    // outcome: "finished" | "quit", artist, title, version, ruleset }). Its row of scores.db is waited for (app/replayInterlude.js)
+    // and the window told as for osu!: replay-ended { source: "interlude", play (the row's id, null when none came), chart,
+    // outcome ("pass" or "fail" by the row; "finished" or "quit" when none came), artist, title, version, rate, accuracy,
+    // at, file: null, reason (null, "none", or "noFolder" when Interlude's folder cannot be read), moved: false }, with
+    // waiting: true once while a finished play's row takes its time. A newer play's end and the switch end the wait too.
+    async function interludeEnded(play) {
+        if (typeof play.chart !== "string" || !play.chart || !Number.isFinite(play.startedAt)) return null;
+        lastEnded += 1;
+        const turn = lastEnded;
+        const told = {
+            source: "interlude", play: null, chart: play.chart, outcome: play.outcome, md5: null,
+            artist: play.artist ?? null, title: play.title ?? null, version: play.version ?? null,
+            rate: play.rate ?? null, accuracy: null, at: play.endedAt ?? null,
+        };
+        const r = await il.ended(play, {
+            stillWanted: async () => turn === lastEnded && (await store.get()).afterPlay,
+            waiting: () => send("replay-ended", { ...told, file: null, reason: null, waiting: true }),
+        });
+        if (!r) return null;
+        const found = r.found;
+        const out = found
+            ? {
+                ...told, play: found.play, outcome: found.failed ? "fail" : "pass", rate: found.rate, accuracy: found.accuracy, at: found.at,
+                artist: found.artist ?? told.artist, title: found.title ?? told.title, version: found.version ?? told.version,
+                file: null, reason: null, moved: false,
+            }
+            : { ...told, file: null, reason: r.reason, moved: false };
+        send("replay-ended", out);
+        return out;
     }
 
     async function setAfterPlay({ on = true } = {}) {
@@ -588,13 +680,15 @@ export function createReplayService({
     };
 }
 
-export function registerReplayIpc({ ipcMain, paths, dialog, window, log, send, tosu, analysis, worker, resultCache, localProfile, hooks }) {
+export function registerReplayIpc({
+    ipcMain, paths, dialog, window, log, send, tosu, analysis, worker, resultCache, localProfile, hooks, interlude, interludeRuleset,
+}) {
     // made on the first call: registering does no I/O and reads no paths
     let service = null;
     const get = () => (service ??= createReplayService({
         userData: paths.userData, dialog, window, log, send, tosu: () => tosuFolders(tosu.port), analysis, worker, cache: resultCache,
         profileFolder: async () => (await localProfile?.osuFolder?.()) ?? null, association: osuAssociation,
-        playing: () => localProfile?.playing?.() ?? false,
+        playing: () => localProfile?.playing?.() ?? false, interlude: interlude ?? null, interludeRuleset: () => interludeRuleset?.() ?? null,
     }));
     const s = new Proxy({}, { get: (_t, key) => (req) => get()[key](req) });
     ipcMain.handle("replay-status", () => s.status());

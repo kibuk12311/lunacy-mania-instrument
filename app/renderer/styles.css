@@ -313,3 +313,11 @@ button.primary:disabled { opacity: 0.4; cursor: default; }
 .rec-ours .warn { color: var(--gold); }
 .rec-ours .bad { color: #ff8f8f; }
 #rec-more { align-self: center; padding: 5px 28px; }
+/* the Replay tab: Interlude's plays in the list, and the ruleset in the head of one open (rules beside styles-replay.css) */
+.rp-mark { flex: 0 0 auto; font-size: 10px; line-height: 1.4; padding: 0 5px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); white-space: nowrap; }
+.rp-mark.rp-mark-fail { border-color: #ff8f8f; color: #ff8f8f; }
+.rp-list-note { font-size: 11px; }
+.rp-ruleset { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.rp-ruleset .sk-select { min-width: 0; max-width: 220px; }
+.rp-fallback { color: var(--gold); margin-top: 2px; }
+.rp-lamp { color: #dddddd; }

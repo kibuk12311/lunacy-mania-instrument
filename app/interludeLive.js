@@ -6,10 +6,23 @@
 //     imported since) and put on the card at its rate, like osu!'s selection; a chart the library doesn't have is shown
 //     by its names from the reader with a note. Priority with osu!: whichever selection changed last has the card
 //     (the selection controller gives it back to osu! when osu!'s own selection changes);
-//   - every state line → the overlay (its own Interlude session, src/overlay/interludeData.js).
+//   - every state line → the overlay (its own Interlude session, src/overlay/interludeData.js);
+//   - a play of the player's own (the "play" screen with a play, not autoplay; not "practice", not "replay", which is
+//     watching one) followed from its first line to the line that leaves it → onPlayEnded, for the Replay tab: "finished"
+//     when the score screen opens after the chart's last note (Interlude saves the play then), "quit" when another
+//     screen comes (level select mid-play: Interlude saves nothing), a retry starts the play over (a new play id), or
+//     the score screen opens before the end. That last one is a quit too: Interlude's "On quit out" option opens the
+//     score screen on Escape when set to "Show score (Don't save)" (nothing saved) or "Save and show score" (saved at
+//     once); a play failed partway is saved at once as well, so the short wait of a quit finds its row all the same.
 import { t } from "../src/i18n/i18n.js";
 
 export const SELECT_PAUSE_MS = 300;
+// How far before its last note (chart ms) a play's last line may be and the score screen still mean the play ran to
+// its end: Interlude ends a play only after its last note has passed, but the reader's last line before the score
+// screen comes up to a frame (30 a second, more chart time at a higher rate) before that, and the offsets move the clock.
+export const PLAY_END_SLACK_MS = 1_000;
+// the screens no play goes on: the reader has not read it yet (unknown), or a line with none
+const NO_SCREEN = new Set(["unknown", ""]);
 const NOTE_KEYS = {
     field_not_found: "app.interlude.live.fieldNotFound",
     dac_not_found: "app.interlude.live.dacNotFound",
@@ -47,10 +60,13 @@ function errorText(s) {
 }
 
 // interlude: createInterludeClient(); card: { showExternal, showInfo } of the selection controller;
-// overlay: () → the overlay (its onInterlude); onState(state): the live state changed (to the window).
+// overlay: () → the overlay (its onInterlude); onState(state): the live state changed (to the window);
+// onPlayEnded({ client: "interlude", chart, rate, startedAt, endedAt, outcome: "finished" | "quit", artist, title,
+// version, ruleset }): a play of the player's own left its screen (times by now(), unix ms; ruleset the name of the one
+// Interlude judged it by, null when no line said).
 export function createInterludeLive({
-    interlude, card, overlay = () => null, onState = () => {}, log = () => {},
-    setTimer = setTimeout, clearTimer = clearTimeout, pauseMs = SELECT_PAUSE_MS,
+    interlude, card, overlay = () => null, onState = () => {}, onPlayEnded = () => {}, log = () => {},
+    setTimer = setTimeout, clearTimer = clearTimeout, pauseMs = SELECT_PAUSE_MS, now = () => Date.now(),
 }) {
     let state = { status: "off" };
     let lastKey = null; // "<hash> <rate>" of the last selection seen
@@ -58,6 +74,13 @@ export function createInterludeLive({
     let token = 0;
     let attached = false;
     let onCard = null; // the key of the selection put on the card, while it is there
+    // the play going on: { chart, playId, rate, startedAt, artist, title, version, ruleset, timeMs, durationMs } with
+    // timeMs and durationMs (chart ms from the first note; null when a line had none) from its last line
+    let play = null;
+    // The name of the ruleset Interlude judged its last play by, as its lines say: Interlude writes the one chosen into
+    // options.json only as it closes, so while it runs this is what tells a ruleset switched to. Forgotten when Interlude
+    // closes (options.json has it then) or is no longer followed.
+    let ruleset = null;
 
     const tell = (patch) => {
         state = { ...state, ...patch };
@@ -72,6 +95,8 @@ export function createInterludeLive({
             log(`interlude live: attached pid ${msg.pid} Interlude ${msg.version} clr ${msg.clr} dac ${msg.dac?.source ?? "?"}${msg.dac?.exact === false ? " (other patch)" : ""}`);
         } else if (msg.status === "waiting") {
             attached = false;
+            play = null; // Interlude closed: a play cut short by that is saved nowhere
+            ruleset = null;
             tell({ status: "waiting", code: null, reason: msg.reason ?? null });
             overlay()?.onInterlude?.(null);
         } else if (msg.status === "error") {
@@ -139,6 +164,56 @@ export function createInterludeLive({
         }, pauseMs);
     }
 
+    // A play of the player's own from the lines: one begins on the play screen with a play (autoplay is not the
+    // player's, and Interlude keeps none of it); a new play id (a retry) or another chart is another play, and the one
+    // before was cut short; the score screen ends it as finished when its last line was at the chart's end (or did not
+    // say where it was), as quit when it was not (a quit out or a fail); any other screen ends it as quit. The one line
+    // with no play as the play screen is left says nothing yet: the next says where it went.
+    function followPlay(msg) {
+        const screen = typeof msg.screen === "string" ? msg.screen : "unknown";
+        if (typeof msg.play?.ruleset === "string" && msg.play.ruleset) ruleset = msg.play.ruleset;
+        if (screen === "play") {
+            if (!msg.play || typeof msg.play !== "object") return;
+            const hash = typeof msg.chart?.hash === "string" && msg.chart.hash ? msg.chart.hash : null;
+            const playId = msg.play.playId ?? null;
+            if (play && (play.playId !== playId || play.chart !== hash)) endPlay("quit");
+            if (play) return void progress(msg.play);
+            if (!hash || msg.autoplay) return;
+            const rate = [msg.play.rate, msg.chart.rate].find((r) => Number.isFinite(r) && r > 0) ?? 1;
+            play = {
+                chart: hash, playId, rate, startedAt: now(),
+                artist: msg.chart.artist ?? null, title: msg.chart.title ?? null, version: msg.chart.diff ?? null, ruleset: null,
+                timeMs: null, durationMs: null,
+            };
+            progress(msg.play);
+            return;
+        }
+        if (play && !NO_SCREEN.has(screen)) endPlay(screen === "score" && atEnd(play) ? "finished" : "quit");
+    }
+
+    // where the play is, and what judges it, from one of its lines
+    function progress(p) {
+        if (typeof p.ruleset === "string" && p.ruleset) play.ruleset = p.ruleset;
+        play.timeMs = Number.isFinite(p.timeMs) ? p.timeMs : null;
+        play.durationMs = Number.isFinite(p.durationMs) && p.durationMs > 0 ? p.durationMs : null;
+    }
+
+    // the play's last line was at its last note or after; a line that did not say counts as there (as before)
+    function atEnd(p) {
+        return p.timeMs === null || p.durationMs === null || p.timeMs >= p.durationMs - PLAY_END_SLACK_MS;
+    }
+
+    function endPlay(outcome) {
+        const { chart, rate, startedAt, artist, title, version, ruleset: judgedBy } = play;
+        play = null;
+        log(`interlude live: play of ${chart} at ${rate}x ${outcome}`);
+        try {
+            onPlayEnded({ client: "interlude", chart, rate, startedAt, endedAt: now(), outcome, artist, title, version, ruleset: judgedBy });
+        } catch (error) {
+            log(`interlude live: the end of a play not passed on: ${error?.message}`);
+        }
+    }
+
     return {
         // one parsed line of the reader
         onMessage(msg) {
@@ -147,6 +222,7 @@ export function createInterludeLive({
             if (msg.client !== "interlude") return undefined;
             if (state.status !== "attached") tell({ status: "attached", version: msg.version ?? state.version ?? null });
             if (state.screen !== msg.screen) tell({ screen: msg.screen ?? null });
+            followPlay(msg);
             onSelection(msg.chart);
             overlay()?.onInterlude?.(msg);
             return undefined;
@@ -159,6 +235,8 @@ export function createInterludeLive({
             else if (r.state === "stopped") tell({ status: "off" });
             if (r.state !== "running") {
                 attached = false;
+                play = null; // how the play ends is not seen any more
+                ruleset = null;
                 overlay()?.onInterlude?.(null);
             }
         },
@@ -169,6 +247,8 @@ export function createInterludeLive({
             token += 1;
             lastKey = null;
             attached = false;
+            play = null;
+            ruleset = null;
             tell({ status: "off", screen: null });
             overlay()?.onInterlude?.(null);
         },
@@ -177,5 +257,7 @@ export function createInterludeLive({
         },
         state: () => ({ ...state }),
         text: () => liveText(state),
+        // the name of the ruleset Interlude judged its last play by, or null
+        ruleset: () => ruleset,
     };
 }

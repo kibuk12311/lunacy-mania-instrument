@@ -393,6 +393,8 @@ async function main() {
         }),
         // the live reader's state, for the IL panel (app/interludeLive.js)
         interludeLive: () => (interludeLive ? { state: interludeLive.state(), text: interludeLive.text() } : null),
+        // the name of the ruleset Interlude judged its last play by, as the reader saw it (the Replay tab judges by it)
+        interludeRuleset: () => interludeLive?.ruleset() ?? null,
         dialog, window: () => win,
         worker: workerClient,
         analysis,
@@ -471,9 +473,10 @@ async function main() {
     cardController = controller;
 
     // Interlude followed live: the reader runs while a folder is linked (or the setting says so), its lines go to the
-    // card and the overlay; --allow-download only when the user allowed it (app/interludeReader.js)
+    // card and the overlay; --allow-download only when the user allowed it (app/interludeReader.js); a play that ends
+    // there goes to whoever listens for the end of a play (the Replay tab), not to the recorder
     interludeLive = createInterludeLive({
-        interlude, card: deps.card, overlay: () => overlay, log,
+        interlude, card: deps.card, overlay: () => overlay, log, onPlayEnded: (p) => localProfile.tellPlayEnded(p),
         onState: (s) => void interlude.liveSettings().then((settings) => send("interlude-live", { ok: true, settings, state: s, text: liveText(s) }), () => {}),
     });
     interludeReader = createReaderProcess({

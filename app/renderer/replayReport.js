@@ -3,11 +3,13 @@
 // and earlier plays. A section with no data is left out; a value that cannot be known shows as a dash, never as zero.
 // Above the first fold the strongest hints of the play, and at the top of a fold its own (src/replay/hints.js).
 // Builds from src/replay/report.js's answer; what the window does on a click comes in through `ctx`.
+// An Interlude play has no counts of its own beside the recount: its judgements are the ruleset's, under their names and
+// colours, in one column, and the hit errors are coloured by the ruleset's windows.
 import { t, getLang } from "../../src/i18n/i18n.js";
 import { numericToLabel } from "../../src/core/labels.js";
 import { KINDS } from "../../src/replay/judge.js";
 import { FINGERS } from "../../src/replay/fingers.js";
-import { KIND_COLOUR } from "./replayView.js";
+import { KIND_COLOUR, fromInterlude, judgementOfMs, rulesetReach, resultColour, ilAccText } from "./replayView.js";
 import { errorBars, errorScatter, columnBias, paceChart, countStrip } from "./replayCharts.js";
 
 const OPEN_KEY = "replay-sections";
@@ -169,8 +171,9 @@ function mainPoints(ctx) {
     return box;
 }
 
-// Judgements: the replay's own counts beside the recount.
+// Judgements: the replay's own counts beside the recount; an Interlude play's in one column, the ruleset's own.
 export function judgementTable(replay, analysis) {
+    if (fromInterlude(analysis)) return rulesetTable(analysis);
     const out = el("table", "rp-table");
     const head = el("tr");
     for (const key of ["replay.judge.kind", "replay.judge.header", "replay.judge.ours"]) head.append(el("th", "", t(key)));
@@ -189,7 +192,37 @@ export function judgementTable(replay, analysis) {
     return out;
 }
 
+// The ruleset's judgements, names and colours as the ruleset has them, with the engine's count of each.
+function rulesetTable(analysis) {
+    const out = el("table", "rp-table");
+    const head = el("tr");
+    for (const key of ["replay.judge.kind", "replay.judge.count"]) head.append(el("th", "", t(key)));
+    out.append(head);
+    analysis.ruleset.judgements.forEach((judgement, i) => {
+        const row = el("tr");
+        const name = el("td");
+        const dot = el("i", "rp-dot");
+        dot.style.background = judgement.color;
+        name.append(dot, document.createTextNode(judgement.name));
+        row.append(name, el("td", "rp-num", String(analysis.judgementCounts[i] ?? 0)));
+        out.append(row);
+    });
+    return out;
+}
+
+// An Interlude play: the recount is the result, so no comparison and no notes about osu!'s header; the lamp and the
+// grade when the ruleset gives them, what a failed play counts.
+function rulesetSection({ replay, analysis, hinted }) {
+    const notes = [];
+    const marks = [analysis.lamp ? t("replay.judge.lamp", { lamp: analysis.lamp }) : "", analysis.grade ? t("replay.judge.grade", { grade: analysis.grade }) : ""].filter(Boolean);
+    if (marks.length) notes.push(el("div", "rp-lamp", marks.join(" · ")));
+    if (replay?.failed || analysis.failed) notes.push(el("div", "muted", t("replay.judge.failed")));
+    if (analysis.played < analysis.notes) notes.push(el("div", "muted", t("replay.judge.part", analysis)));
+    return fold("judgements", t("replay.html.judgements"), t("replay.judge.byRuleset", { name: analysis.ruleset.name }), hinted.judgements, rulesetTable(analysis), notes);
+}
+
 function judgementsSection({ replay, analysis, hinted }) {
+    if (fromInterlude(analysis)) return rulesetSection({ replay, analysis, hinted });
     const notes = [];
     if (analysis?.scoreV2) notes.push(el("div", "muted", t("replay.judge.v2")));
     else if (analysis?.comparison) notes.push(el("div", analysis.comparison.same ? "rp-same" : "muted", analysis.comparison.same ? t("replay.judge.same") : t("replay.judge.differs", analysis.comparison)));
@@ -222,13 +255,20 @@ const jackBpm = (g) => (known(g.jack?.bestBpm) ? t("replay.unit.bpm", { bpm: g.j
 const speedText = (g) => (known(g.topSpeed) ? t("replay.unit.perSec", { n: g.topSpeed.toFixed(0) }) : "—");
 const earlyLate = (g) => (known(g.early) ? `${g.early.toFixed(0)} / ${g.late.toFixed(0)} %` : "—");
 
+// The judgement rows of a finger and a hand: osu!'s six, or the slots an Interlude ruleset's judgements fill, under the
+// names of those judgements (src/replay/analyzeInterlude.js puts each in one of the six).
+function kindRows(analysis) {
+    if (!fromInterlude(analysis)) return KINDS.map((kind) => ({ kind, label: t(KIND_TEXT[kind]) }));
+    return KINDS.map((kind) => ({ kind, label: analysis.ruleset.judgements.filter((j) => j.slot === kind).map((j) => j.name).join(" / ") })).filter((k) => k.label);
+}
+
 // The rows a finger and a hand share.
-const groupRows = (list, withBreaks) => rows(
+const groupRows = (list, withBreaks, kinds = kindRows(null)) => rows(
     [t("replay.stat.presses"), ...list.map((g) => String(g.presses))],
     [t("replay.stat.share"), ...list.map((g) => percent(g.share))],
     [t("replay.stat.notes"), ...list.map((g) => String(g.notes))],
     [t("replay.stat.accuracy"), ...list.map((g) => acc2(g.accuracy))],
-    ...KINDS.map((kind) => [t(KIND_TEXT[kind]), ...list.map((g) => String(g.counts[kind]))]),
+    ...kinds.map(({ kind, label }) => [label, ...list.map((g) => String(g.counts[kind]))]),
     [t("replay.stat.ur"), ...list.map((g) => num1(g.ur))],
     [t("replay.stat.mean"), ...list.map((g) => msText(g.mean))],
     [t("replay.stat.earlyLate"), ...list.map(earlyLate)],
@@ -240,18 +280,18 @@ const groupRows = (list, withBreaks) => rows(
     ...(withBreaks ? [[t("replay.stat.breaks"), ...list.map((g) => String(g.breaks))]] : []),
 );
 
-function fingersSection({ report, fingers, onFingers, hinted }) {
+function fingersSection({ report, analysis, fingers, onFingers, hinted }) {
     const list = report.fingers;
     const anyBreak = list.some((f) => f.breaks);
     const line = report.breaker ? t("replay.finger.breaker", { finger: fingerName(report.breaker.finger), n: report.breaker.breaks, of: report.breaker.of }) : "";
     return fold(
         "fingers", t("replay.html.fingers"), line, hinted.fingers, fingerPicker(fingers, onFingers),
-        table(["", ...list.map((f) => fingerShort(f.finger))], groupRows(list, anyBreak), "rp-wide"),
+        table(["", ...list.map((f) => fingerShort(f.finger))], groupRows(list, anyBreak, kindRows(analysis)), "rp-wide"),
         el("div", "muted", t("replay.finger.note")),
     );
 }
 
-function handsSection({ report, hinted }) {
+function handsSection({ report, analysis, hinted }) {
     const { hands, balance, manip } = report;
     const list = ["left", "right"].filter((id) => hands[id]).map((id) => ({ id, ...hands[id], manip: manip.hands[id] }));
     if (list.length < 2) return null;
@@ -269,7 +309,7 @@ function handsSection({ report, hinted }) {
         [t("replay.manip.title"), ...list.map((h) => (h.manip.pairs ? percent(h.manip.percent) : "—"))],
         [t("replay.manip.squeezeShort"), ...list.map((h) => plainMs(h.manip.squeezed?.mean ?? null))],
     );
-    kids.push(table(["", ...list.map((h) => t(HAND_TEXT[h.id]))], [...groupRows(list, list.some((h) => h.breaks)), ...extra], "rp-wide"));
+    kids.push(table(["", ...list.map((h) => t(HAND_TEXT[h.id]))], [...groupRows(list, list.some((h) => h.breaks), kindRows(analysis)), ...extra], "rp-wide"));
     if (known(balance?.leftAhead) && Math.abs(balance.leftAhead) >= 0.5) {
         kids.push(el("div", "muted", t(balance.leftAhead > 0 ? "replay.hand.leftAhead" : "replay.hand.rightAhead", { ms: Math.abs(balance.leftAhead).toFixed(1) })));
     }
@@ -305,8 +345,13 @@ function errorsSection({ analysis, hinted }) {
         return a <= w.max ? "max" : a <= w.n300 ? "n300" : a <= w.n200 ? "n200" : a <= w.n100 ? "n100" : "n50";
     };
     const summary = t("replay.err.summary", { mean: num1(analysis.meanError), sd: num1(analysis.sd) });
+    const { judgements } = analysis.ruleset ?? {};
+    // an Interlude ruleset's windows can lean early or late: each side its own, in real ms as the histogram
+    const bars = fromInterlude(analysis)
+        ? errorBars(analysis.histogram, (ms) => judgementOfMs(judgements, ms), judgements.map((j) => j.color))
+        : errorBars(analysis.histogram, kindOfMs);
     return fold(
-        "errors", t("replay.html.errors"), summary, hinted.errors, errorBars(analysis.histogram, kindOfMs),
+        "errors", t("replay.html.errors"), summary, hinted.errors, bars,
         el("div", "flabel rp-sub", t("replay.html.columns")), columnBias(analysis.byColumn),
     );
 }
@@ -314,9 +359,10 @@ function errorsSection({ analysis, hinted }) {
 function driftSection({ report, analysis, timeOf, seek, hinted }) {
     if (analysis.meanError === null) return null;
     const { drift } = report;
-    const reach = analysis.windows.n50 / analysis.rate;
+    const reach = fromInterlude(analysis) ? rulesetReach(analysis.ruleset.judgements) : analysis.windows.n50 / analysis.rate;
     const kids = [errorScatter({
         results: analysis.results, fromMs: analysis.fromMs, toMs: analysis.toMs, reach, timeOf, onSeek: seek, line: drift?.slices.filter((s) => s.mean !== null) ?? [],
+        colourOf: resultColour(analysis),
     })];
     let line = "";
     if (drift) {
@@ -355,7 +401,16 @@ function paceSection({ report, analysis, timeOf, seek, hinted }) {
     return fold("pace", t("replay.html.pace"), t("replay.pace.summary", { nps: pace.peakWritten, kps: pace.peakPlayed }), hinted.pace, kids);
 }
 
-function holdsSection({ report, hinted }) {
+// What "early" and "late" of a release mean: past osu!'s 300 window, or past the window of the ruleset's judgement in that
+// slot (the one src/replay/fingers.js measures by).
+function holdNote(analysis) {
+    if (!fromInterlude(analysis)) return t("replay.hold.note");
+    const { judgements } = analysis.ruleset;
+    const judgement = judgements.find((j) => j.slot === "n300") ?? judgements[0];
+    return t("replay.hold.noteIl", { name: judgement?.name ?? "" });
+}
+
+function holdsSection({ report, analysis, hinted }) {
     const list = report.fingers.filter((f) => f.holds);
     if (!list.length) return null;
     const total = list.reduce((sum, f) => sum + f.holds.count, 0);
@@ -372,7 +427,7 @@ function holdsSection({ report, hinted }) {
             [t("replay.hold.mean"), ...list.map((f) => msText(f.holds.meanRelease))],
             [t("replay.hold.dropped"), ...list.map((f) => String(f.holds.dropped))],
         ), "rp-wide"),
-        el("div", "muted", t("replay.hold.note")),
+        el("div", "muted", holdNote(analysis)),
     );
 }
 
@@ -389,31 +444,49 @@ function ghostsSection({ report, analysis, timeOf, seek, hinted }) {
     );
 }
 
+// Why an Interlude play's combo broke on a note: its judgement when it was pressed (a ruleset can break the combo on more
+// than a miss), else what src/replay/flow.js says; a press that met no note, its judgement (a ruleset's GhostTapJudgement).
+function interludeCause(analysis) {
+    const byNote = new Map(analysis.results.map((r) => [`${r.t}:${r.col}`, r]));
+    return (b) => {
+        if (b.ghost) return analysis.ruleset.judgements[b.j]?.name ?? t(CAUSE_TEXT.none);
+        const r = byNote.get(`${b.t}:${b.col}`);
+        const judgement = r && r.press !== null && b.cause !== "released" ? analysis.ruleset.judgements[r.j] : null;
+        return judgement ? judgement.name : t(CAUSE_TEXT[b.cause] ?? CAUSE_TEXT.none);
+    };
+}
+
 function breaksSection({ replay, report, analysis, fingers, seek, hinted }) {
     const { breaks } = report;
     const { rate } = analysis;
+    const il = fromInterlude(analysis);
+    const causeOf = il ? interludeCause(analysis) : (b) => t(CAUSE_TEXT[b.cause]);
+    // an Interlude ruleset breaks the combo on more than a miss: a play with no miss can still have breaks to list
+    const broken = analysis.misses.length > 0 || (il && breaks.length > 0);
     const kids = [];
-    if (!analysis.misses.length) kids.push(el("div", "muted", t("replay.miss.none")));
+    if (!broken) kids.push(el("div", "muted", t("replay.miss.none")));
     else {
-        kids.push(el("div", "muted", t("replay.miss.summary", { misses: analysis.misses.length, breaks: breaks.length, max: replay.maxCombo })));
+        kids.push(el("div", "muted", t("replay.miss.summary", { misses: analysis.misses.length, breaks: breaks.length, max: il ? analysis.combo.max : replay.maxCombo })));
         const list = el("div", "rp-breaks");
         for (const b of breaks.slice(0, BREAK_ROWS)) {
             const row = el("button", "rp-break");
             row.type = "button";
+            // an Interlude hold broken after its head: when it was let go, or its end
+            const when = b.at ?? b.t;
             row.append(
-                el("span", "rp-num", exactTime(b.t, rate)),
+                el("span", "rp-num", exactTime(when, rate)),
                 el("span", "", fingerShort(fingers[b.col])),
-                el("span", "", b.shape ? t(SHAPE_TEXT[b.shape]) : "—"),
-                el("span", "muted", t(CAUSE_TEXT[b.cause])),
+                el("span", "", b.end ? t("replay.shape.holdEnd") : b.shape ? t(SHAPE_TEXT[b.shape]) : "—"),
+                el("span", "muted", causeOf(b)),
                 el("span", "rp-num", t("replay.break.combo", { n: b.combo })),
             );
-            row.addEventListener("click", () => seek(b.t - 1000));
+            row.addEventListener("click", () => seek(when - 1000));
             list.append(row);
         }
         if (breaks.length > BREAK_ROWS) list.append(el("div", "muted", t("replay.miss.more", { n: breaks.length - BREAK_ROWS })));
         kids.push(list);
     }
-    return fold("breaks", t("replay.html.misses"), analysis.misses.length ? t("replay.break.line", { n: breaks.length }) : t("replay.break.clean"), hinted.breaks, kids);
+    return fold("breaks", t("replay.html.misses"), broken ? t("replay.break.line", { n: breaks.length }) : t("replay.break.clean"), hinted.breaks, kids);
 }
 
 function hardestSection({ report, timeOf, seek, hinted }) {
@@ -472,14 +545,20 @@ function earlierSection({ replay, analysis, report, earlier, hinted }) {
     const plays = earlier?.plays ?? [];
     if (!plays.length) return null;
     const heads = [t("replay.earlier.when"), t("replay.stat.accuracy"), t("replay.part.miss"), t("replay.stat.ur"), t("replay.manip.title")];
-    const when = (p) => [dateText(p.at), p.rate !== 1 ? t("replay.head.rate", { rate: p.rate }) : ""].filter(Boolean).join(" ");
+    // a play failed in Interlude, earlier or this one, is said to be one: its accuracy is only of what was played, so it
+    // is neither the best to beat nor one to set against the others
+    const failedMark = (failed) => (failed ? t("replay.list.failed") : "");
+    const when = (p) => [[dateText(p.at), p.rate !== 1 ? t("replay.head.rate", { rate: p.rate }) : ""].filter(Boolean).join(" "), failedMark(p.failed)].filter(Boolean).join(" · ");
+    const il = fromInterlude(analysis);
+    const failedNow = il && Boolean(replay.failed || analysis.failed);
+    const acc = il ? ilAccText : acc2;
     const list = [
-        { cells: [t("replay.earlier.now"), acc2(analysis.accuracy), String(analysis.counts.miss), num1(analysis.ur), percent(report.manip.percent)], className: "rp-now" },
-        ...plays.map((p) => ({ cells: [when(p), acc2(p.accuracy), String(p.misses), num1(p.ur), p.pairs ? percent(p.manip) : "—"] })),
+        { cells: [[t("replay.earlier.now"), failedMark(failedNow)].filter(Boolean).join(" · "), acc(analysis.accuracy), String(analysis.counts.miss), num1(analysis.ur), percent(report.manip.percent)], className: "rp-now" },
+        ...plays.map((p) => ({ cells: [when(p), acc(p.accuracy), String(p.misses), num1(p.ur), p.pairs ? percent(p.manip) : "—"] })),
     ];
-    const same = plays.filter((p) => p.rate === replay.rate && known(p.accuracy));
+    const same = plays.filter((p) => p.rate === replay.rate && known(p.accuracy) && !p.failed);
     const best = same.length ? Math.max(...same.map((p) => p.accuracy)) : null;
-    const delta = known(best) && known(analysis.accuracy) ? Math.round((analysis.accuracy - best) * 100) / 100 : null;
+    const delta = known(best) && known(analysis.accuracy) && !failedNow ? Math.round((analysis.accuracy - best) * 100) / 100 : null;
     const line = known(delta) ? t(delta >= 0 ? "replay.earlier.best" : "replay.earlier.below", { delta: Math.abs(delta).toFixed(2) }) : "";
     const more = earlier.total > plays.length ? el("div", "muted", t("replay.earlier.more", { n: earlier.total - plays.length })) : null;
     return fold("earlier", t("replay.html.earlier"), line, hinted.earlier, table(heads, list, "rp-wide"), more);
@@ -493,7 +572,8 @@ export function reportSections(ctx) {
         return [id, box];
     }));
     const all = { ...ctx, hinted };
-    if (!ctx.analysis) return [mainPoints(ctx), judgementsSection(all)].filter(Boolean);
+    // an Interlude play has no counts of its own: with no analysis there is nothing to show
+    if (!ctx.analysis) return ctx.replay?.source === "interlude" ? [] : [mainPoints(ctx), judgementsSection(all)].filter(Boolean);
     return [
         mainPoints(ctx), judgementsSection(all), fingersSection(all), handsSection(all), manipSection(all), errorsSection(all), driftSection(all), paceSection(all),
         holdsSection(all), ghostsSection(all), breaksSection(all), hardestSection(all), partsSection(all), familiesSection(all), earlierSection(all),

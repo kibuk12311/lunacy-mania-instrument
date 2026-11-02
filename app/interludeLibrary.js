@@ -6,18 +6,35 @@
 //                      {"Absolute": path}, "Missing", "Deleted") and Chart (the binary chart, src/interlude/chart.js).
 //   Songs\.origins\  — the file a chart was imported from, as <hh>\<hash>.osu (ChartDatabase.Import, store_original).
 //   Data\scores.db   — SQLite, table scores (prelude/src/Data/UserDatabase/DbScores.fs): ChartId, Timestamp (unix ms),
-//                      Rate, IsFailed.
+//                      Replay (the play's key presses, src/interlude/replay.js), Rate, Mods (JSON), IsImported (an osu!
+//                      replay imported into Interlude), Keys, IsFailed.
+//   Data\options.json — Interlude's options; SelectedRuleset is the id of the ruleset it judges by. Interlude writes it
+//                      only as it closes: a ruleset switched to while it runs is not in it yet.
+//   Rulesets\<id>.ruleset — the rulesets (JSON, src/interlude/ruleset.js); a Data\Rulesets folder is looked in too.
 // Both databases are in WAL mode (Percyqaz.Data Sqlite.init) and Interlude may have them open, so they are never
 // opened where they are: each is copied (with its -wal) into the app's own cache folder when it changed, and the copy
-// is read. Nothing in Interlude's folder is ever written.
-import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
+// is read. scores.db holds every play's replay (a real one runs to 100 MB), so a list of plays never reads a Replay
+// blob, only the one play asked for does. The rulesets and options.json are small files Interlude only writes whole:
+// they are read where they are. Nothing in Interlude's folder is ever written.
+import { copyFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { decodeChart, chartToOsu, osuChartHash } from "../src/interlude/chart.js";
+import { parseRuleset } from "../src/interlude/ruleset.js";
 
 export const CHARTS_DB = path.join("Songs", "charts.db");
 export const SCORES_DB = path.join("Data", "scores.db");
 export const COLLECTIONS_JSON = path.join("Data", "collections.json");
+export const OPTIONS_JSON = path.join("Data", "options.json");
+// where the .ruleset files are: the first of these folders that is there
+export const RULESET_DIRS = ["Rulesets", path.join("Data", "Rulesets")];
+const RULESET_EXT = ".ruleset";
+// the ruleset Interlude judges by when its options name none (Rulesets.DEFAULT_ID); built into it as well, should its file
+// be missing
+export const DEFAULT_RULESET = "sc-j4";
+const RULESET_MAX_BYTES = 1024 * 1024; // a ruleset is a few KB of JSON
+const OPTIONS_MAX_BYTES = 4 * 1024 * 1024;
 const SEARCH_LIMIT = 60;
+const REPLAYS_LIMIT = 40;
 
 const statOf = (file) => stat(file).catch(() => null);
 const parseJson = (text, fallback) => {
@@ -105,8 +122,9 @@ const lower = (s) => String(s ?? "").toLowerCase();
 const words = (q) => lower(q).split(/\s+/).filter(Boolean);
 
 // folder() → Interlude's folder or null; cacheDir: where the copies of its databases go (the app's userData).
-// sqlite() → the node:sqlite module (injected by tests or imported on first use).
-export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlite = () => import("node:sqlite") }) {
+// sqlite() → the node:sqlite module (injected by tests or imported on first use); copy: how a file is copied (fs's
+// copyFile, injected by tests).
+export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlite = () => import("node:sqlite"), copy = copyFile }) {
     const copies = new Map(); // which db → { key, file } of the copy made last
     let index = null; // { key, folder, byHash, list, byMd5, byBeatmap }
 
@@ -124,8 +142,8 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
         await mkdir(cacheDir, { recursive: true });
         await rm(`${out}-shm`, { force: true });
         await rm(`${out}-wal`, { force: true });
-        await copyFile(src, out);
-        if (wal?.isFile()) await copyFile(`${src}-wal`, `${out}-wal`);
+        await copy(src, out);
+        if (wal?.isFile()) await copy(`${src}-wal`, `${out}-wal`);
         copies.set(name, { key, file: out });
         log(`interlude: ${rel} copied (${Math.round(db.size / 1024)} KB${wal ? ` + wal ${Math.round(wal.size / 1024)} KB` : ""})`);
         return { file: out, key };
@@ -139,19 +157,21 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
         return run;
     };
 
-    // fn(db) on a copy of a database; one more copy is made if the first was caught half-written.
+    // fn(db) on a copy of a database; one more copy is made if the first was caught half-written, or a file went away while
+    // it was copied (SQLite deletes the -wal as Interlude closes, which can fall between its stat and its copy).
     const withDb = (name, rel, fn) => serial(() => readCopy(name, rel, fn));
+    const copyAgain = (error) => error?.code === "ENOENT" || /malformed|not a database|locked|busy/i.test(String(error?.message));
     async function readCopy(name, rel, fn) {
         const { DatabaseSync } = await sqlite();
         for (let attempt = 1; ; attempt += 1) {
-            const { file, key } = await snapshot(name, rel);
             let db = null;
             try {
+                const { file, key } = await snapshot(name, rel);
                 db = new DatabaseSync(file);
                 return { value: fn(db), key };
             } catch (error) {
                 copies.delete(name);
-                if (attempt >= 2 || !/malformed|not a database|locked|busy/i.test(String(error?.message))) throw error;
+                if (attempt >= 2 || !copyAgain(error)) throw error;
             } finally {
                 try {
                     db?.close();
@@ -312,13 +332,133 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
         return null;
     }
 
+    // A scores row → { id, chart, at (unix ms), rate (the REAL as stored), mods (the Mods JSON text), failed, keys, size
+    // (the replay's bytes) }, and replay (its bytes) when the row has it.
+    const playOf = (r) => ({
+        id: Number(r.Id), chart: String(r.ChartId), at: Number(r.Timestamp), rate: Number(r.Rate), mods: r.Mods === null || r.Mods === undefined ? null : String(r.Mods),
+        failed: Number(r.Failed) !== 0, keys: Number(r.Keys), size: Number(r.Size),
+        ...(r.Replay === undefined ? {} : { replay: r.Replay === null ? null : Buffer.from(r.Replay) }),
+    });
+    // The columns of scores a play is read with (an older scores.db may lack the later ones).
+    const playColumns = (db) => {
+        const cols = new Set(db.prepare("PRAGMA table_info(scores)").all().map((c) => c.name));
+        const or = (name, fallback) => (cols.has(name) ? name : fallback);
+        return {
+            select: `Id, ChartId, Timestamp, Rate, ${or("Mods", "'{}'")} AS Mods, ${or("IsFailed", "0")} AS Failed, ${or("Keys", "4")} AS Keys, length(Replay) AS Size`,
+            imported: or("IsImported", "0"),
+        };
+    };
+
+    // The plays of Interlude itself (not the osu! replays imported into it), newest first, without their replays:
+    // [playOf]. chart: only that chart's; since / before: only those at or after / before that time (unix ms).
+    async function replays({ limit = REPLAYS_LIMIT, chart = null, since = null, before = null } = {}) {
+        const { value } = await withDb("scores", SCORES_DB, (db) => {
+            const { select, imported } = playColumns(db);
+            const where = [`${imported} = 0`];
+            const args = [];
+            if (chart !== null) {
+                where.push("ChartId = ?");
+                args.push(String(chart));
+            }
+            if (Number.isFinite(since)) {
+                where.push("Timestamp >= ?");
+                args.push(Math.floor(since));
+            }
+            if (Number.isFinite(before)) {
+                where.push("Timestamp < ?");
+                args.push(Math.ceil(before));
+            }
+            const n = Number.isSafeInteger(limit) && limit > 0 ? limit : REPLAYS_LIMIT;
+            return db.prepare(`SELECT ${select} FROM scores WHERE ${where.join(" AND ")} ORDER BY Timestamp DESC, Id DESC LIMIT ${n}`).all(...args);
+        });
+        return value.map(playOf);
+    }
+
+    // One play with its replay: playOf with replay, or null when scores.db has no such play. Interlude's own play
+    // first, should an imported one have the same chart and time.
+    async function replay(chart, timestamp) {
+        const { value } = await withDb("scores", SCORES_DB, (db) => {
+            const { select, imported } = playColumns(db);
+            return db.prepare(`SELECT ${select}, Replay FROM scores WHERE ChartId = ? AND Timestamp = ? ORDER BY ${imported} = 0 DESC, Id DESC LIMIT 1`)
+                .get(String(chart), Math.floor(Number(timestamp)));
+        });
+        return value ? playOf(value) : null;
+    }
+
+    // The rulesets, each read again only when its file changed: file → { key, value: { id, ruleset, key } | null }.
+    const rulesetFiles = new Map();
+    async function rulesetsDir() {
+        const dir = folder();
+        if (!dir) return null;
+        for (const rel of RULESET_DIRS) if ((await statOf(path.join(dir, rel)))?.isDirectory()) return path.join(dir, rel);
+        return null;
+    }
+    // A ruleset's file → { id, ruleset (parseRuleset's), key (which file and version of it) }, or null for one that is
+    // not there or cannot be used (said in the log once a version).
+    async function readRuleset(dir, id) {
+        const file = path.join(dir, `${id}${RULESET_EXT}`);
+        const s = await statOf(file);
+        if (!s?.isFile()) return null;
+        const key = `${file}|${s.size}|${s.mtimeMs}`;
+        const known = rulesetFiles.get(file);
+        if (known?.key === key) return known.value;
+        let value = null;
+        try {
+            if (s.size > RULESET_MAX_BYTES) throw new Error(`${s.size} bytes`);
+            value = { id, ruleset: parseRuleset(await readFile(file)), key };
+        } catch (error) {
+            log(`interlude: ruleset ${id} not used: ${error?.message}`);
+        }
+        rulesetFiles.set(file, { key, value });
+        return value;
+    }
+    // A ruleset's id is its file's name: nothing that could lead out of the folder.
+    const rulesetId = (id) => typeof id === "string" && id.trim() !== "" && !/[\\/:*?"<>|\u0000-\u001f]/.test(id) && id !== "." && id !== "..";
+
+    // Every ruleset that can be used: [{ id (the file's name without .ruleset), name }], by name; files that cannot be
+    // read or are no ruleset are left out.
+    async function rulesets() {
+        const dir = await rulesetsDir();
+        if (!dir) return [];
+        const names = (await readdir(dir).catch(() => [])).map(String).filter((n) => n.toLowerCase().endsWith(RULESET_EXT));
+        const out = [];
+        for (const name of names) {
+            const found = await readRuleset(dir, name.slice(0, -RULESET_EXT.length));
+            if (found) out.push({ id: found.id, name: found.ruleset.name });
+        }
+        return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    }
+
+    // One ruleset by its id → { id, ruleset, key }, or null when there is no such file or it cannot be used.
+    async function ruleset(id) {
+        if (!rulesetId(id)) return null;
+        const dir = await rulesetsDir();
+        return dir ? readRuleset(dir, id) : null;
+    }
+
+    // The id of the ruleset chosen in Interlude (options.json SelectedRuleset), or null when it says none. With no
+    // options.json at all (Interlude writes it only as it closes, so not before it closed once) Interlude judges by its
+    // default, DEFAULT_RULESET.
+    async function selectedRuleset() {
+        const dir = folder();
+        if (!dir) return null;
+        const file = path.join(dir, OPTIONS_JSON);
+        const s = await statOf(file);
+        if (!s) return DEFAULT_RULESET;
+        if (!s.isFile() || s.size > OPTIONS_MAX_BYTES) return null;
+        const options = parseJson((await readFile(file, "utf8").catch(() => "")).replace(/^﻿/, ""), null);
+        const id = options && typeof options === "object" ? options.SelectedRuleset : null;
+        return rulesetId(id) ? id : null;
+    }
+
     return {
-        search, list, chart, osuFor, played, playedBeatmaps, find, scores,
+        search, list, chart, osuFor, played, playedBeatmaps, find, scores, replays, replay, rulesets, ruleset, selectedRuleset,
         meta: async (hash) => (await load()).byHash.get(String(hash)) ?? null,
         size: async () => (await load()).byHash.size,
         forget() {
             index = null;
             copies.clear();
+            rulesetFiles.clear();
         },
     };
 }

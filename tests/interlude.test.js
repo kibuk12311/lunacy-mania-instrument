@@ -7,20 +7,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
     NOTE, roundEven, decodeChart, encodeChart, chartHash, osuToChart, osuChartHash, chartToOsu, readOsu, osuMd5,
 } from "../src/interlude/chart.js";
 import { addCollection, parseCollections, playlistRate, uniqueName, emptyCollections, cleanName } from "../src/interlude/collections.js";
-import { createInterludeLibrary, interludeFolderOf, assetPath, osuOrigins, audioExt, folderCandidates, detectFolder } from "../app/interludeLibrary.js";
+import { createInterludeLibrary, interludeFolderOf, assetPath, osuOrigins, audioExt, folderCandidates, detectFolder, DEFAULT_RULESET } from "../app/interludeLibrary.js";
 import { createInterludeClient, sendPipe } from "../app/interludeClient.js";
 import { createInterludeHandlers, sendable, exportItem } from "../app/interludeIpc.js";
 import { createSelectionController } from "../app/selectionController.js";
 import { createRecommender } from "../src/recommend/recommend.js";
 import { makeChart } from "./fixtures/makeChart.js";
 import { makeInterludeFolder } from "./fixtures/interludeFolder.js";
+import { makeIlReplay } from "./fixtures/makeIlReplay.js";
 import { readOsz } from "./fixtures/readOsz.js";
 import { setLang } from "../src/i18n/i18n.js";
 
@@ -281,6 +282,104 @@ test("library: rows still in charts.db-wal (Interlude running) are read too, and
     } finally {
         live.close();
     }
+});
+
+test("library: Interlude's own plays newest first without their replays, one play with it; scores.db copied only when it changed", async () => {
+    const replayOf = (n) => makeIlReplay([{ time: 0, mask: 1 }, { time: 40 + n, mask: 0 }]);
+    const fx = await makeInterludeFolder({
+        charts: [{ osuText: makeChart({ kind: "stream", seconds: 6, bpm: 150 }), title: "Played" }, { osuText: holdsChart({ seconds: 4 }) }],
+        plays: [
+            { index: 0, at: 1_700_000_100_000, replay: replayOf(1), mods: { mirror: 0 }, rate: Math.fround(1.1) },
+            { index: 0, at: 1_700_000_300_000, replay: replayOf(2), failed: true },
+            { index: 1, at: 1_700_000_200_000, replay: replayOf(3), keys: 7 },
+            { index: 0, at: 1_700_000_400_000, replay: replayOf(4), imported: true },
+        ],
+    });
+    const logs = [];
+    const lib = createInterludeLibrary({ folder: () => fx.root, cacheDir: await temp("il-cache"), log: (m) => logs.push(m) });
+    const [a, b] = fx.charts.map((c) => c.hash);
+    const plays = await lib.replays();
+    assert.deepEqual(plays.map((p) => [p.chart, p.at]), [[a, 1_700_000_300_000], [b, 1_700_000_200_000], [a, 1_700_000_100_000]], "newest first, the imported play left out");
+    assert.deepEqual({ ...plays[2], id: 0, size: 0 }, { id: 0, chart: a, at: 1_700_000_100_000, rate: Math.fround(1.1), mods: '{"mirror":0}', failed: false, keys: 4, size: 0 });
+    assert.equal(plays[2].size, replayOf(1).length, "the replay's size, not the replay");
+    assert.deepEqual([plays[0].failed, plays[1].keys], [true, 7]);
+    assert.ok(plays.every((p) => !("replay" in p)));
+    assert.deepEqual((await lib.replays({ chart: a })).map((p) => p.at), [1_700_000_300_000, 1_700_000_100_000]);
+    assert.deepEqual((await lib.replays({ since: 1_700_000_200_000 })).map((p) => p.at), [1_700_000_300_000, 1_700_000_200_000]);
+    assert.deepEqual((await lib.replays({ chart: a, before: 1_700_000_300_000 })).map((p) => p.at), [1_700_000_100_000]);
+    assert.equal((await lib.replays({ limit: 1 })).length, 1);
+    const one = await lib.replay(a, 1_700_000_300_000);
+    assert.deepEqual([one.at, one.failed, Buffer.compare(one.replay, replayOf(2))], [1_700_000_300_000, true, 0]);
+    assert.equal(await lib.replay(a, 1_700_000_400_000).then((p) => p.replay.length), replayOf(4).length, "an imported play by its own id");
+    assert.equal(await lib.replay(a, 123), null);
+    assert.equal(logs.filter((m) => /scores\.db copied/.test(m)).length, 1, "read many times, copied once");
+    // a play saved: copied again
+    const db = new DatabaseSync(path.join(fx.root, "Data", "scores.db"));
+    db.prepare("INSERT INTO scores (ChartId, Timestamp, Replay, Rate, Mods, IsImported, Keys, IsFailed) VALUES (?, ?, ?, 1, '{}', 0, 4, 0)").run(b, 1_700_000_500_000, replayOf(5));
+    db.close();
+    assert.equal((await lib.replays())[0].at, 1_700_000_500_000);
+    assert.equal(logs.filter((m) => /scores\.db copied/.test(m)).length, 2);
+});
+
+test("library: the rulesets of Interlude's folder, the one chosen in its options; files that are no ruleset left out", async () => {
+    const osu = (od) => ({
+        Name: `osu!mania (OD${od})`, Description: "", Judgements: [[16, false], [40, false], [73, false], [103, true], [127, true], [null, true]].map(([w, b], i) => ({
+            Name: `J${i}`, Color: [255, 255, 255, 255], BreaksCombo: b, TimingWindows: w === null ? null : [-w, w],
+        })),
+        Lamps: [], Grades: [], HitMechanics: { NotePriority: "OsuMania", GhostTapJudgement: null }, HoldMechanics: { OnlyRequireHold: 180 },
+        Accuracy: { PointsPerJudgement: [1, 1, 2 / 3, 1 / 3, 1 / 6, 0] }, Formatting: { DecimalPlaces: "TWO" },
+    });
+    const fx = await makeInterludeFolder({
+        charts: [{ osuText: makeChart({ kind: "stream", seconds: 4, bpm: 150 }) }],
+        options: "﻿" + JSON.stringify({ AudioVolume: 0.1, SelectedRuleset: "osu-od9" }),
+        rulesets: { "osu-od9": osu(9), "osu-od7": osu(7), "no-json": "{", "no-windows": { ...osu(8), Judgements: [] } },
+    });
+    const logs = [];
+    const lib = createInterludeLibrary({ folder: () => fx.root, cacheDir: await temp("il-cache"), log: (m) => logs.push(m) });
+    assert.deepEqual(await lib.rulesets(), [{ id: "osu-od7", name: "osu!mania (OD7)" }, { id: "osu-od9", name: "osu!mania (OD9)" }]);
+    assert.ok(logs.some((m) => /ruleset no-json not used/.test(m)) && logs.some((m) => /ruleset no-windows not used/.test(m)));
+    assert.equal(await lib.selectedRuleset(), "osu-od9");
+    const chosen = await lib.ruleset("osu-od9");
+    assert.deepEqual([chosen.id, chosen.ruleset.name, chosen.ruleset.judgements.length], ["osu-od9", "osu!mania (OD9)", 6]);
+    assert.equal(await lib.ruleset("osu-od9"), chosen, "read once while the file stays as it is");
+    for (const id of ["no-json", "missing", "..\\Data\\options", "../x", "", null]) assert.equal(await lib.ruleset(id), null, String(id));
+    await writeFile(path.join(fx.root, "Data", "options.json"), JSON.stringify({ SelectedRuleset: "..\\..\\secret" }));
+    assert.equal(await lib.selectedRuleset(), null, "an id that is no file name is none");
+    await writeFile(path.join(fx.root, "Data", "options.json"), "not json");
+    assert.equal(await lib.selectedRuleset(), null);
+    const bare = await makeInterludeFolder({ charts: [{ osuText: makeChart({ kind: "stream", seconds: 4, bpm: 150 }) }] });
+    const none = createInterludeLibrary({ folder: () => bare.root, cacheDir: await temp("il-cache") });
+    assert.deepEqual([await none.rulesets(), await none.ruleset("osu-od9")], [[], null]);
+    assert.equal(await none.selectedRuleset(), DEFAULT_RULESET, "no options.json yet (Interlude never closed): its default");
+    assert.equal(DEFAULT_RULESET, "sc-j4");
+});
+
+test("library: a -wal gone while it is copied (Interlude closing) is copied again without it, not an error", async () => {
+    const replayOf = (n) => makeIlReplay([{ time: 0, mask: 1 }, { time: 40 + n, mask: 0 }]);
+    const fx = await makeInterludeFolder({
+        charts: [{ osuText: makeChart({ kind: "stream", seconds: 6, bpm: 150 }) }],
+        plays: [{ index: 0, at: 1_700_000_100_000, replay: replayOf(1) }],
+    });
+    const file = path.join(fx.root, "Data", "scores.db");
+    // Interlude running: its new play only in the -wal
+    const live = new DatabaseSync(file);
+    live.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;");
+    live.prepare("INSERT INTO scores (ChartId, Timestamp, Replay, Rate, Mods, IsImported, Keys, IsFailed) VALUES (?, ?, ?, 1, '{}', 0, 4, 0)")
+        .run(fx.charts[0].hash, 1_700_000_200_000, replayOf(2));
+    assert.ok((await stat(`${file}-wal`)).size > 0);
+    const copied = [];
+    // Interlude closes between the stat and the -wal's copy: SQLite folds the -wal in and deletes it
+    const copy = async (from, to) => {
+        copied.push(path.basename(from));
+        if (from.endsWith("-wal") && live.isOpen) {
+            live.close();
+            await stat(from).then(() => assert.fail("SQLite deletes the -wal on the last close"), () => {});
+        }
+        return copyFile(from, to);
+    };
+    const lib = createInterludeLibrary({ folder: () => fx.root, cacheDir: await temp("il-cache"), copy });
+    assert.deepEqual((await lib.replays()).map((p) => p.at), [1_700_000_200_000, 1_700_000_100_000], "the play is there");
+    assert.deepEqual(copied, ["scores.db", "scores.db-wal", "scores.db"], "copied once more, with no -wal");
 });
 
 test("asset locations, osu! origins and audio formats as charts.db keeps them", () => {

@@ -3,7 +3,7 @@
 // judgements, UR, mean offset, top speed, jack speed, holds, how the timing moved from the start to the end, which finger
 // breaks the combo. A number with too little behind it is null and is not shown; nothing here is ever a made-up zero.
 // Works on the analysis of analyze.js (`results`, `ghosts`, `combo`) and the presses per column. Pure.
-import { countKinds, accuracyPercent } from "./judge.js";
+import { countKinds, resultsAccuracy } from "./judge.js";
 import { spread, unstableRate } from "./analyze.js";
 
 // L = left, R = right; 1 the thumb … 5 the little finger, in the order of the hands on the keyboard.
@@ -77,8 +77,10 @@ export function jackRuns(own, rate = 1, limits = STATS) {
 }
 
 // The holds of a group: { count, clean, early, late, dropped, meanRelease, earlyMean, lateMean }, null without holds.
-// A release counts as early or late when it is further from the hold's end than the 300 window; meanRelease: real ms,
-// − before the end. dropped: holds judged a miss. Holds never let go have no release to count.
+// A release counts as early or late when it is further from the hold's end than the 300 window (an Interlude play's:
+// its ruleset's judgements in that slot, src/replay/analyzeInterlude.js); meanRelease: real ms, − before the end.
+// dropped: osu!'s holds judged a miss, Interlude's those let go before their end (its rulesets judge them apart from a
+// miss). Holds never let go have no release to count.
 export function holdStats(own, windows, rate = 1) {
     const holds = own.filter((r) => r.end !== null);
     if (!holds.length) return null;
@@ -88,7 +90,7 @@ export function holdStats(own, windows, rate = 1) {
     const late = tails.filter((v) => v > limit);
     return {
         count: holds.length, clean: tails.length - early.length - late.length, early: early.length, late: late.length,
-        dropped: holds.filter((r) => r.kind === "miss").length,
+        dropped: holds.filter((r) => (typeof r.dropped === "boolean" ? r.dropped : r.kind === "miss")).length,
         meanRelease: round1(spread(tails).mean), earlyMean: round1(spread(early).mean), lateMean: round1(spread(late).mean),
     };
 }
@@ -118,7 +120,7 @@ function groupStats(analysis, presses, columns, context) {
     const fastest = jacks.filter((j) => j.bestMs !== null).sort((a, b) => a.bestMs - b.bestMs)[0] ?? null;
     return {
         columns, notes: own.length, presses: times.length, share: percentOf(times.length, context.presses),
-        counts, accuracy: accuracyPercent(counts), misses: counts.miss,
+        counts, accuracy: resultsAccuracy(own), misses: counts.miss,
         ur: enough ? unstableRate(deltas) : null, mean: enough ? round1(spread(deltas).mean) : null,
         early: enough ? percentOf(deltas.filter((d) => d < 0).length, deltas.length) : null,
         late: enough ? percentOf(deltas.filter((d) => d > 0).length, deltas.length) : null,

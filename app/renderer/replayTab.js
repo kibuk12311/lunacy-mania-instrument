@@ -3,10 +3,11 @@
 // per finger and per hand, with what stands out said in words (src/replay/hints.js). When a play ends main says so and the
 // tab opens that play's replay by itself, or says why there is none; it never asks for the window's focus. The second source,
 // the profile's plays, says plainly what a play without key data can and cannot show. Main does the reading
-// (app/replayIpc.js); osu!'s folders are only read.
+// (app/replayIpc.js); osu!'s folders are only read. Interlude's saved plays come in the same list, marked; one opens judged
+// by the ruleset chosen in Interlude, and the header can judge it again by any other of Interlude's rulesets.
 import { t } from "../../src/i18n/i18n.js";
 import { createReplayPlayer } from "./replayPlayer.js";
-import { createReplayView, playTime } from "./replayView.js";
+import { createReplayView, playTime, ilAccText, ilAccDigits } from "./replayView.js";
 import { reportSections, el, button, percent, acc2, num1, dateText } from "./replayReport.js";
 import { manipStrip } from "./replayCharts.js";
 import { MANIP } from "../../src/replay/manip.js";
@@ -21,9 +22,15 @@ const SOURCES = ["replay", "gameplay"];
 const SOURCE_TEXT = { replay: "replay.source.replay", gameplay: "replay.source.gameplay" };
 const GAME_DAYS = 30; // of which the profile hands over the newest 30 plays
 const GAME_MATCH_MS = 10 * 60 * 1000; // a replay this close to a play's time, of the same map, is that play's
-const REASON_TEXT = { random: "replay.reason.random", keys: "replay.reason.keys", empty: "replay.reason.empty" };
+const REASON_TEXT = {
+    random: "replay.reason.random", keys: "replay.reason.keys", empty: "replay.reason.empty",
+    mods: "replay.reason.mods", nochart: "replay.reason.nochart", badReplay: "replay.reason.badReplay",
+};
 // why a play that just ended has no replay
 const ENDED_TEXT = { pass: "replay.ended.pass", fail: "replay.ended.fail", quit: "replay.ended.quit", lazer: "replay.ended.lazer", noFolder: "replay.ended.noFolder" };
+// the same of an Interlude play: it keeps failed plays too, only one cut short is not saved; with no folder to read
+// nothing can be looked for
+const IL_ENDED_TEXT = { quit: "replay.ended.ilQuit", other: "replay.ended.ilNone", noFolder: "replay.ended.ilNoFolder" };
 
 function readStored(key, fallback) {
     try {
@@ -49,6 +56,14 @@ function readFingers() {
 
 export const modsText = (names, rate) => [...names, rate !== 1 ? t("replay.head.rate", { rate }) : ""].filter(Boolean).join(" ");
 export const mapName = (m) => [m.artist, m.title].filter(Boolean).join(" - ") + (m.version ? ` [${m.version}]` : "");
+// Interlude's mods by the short names it shows them by ("MR", "NLN"), its rate to two decimals
+export const ilModsText = (names, rate) => [
+    (names ?? []).join(", "), Math.abs(rate - 1) > 1e-6 ? t("replay.head.rate", { rate: Math.round(rate * 100) / 100 }) : "",
+].filter(Boolean).join(" · ");
+const fromInterlude = (replay) => replay?.source === "interlude";
+// the start of the chart's hash, for a chart with no name: of { chart } (a listed play, one open, one that just ended),
+// else of its play's id interlude:<chart>:<at>
+const chartName = ({ chart = null, play = null }) => t("replay.list.unknownChart", { hash: String(chart ?? String(play ?? "").split(":")[1] ?? "").slice(0, 8) });
 
 // The skin to ask for: "" is the plain playfield, a name that skin, nothing yet the one set in osu!.
 const skinRequest = (saved) => (saved === "" ? { plain: true } : { folder: saved });
@@ -78,7 +93,10 @@ export function manipBlock(manip, { timeOf, onSeek }) {
 }
 
 // Accuracy, misses and combo are osu!'s own, as on its result screen (the recount stands beside them in the judgements'
-// table; it counts a hold as one for the combo); only UR is not in a replay.
+// table; it counts a hold as one for the combo); only UR is not in a replay. An Interlude play keeps no result: all four
+// are the recount's by the ruleset, the accuracy as Interlude writes it on its score screen. A failed play's is counted
+// up to its last press; Interlude's own, over the whole chart with every note after the fail a miss, is in its title.
+// With no recount there is nothing to show.
 function statTiles(replay, analysis) {
     const tile = (label, value, title = "") => {
         const box = el("div", "rp-tile");
@@ -86,6 +104,19 @@ function statTiles(replay, analysis) {
         box.append(el("div", "muted", label), el("b", "", value));
         return box;
     };
+    if (fromInterlude(replay)) {
+        if (!analysis) return [];
+        const own = !replay.failed && analysis.accuracyText;
+        const accTitle = own
+            ? t("replay.stat.ilAccuracy", { name: analysis.ruleset.name })
+            : replay.failed ? t("replay.stat.ilFailed", { whole: analysis.wholeAccuracyText ?? "—" }) : "";
+        return [
+            tile(t("replay.stat.accuracy"), own || ilAccText(analysis.accuracy), accTitle),
+            tile(t("replay.stat.ur"), num1(analysis.ur), t("replay.stat.urTitleIl")),
+            tile(t("replay.stat.misses"), String(analysis.counts.miss)),
+            tile(t("replay.stat.combo"), String(analysis.combo.max)),
+        ];
+    }
     return [
         tile(t("replay.stat.accuracy"), acc2(replay.counts.accuracy)),
         tile(t("replay.stat.ur"), num1(analysis?.ur ?? null), t("replay.stat.urTitle")),
@@ -104,6 +135,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     let listed = false; // the list was read from a folder: with none, the tab looks again each time it is shown
     let listAsked = 0; // the folder can change while a list or a skin is on its way: only the last answer counts
     let skinAsked = 0;
+    let openAsked = 0; // the opens asked for: which replay counts is main's to say (an overtaken open comes back stale)
     let skinLoaded = false; // the skins were read: an answer without any is not kept
     let skinNote = ""; // the line under the stage: what the skin says, unless the song has something to say
     let audioNote = "";
@@ -142,35 +174,51 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     $("rp-source").replaceChildren(...sourceSpans);
 
     // ---- the recent replays ----
+    // one replay of the list: an .osr by its file, an Interlude play by its id, marked, and marked again when failed
+    function listRow(item) {
+        const il = item.kind === "interlude";
+        const name = item.title ? mapName(item) : il ? chartName(item) : t("replay.list.unknownMap", { md5: item.md5.slice(0, 8) });
+        const row = el("button", "rp-row");
+        row.type = "button";
+        if (il) row.dataset.play = item.play;
+        else row.dataset.file = item.file;
+        const acc = il ? ilAccDigits(item.accuracy) : item.accuracy?.toFixed(2) ?? "—";
+        row.title = t("replay.list.title", { map: name, acc, miss: item.miss ?? "—" });
+        const line = el("div", "rp-row-line");
+        line.append(el("span", "rp-row-name", name));
+        if (il) line.append(el("span", "rp-mark", t("replay.list.interlude")));
+        if (il && item.failed) line.append(el("span", "rp-mark rp-mark-fail", t("replay.list.failed")));
+        line.append(el("span", "rp-num", il ? ilAccText(item.accuracy) : acc2(item.accuracy)));
+        const sub = el("div", "muted rp-row-sub");
+        sub.textContent = [dateText(item.at), il ? ilModsText(item.modNames, item.rate) : modsText(item.modNames, item.rate)].filter(Boolean).join(" · ");
+        row.append(line, sub);
+        row.addEventListener("click", () => void openReplay(il ? { play: item.play } : { file: item.file }));
+        return row;
+    }
+
+    // place: replay-list's answer; its interlude: { linked, ok } of Interlude's folder
     function drawList(place) {
         const box = $("rp-list");
         const folder = $("rp-folder");
+        const il = place?.interlude ?? null;
         folder.textContent = place?.folder ? `${t("replay.list.from", { folder: place.folder })} ${t("replay.list.readOnly")}` : "";
-        if (!place?.folder) {
-            box.replaceChildren(el("div", "muted", t("replay.list.noFolder")), button(t("replay.list.pick"), "small", async () => {
-                const r = await api.replayPickFolder?.();
-                if (r?.message) status(r.message, "bad"); // a folder taken comes back as onReplayFolder
-            }));
+        const ilMissing = il?.linked && !il.ok ? [el("div", "muted rp-list-note", t("replay.list.ilMissing"))] : [];
+        const pick = () => button(t("replay.list.pick"), "small", async () => {
+            const r = await api.replayPickFolder?.();
+            if (r?.message) status(r.message, "bad"); // a folder taken comes back as onReplayFolder
+        });
+        if (!place?.folder && !il?.ok) {
+            box.replaceChildren(...ilMissing, el("div", "muted", t("replay.list.noFolder")), pick());
             return;
         }
+        // above the plays: what one of the two places could not give; with no osu! folder its pick stays
+        const notes = place.folder ? ilMissing : [el("div", "muted rp-list-note", t("replay.list.onlyInterlude")), pick()];
         if (!items.length) {
-            box.replaceChildren(el("div", "muted", t("replay.list.empty")));
+            const empty = !place.folder ? "replay.list.emptyIl" : il?.ok ? "replay.list.emptyBoth" : "replay.list.empty";
+            box.replaceChildren(...notes, el("div", "muted", t(empty)));
             return;
         }
-        box.replaceChildren(...items.map((item) => {
-            const name = item.title ? mapName(item) : t("replay.list.unknownMap", { md5: item.md5.slice(0, 8) });
-            const row = el("button", "rp-row");
-            row.type = "button";
-            row.dataset.file = item.file;
-            row.title = t("replay.list.title", { map: name, acc: item.accuracy?.toFixed(2) ?? "—", miss: item.miss });
-            const line = el("div", "rp-row-line");
-            line.append(el("span", "rp-row-name", name), el("span", "rp-num", acc2(item.accuracy)));
-            const sub = el("div", "muted rp-row-sub");
-            sub.textContent = [dateText(item.at), modsText(item.modNames, item.rate)].filter(Boolean).join(" · ");
-            row.append(line, sub);
-            row.addEventListener("click", () => void openReplay({ file: item.file }));
-            return row;
-        }));
+        box.replaceChildren(...notes, ...items.map(listRow));
     }
 
     async function refresh() {
@@ -268,6 +316,34 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     });
 
     // ---- one replay open ----
+    // An Interlude play's hints: from the recount, which is its result (src/replay/hints.js counts it by the ruleset's
+    // points), none about HitPosition; with no recount none at all.
+    function hintsOf({ report, analysis, replay }) {
+        if (!fromInterlude(replay)) return buildHints({ report, analysis, replay, later, earlier, bias });
+        if (!analysis) return { top: [], bySection: {} };
+        return buildHints({ report, analysis, replay, later, earlier, bias: null });
+    }
+
+    // the header of an Interlude play: when, its mods and rate, failed; the ruleset it is judged by, any other of Interlude's
+    // to judge it by again, and a word when the one chosen in Interlude could not be read
+    function interludeHead(result) {
+        const { replay, analysis } = result;
+        const kids = [el("div", "", [t("replay.head.interlude", { date: dateText(replay.at) }), ilModsText(replay.modNames, replay.rate), replay.failed ? t("replay.head.failed") : ""].filter(Boolean).join(" · "))];
+        if (!analysis || !result.ruleset) return kids;
+        const row = el("label", "rp-ruleset");
+        row.title = t("replay.head.rulesetTitle");
+        const select = el("select", "sk-select");
+        const offered = result.rulesets ?? [];
+        const all = offered.some((r) => r.id === result.ruleset.id) ? offered : [{ id: result.ruleset.id, name: result.ruleset.name }, ...offered];
+        select.replaceChildren(...all.map((r) => new Option(r.name, r.id, false, r.id === result.ruleset.id)));
+        select.value = result.ruleset.id;
+        select.addEventListener("change", () => void openReplay({ play: replay.play, ruleset: select.value }));
+        row.append(el("span", "", t("replay.head.ruleset")), select);
+        kids.push(row);
+        if (result.ruleset.fallback) kids.push(el("div", "rp-fallback", t("replay.head.fallback", { name: result.ruleset.name })));
+        return kids;
+    }
+
     function drawReport() {
         const result = opened;
         if (!result) return;
@@ -283,7 +359,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             manipBox.querySelector(".rp-how").open = wasOpen;
         } else manipBox.replaceChildren();
         $("rp-details").replaceChildren(...reportSections({
-            replay, analysis, report, later, earlier, fingers, timeOf, seek, hints: buildHints({ report, analysis, replay, later, earlier, bias }),
+            replay, analysis, report, later, earlier, fingers, timeOf, seek, hints: hintsOf({ report, analysis, replay }),
             onFingers: (next) => {
                 const handsBefore = JSON.stringify(handsOf(fingers));
                 fingers = validFingers(next);
@@ -302,11 +378,15 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         bias = null;
         player.unload();
         const { replay, map, analysis, reason } = result;
-        $("rp-map").textContent = map ? mapName(map) : t("replay.list.unknownMap", { md5: replay.md5.slice(0, 8) });
-        $("rp-who").textContent = [t("replay.head.by", { player: replay.player, date: dateText(replay.at) }), modsText(replay.modNames, replay.rate)].filter(Boolean).join(" · ");
+        const il = fromInterlude(replay);
+        $("rp-map").textContent = map ? mapName(map) : il ? chartName(replay) : t("replay.list.unknownMap", { md5: replay.md5.slice(0, 8) });
+        const who = $("rp-who");
+        who.replaceChildren();
+        who.textContent = il ? "" : [t("replay.head.by", { player: replay.player, date: dateText(replay.at) }), modsText(replay.modNames, replay.rate)].filter(Boolean).join(" · ");
+        if (il) who.replaceChildren(...interludeHead(result));
         const why = reason === "nomap" ? (result.folder ? "replay.reason.nomap" : "replay.reason.nomapFolder") : REASON_TEXT[reason];
         $("rp-reason").hidden = !why;
-        $("rp-reason").textContent = why ? t(why) : "";
+        $("rp-reason").textContent = why ? t(why, { mods: (result.mods ?? []).join(", ") }) : "";
         // no analysis: nothing true to draw (Random shuffled the notes, the stage would show the wrong ones and empty totals)
         $("rp-play").hidden = !map || !analysis;
         $("rp-stats").replaceChildren(...statTiles(replay, analysis));
@@ -322,7 +402,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         void loadAudio(result);
         void loadDetails(result);
         void loadEarlier(result);
-        void loadBias(result);
+        if (!il) void loadBias(result); // the lean of the latest plays speaks of osu!'s HitPosition
     }
 
     async function loadAudio(result) {
@@ -386,42 +466,59 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     }
 
     async function openEnded(play) {
-        const ok = await openReplay({ file: play.file });
-        if (ok) endedNote(t("replay.ended.opened", { map: mapName(play) }), "good");
+        const ok = await openReplay(play.play ? { play: play.play } : { file: play.file });
+        if (ok) endedNote(t("replay.ended.opened", { map: endedName(play) }), "good");
         return ok;
     }
+    // an Interlude chart that has no names says the start of its hash (main gives the chart's even when no play came)
+    const endedName = (play) => (play.source === "interlude" && !mapName(play) ? chartName(play) : mapName(play));
 
     // main found the play's replay, or says why not: { outcome, artist, title, version, accuracy, file, reason, moved }, or
     // that it is still on its way: waiting. A retry mid-map (a quit) leaves the tab where it is, and so does a next play
     // already going on: the note waits there for whoever comes to look. So does a replay that comes while another plays.
+    // An Interlude play comes with source "interlude", its chart, and its play's id in place of the file (null when no row
+    // of Interlude's scores came: reason "none", or "noFolder" when Interlude's folder could not be read).
     async function playEnded(play) {
-        const name = mapName(play);
+        const name = endedName(play);
+        const il = play.source === "interlude";
         if (play.waiting) {
-            endedNote(t("replay.ended.waiting", { map: name }));
+            endedNote(t(il ? "replay.ended.ilWaiting" : "replay.ended.waiting", { map: name }));
             return;
         }
-        if (play.file && player.playing) {
+        const found = play.file || play.play;
+        if (found && player.playing) {
             endedNote(t("replay.ended.ready", { map: name }), "", button(t("replay.ended.open"), "small", () => void openEnded(play)));
             return;
         }
-        if (play.file) {
-            if (await openEnded(play)) {
+        if (found) {
+            const opened = await openEnded(play);
+            if (opened) {
                 goToTab();
                 return;
             }
+            if (opened === null) return; // another replay was asked for meanwhile: the tab is its
         }
-        const key = play.reason === "lazer" || play.reason === "noFolder" ? play.reason : play.outcome;
-        endedNote(t(ENDED_TEXT[key] ?? ENDED_TEXT.quit, { map: name, acc: play.accuracy === null ? "—" : play.accuracy.toFixed(2) }));
+        if (il && play.reason === "noFolder") endedNote(t(IL_ENDED_TEXT.noFolder, { map: name }));
+        else if (il) endedNote(t(play.outcome === "quit" ? IL_ENDED_TEXT.quit : IL_ENDED_TEXT.other, { map: name }));
+        else {
+            const key = play.reason === "lazer" || play.reason === "noFolder" ? play.reason : play.outcome;
+            endedNote(t(ENDED_TEXT[key] ?? ENDED_TEXT.quit, { map: name, acc: play.accuracy === null ? "—" : play.accuracy.toFixed(2) }));
+        }
         if (play.outcome !== "quit" && !play.moved) goToTab();
     }
     api.onReplayEnded?.((play) => void playEnded(play));
 
     async function openReplay(request) {
+        openAsked += 1;
+        const asked = openAsked;
         endedNote("");
         status(t("replay.opening"));
         const r = await api.replayOpen?.(request);
+        // main answers stale an open overtaken by one asked after it (a ruleset picked again, a play that ended, a quicker
+        // map): the replay shown is always the one main keeps open, so its song, details and earlier plays come
+        if (r?.stale) return null;
         if (!r || r.cancelled) {
-            status();
+            if (asked === openAsked) status(); // the dialog closed while another replay is on its way leaves its word up
             return false;
         }
         if (!r.ok) {
@@ -435,6 +532,12 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     }
 
     // ---- the profile's plays ----
+    // the replay of a profile's play: an Interlude play is its saved play itself (the same id, interlude:<chart>:<at>); an
+    // osu! one is the .osr of the same map this close in time
+    const matchOf = (p, replays) => (String(p.id ?? "").startsWith("interlude:")
+        ? replays.find((r) => r.play === p.id)
+        : replays.find((r) => r.file && r.md5 === p.md5 && Math.abs(r.at - p.at) < GAME_MATCH_MS));
+
     async function drawGame() {
         const box = $("rp-game");
         const has = el("div", "group rp-block");
@@ -442,9 +545,12 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         const needs = el("div", "group rp-block");
         needs.append(el("div", "flabel", t("replay.game.needs")), el("div", "muted", t("replay.game.needsList")));
         const rows = el("div", "rp-game-rows");
-        box.replaceChildren(el("div", "rp-intro", t("replay.game.intro")), has, needs, el("div", "muted", t("replay.game.how")), el("div", "flabel", t("replay.game.recent")), rows);
+        const howIl = el("div", "muted", t("replay.game.howIl"));
+        howIl.hidden = true;
+        box.replaceChildren(el("div", "rp-intro", t("replay.game.intro")), has, needs, el("div", "muted", t("replay.game.how")), howIl, el("div", "flabel", t("replay.game.recent")), rows);
         rows.replaceChildren(el("div", "muted", t("replay.game.loading")));
         const [history, list] = await Promise.all([api.localProfileHistory?.(GAME_DAYS), api.replayList?.({ titles: false, limit: 120 })]);
+        howIl.hidden = !list?.interlude?.linked;
         const plays = history?.ok ? history.plays ?? [] : [];
         if (!plays.length) {
             rows.replaceChildren(el("div", "muted", t("replay.game.none")));
@@ -457,8 +563,8 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             const sub = el("div", "muted rp-row-sub", [dateText(p.at), acc2(p.accuracy), p.rate !== 1 ? t("replay.head.rate", { rate: p.rate }) : ""].filter(Boolean).join(" · "));
             const text = el("div", "rp-game-text");
             text.append(main, sub);
-            const match = replays.find((r) => r.md5 === p.md5 && Math.abs(r.at - p.at) < GAME_MATCH_MS);
-            row.append(text, match ? button(t("replay.game.open"), "small", () => void openReplay({ file: match.file })) : el("span", "muted", t("replay.game.noReplay")));
+            const match = matchOf(p, replays);
+            row.append(text, match ? button(t("replay.game.open"), "small", () => void openReplay(match.play ? { play: match.play } : { file: match.file })) : el("span", "muted", t("replay.game.noReplay")));
             return row;
         }));
     }

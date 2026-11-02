@@ -69,8 +69,8 @@ export function manipStrip(bins, { timeOf, onSeek }) {
 }
 
 // The hit errors' histogram, one bar per bin, coloured by the judgement the bin falls in. histogram: analyze.js;
-// kindOfMs(ms) → a judgement.
-export function errorBars(histogram, kindOfMs) {
+// kindOfMs(ms) → a judgement, a key of `colours` (osu!'s six, or an Interlude ruleset's list of colours).
+export function errorBars(histogram, kindOfMs, colours = KIND_COLOUR) {
     const H = 90;
     const base = H - 16;
     const node = frame(H, "rp-hist");
@@ -81,7 +81,7 @@ export function errorBars(histogram, kindOfMs) {
         const left = from + i * binMs;
         if (n > 0) {
             const b = bar(i * step + 1, base, Math.max(1, step - 2), Math.max(2, (n / top) * (base - 4)), "rp-hist-bar");
-            b.setAttribute("style", `fill:${KIND_COLOUR[kindOfMs(left + binMs / 2)]}`);
+            b.setAttribute("style", `fill:${colours[kindOfMs(left + binMs / 2)]}`);
             node.append(b);
         }
         const hit = svg("rect", { x: i * step, y: 0, width: step, height: H, class: "rp-hit" });
@@ -102,8 +102,8 @@ export function errorBars(histogram, kindOfMs) {
 
 // Each hit as a dot along the map: late above the line, early under it, misses as red ticks at the bottom. A canvas, a map
 // can have tens of thousands. fromMs / toMs: the map's stretch; reach: real ms at the top and bottom; line: slices of the
-// play with their mean error, drawn over the dots.
-export function errorScatter({ results, fromMs, toMs, reach, timeOf, onSeek, line = [] }) {
+// play with their mean error, drawn over the dots; colourOf(result): its judgement's colour (an Interlude ruleset's own).
+export function errorScatter({ results, fromMs, toMs, reach, timeOf, onSeek, line = [], colourOf = (r) => KIND_COLOUR[r.kind] }) {
     const canvas = document.createElement("canvas");
     canvas.className = "rp-scatter";
     const H = 110;
@@ -121,10 +121,10 @@ export function errorScatter({ results, fromMs, toMs, reach, timeOf, onSeek, lin
         ctx.fillRect(0, Math.round(H / 2), w, 1);
         for (const r of results) {
             if (r.kind === "miss") {
-                ctx.fillStyle = KIND_COLOUR.miss;
+                ctx.fillStyle = colourOf(r);
                 ctx.fillRect(xOf(r.t), H - 8, 1.5, 8);
             } else if (r.delta !== null) {
-                ctx.fillStyle = KIND_COLOUR[r.kind];
+                ctx.fillStyle = colourOf(r);
                 ctx.fillRect(xOf(r.t), yOf(-r.delta) - 1, 2, 2);
             }
         }

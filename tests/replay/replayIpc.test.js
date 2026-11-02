@@ -15,6 +15,12 @@ import { encodePng } from "../../src/skin/png.js";
 import { MOD_BITS } from "../../src/localProfile/scoresDb.js";
 import { BINS, BREAK } from "../../src/analysis/timeline.js";
 import { HINTS } from "../../src/replay/hints.js";
+import { DatabaseSync } from "node:sqlite";
+import { createInterludeLibrary } from "../../app/interludeLibrary.js";
+import { IL_ENDED_WAIT_MS } from "../../app/replayInterlude.js";
+import { makeInterludeFolder } from "../fixtures/interludeFolder.js";
+import { makeIlReplay, framesOfPresses } from "../fixtures/makeIlReplay.js";
+import { osuJson } from "../interlude/rulesets.js";
 
 const md5 = (text) => createHash("md5").update(text).digest("hex");
 const png = (w = 4, h = 4) => encodePng(w, h, new Uint8Array(w * h * 4).fill(200));
@@ -536,6 +542,62 @@ test("audio cannot leave the map's folder", async (t) => {
     const service = createReplayService(f.opts);
     const opened = await service.open({ file: path.join(f.game, "Replays", "escape.osr") });
     assert.equal((await service.audio({ id: opened.id })).ok, false);
+});
+
+// an fs whose first read of one file (after the first `skip` of them) waits until let go: held.go() once that read is
+// under way, held.reached to wait for it
+function heldFs(name, { skip = 0 } = {}) {
+    let reached = null;
+    const under = new Promise((resolve) => { reached = resolve; });
+    const held = { go: async () => (await under)(), reached: under };
+    let left = skip;
+    let first = true;
+    const fs = {
+        ...nodeFs,
+        readFile: async (p, ...rest) => {
+            if (first && path.basename(String(p)) === name && left-- <= 0) {
+                first = false;
+                await new Promise((resolve) => { reached(resolve); });
+            }
+            return nodeFs.readFile(p, ...rest);
+        },
+    };
+    return { fs, held };
+}
+
+test("two opens answered out of order: the one asked last is the replay open, the other comes back stale", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const { fs, held } = heldFs("honest.osr");
+    const service = createReplayService({ ...f.opts, fs });
+    const first = service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const second = await service.open({ file: path.join(f.game, "Replays", "glued.osr") });
+    assert.equal(second.ok, true, "the one asked last answers first");
+    await held.go();
+    assert.deepEqual(await first, { ok: false, stale: true }, "the one asked first answers last, overtaken");
+    assert.equal((await service.audio({ id: second.id })).ok, true, "the replay shown is the one open: its song comes");
+    assert.equal((await service.earlier({ id: second.id })).ok, true);
+    // in order, each is the replay open in its turn, as before
+    const a = await service.open({ file: path.join(f.game, "Replays", "glued.osr") });
+    const b = await service.open({ file: path.join(f.game, "Replays", "unknown.osr") });
+    assert.deepEqual([a.ok, b.ok, b.reason], [true, true, "nomap"]);
+    assert.equal((await service.audio({ id: a.id })).stale, true);
+});
+
+test("a file picked in the dialog after another open was asked is the replay open; the other comes back stale", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    let pick = null;
+    const dialog = { showOpenDialog: () => new Promise((resolve) => { pick = (file) => resolve({ canceled: false, filePaths: [file] }); }) };
+    const service = createReplayService({ ...f.opts, dialog });
+    const picked = service.open({});
+    await new Promise((resolve) => { setImmediate(resolve); });
+    const meanwhile = service.open({ file: path.join(f.game, "Replays", "glued.osr") }); // a play ended while the dialog was up
+    pick(path.join(f.game, "Replays", "honest.osr"));
+    const [chosen, other] = await Promise.all([picked, meanwhile]);
+    assert.equal(chosen.ok, true, "the file picked counts: it was picked after the other was asked");
+    assert.deepEqual(other, { ok: false, stale: true });
+    assert.equal((await service.audio({ id: chosen.id })).ok, true);
 });
 
 test("the skin set in osu! is read as it is: the .cfg, then tosu, a choice, the plain field", async (t) => {
@@ -1148,4 +1210,201 @@ test("the local profile's folder reaches the service through its dep", async (t)
     });
     const status = await handlers["replay-status"]();
     assert.deepEqual([status.folder, status.source, status.picked], [f.game, "profile", null]);
+});
+
+// Interlude linked beside osu!: a made-up chart and two made-up plays of it (app/replayInterlude.js has the rest).
+async function withInterlude(t) {
+    const notes = rollNotes({ count: 40, stepMs: 150 });
+    const presses = honestPresses(notes, { sdMs: 8 }).map((p) => ({ ...p, t: p.t - notes[0].t, up: p.up - notes[0].t }));
+    const replay = makeIlReplay(framesOfPresses(presses));
+    const il = await makeInterludeFolder({
+        charts: [{ osuText: chartText(notes, { title: "Interlude Roll" }), title: "Interlude Roll", audio: Buffer.from("OggSfake") }],
+        plays: [{ index: 0, at: Date.UTC(2026, 9, 9), replay }, { index: 0, at: Date.UTC(2025, 0, 1), replay }],
+        options: { SelectedRuleset: "osu-od8" }, rulesets: { "osu-od8": osuJson(8) },
+    });
+    t.after(() => rm(il.root, { recursive: true, force: true }));
+    const library = createInterludeLibrary({ folder: () => il.root, cacheDir: path.join(il.root, "..", `${path.basename(il.root)}-cache`) });
+    t.after(() => rm(path.join(il.root, "..", `${path.basename(il.root)}-cache`), { recursive: true, force: true }));
+    return { ...il, replay, interlude: { folder: () => il.root, library }, play: (at) => `interlude:${il.charts[0].hash}:${at}` };
+}
+
+test("the list: Interlude's plays among osu!'s by their time, osu!'s in their own order; no Interlude, the list as it was", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const il = await withInterlude(t);
+    const alone = await createReplayService(f.opts).list({ titles: false });
+    assert.deepEqual(alone.interlude, { linked: false, ok: false, reason: "unlinked" });
+    const both = await createReplayService({ ...f.opts, interlude: il.interlude }).list({ titles: false });
+    assert.deepEqual(both.interlude, { linked: true, ok: true, reason: null });
+    assert.deepEqual(both.items.map((i) => i.kind === "interlude" ? i.play : i.file), [il.play(Date.UTC(2026, 9, 9)), ...alone.items.map((i) => i.file), il.play(Date.UTC(2025, 0, 1))]);
+    assert.equal(both.items[0].title, "Interlude Roll", "Interlude's names come with the quick list");
+    assert.equal((await createReplayService({ ...f.opts, interlude: il.interlude }).list({ titles: false, limit: 2 })).items.length, 2);
+});
+
+test("an Interlude play asked while an .osr is still opening is the replay open; the .osr comes back stale", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const il = await withInterlude(t);
+    const { fs, held } = heldFs("honest.osr");
+    const service = createReplayService({ ...f.opts, fs, interlude: il.interlude });
+    const osr = service.open({ file: path.join(f.game, "Replays", "honest.osr") });
+    const opened = await service.open({ play: il.play(Date.UTC(2026, 9, 9)) }); // a play ended in Interlude, or its row clicked
+    assert.equal(opened.ok, true);
+    await held.go();
+    assert.deepEqual(await osr, { ok: false, stale: true });
+    assert.equal((await service.audio({ id: opened.id })).data.toString(), "OggSfake", "the play shown is the one open");
+    assert.equal((await service.earlier({ id: opened.id })).ok, true);
+});
+
+test("an .osr open overtaken by a refused open leaves the replay on screen open: its song, details and earlier plays come", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const il = await withInterlude(t);
+    const replay = (name) => path.join(f.game, "Replays", name);
+    const refusals = [{ file: replay("note.txt") }, { file: replay("broken.osr") }, { play: il.play(Date.UTC(2020, 0, 1)) }];
+    for (const refused of refusals) {
+        const { fs, held } = heldFs("Test - Fixture Roll (TestPlayer) [Rolls].osu", { skip: 1 });
+        const service = createReplayService({ ...f.opts, fs, interlude: il.interlude });
+        const shown = await service.open({ file: replay("glued.osr") }); // its map is the read let through
+        const overtaken = service.open({ file: replay("honest.osr") });
+        await held.reached; // its map found, its read under way
+        const answer = await service.open(refused);
+        assert.equal(answer.ok, false);
+        assert.equal(answer.stale, undefined, "refused, not overtaken");
+        await held.go();
+        assert.deepEqual(await overtaken, { ok: false, stale: true });
+        assert.equal((await service.audio({ id: shown.id })).ok, true, "the window still shows the replay before, and main keeps it open");
+        assert.equal((await service.details({ id: shown.id })).ok, true);
+        assert.equal((await service.earlier({ id: shown.id })).ok, true);
+    }
+    // a replay whose frames cannot be unpacked is refused like any other: the one before stays open
+    const corrupt = makeOsr({ md5: f.hash, presses: honestPresses(f.notes, { sdMs: 8 }) });
+    corrupt.fill(0xff, corrupt.length - 8 - 64, corrupt.length - 8); // the tail of the packed frames, before the online id
+    await writeFile(replay("corrupt.osr"), corrupt);
+    const service = createReplayService(f.opts);
+    const shown = await service.open({ file: replay("glued.osr") });
+    assert.equal((await service.open({ file: replay("corrupt.osr") })).ok, false);
+    assert.equal((await service.audio({ id: shown.id })).ok, true);
+    // a replay with no map is shown, and nothing is open with it
+    const nomap = await service.open({ file: replay("unknown.osr") });
+    assert.equal(nomap.reason, "nomap");
+    assert.equal((await service.audio({ id: shown.id })).stale, true);
+    assert.equal((await service.audio({ id: nomap.id })).stale, true);
+});
+
+test("replay-open with a play opens Interlude's; with a file, osu!'s as before", async (t) => {
+    const f = await fixture();
+    t.after(f.cleanup);
+    const il = await withInterlude(t);
+    const handlers = {};
+    registerReplayIpc({
+        ipcMain: { handle: (channel, fn) => { handlers[channel] = fn; } }, paths: { userData: f.userData }, tosu: {}, send: () => {}, log: () => {},
+        localProfile: { osuFolder: async () => f.game }, interlude: il.interlude,
+    });
+    const listed = await handlers["replay-list"](null, { titles: false });
+    assert.equal(listed.items[0].kind, "interlude");
+    const opened = await handlers["replay-open"](null, { play: il.play(Date.UTC(2026, 9, 9)) });
+    assert.deepEqual([opened.ok, opened.replay.source, opened.analysis.source, opened.ruleset.id, opened.map.title], [true, "interlude", "interlude", "osu-od8", "Interlude Roll"]);
+    assert.equal((await handlers["replay-audio"](null, { id: opened.id })).data.toString(), "OggSfake");
+    assert.deepEqual(await handlers["replay-bias"](null, { id: opened.id }), { ok: true, id: opened.id, plays: [], position: null });
+    const earlier = await handlers["replay-earlier"](null, { id: opened.id });
+    assert.deepEqual([earlier.total, earlier.plays.map((p) => p.at)], [1, [Date.UTC(2025, 0, 1)]]);
+    const osr = await handlers["replay-open"](null, { file: path.join(f.game, "Replays", "honest.osr") });
+    assert.deepEqual([osr.ok, osr.replay.player, osr.analysis.source ?? null], [true, "TestPlayer", null]);
+    assert.equal((await handlers["replay-audio"](null, { id: osr.id })).data.toString(), "RIFFfake");
+    assert.equal((await handlers["replay-earlier"](null, { id: opened.id })).stale, true);
+});
+
+// Interlude saving a play into the fixture's scores.db, as it does when one ends
+function saveIlPlay(il, { at, failed = false }) {
+    const db = new DatabaseSync(path.join(il.root, "Data", "scores.db"));
+    db.prepare("INSERT INTO scores (ChartId, Timestamp, Replay, Rate, Mods, IsImported, Keys, IsFailed) VALUES (?, ?, ?, 1, '{}', 0, 4, ?)")
+        .run(il.charts[0].hash, at, il.replay, failed ? 1 : 0);
+    db.close();
+}
+
+test("a play ends in Interlude: its row of scores.db is waited for like osu!'s file and opened by its id; a quit has none", async (t) => {
+    const f = await endedFixture(t);
+    const il = await withInterlude(t);
+    const service = createReplayService({ ...f.opts, interlude: il.interlude });
+    const play = (over = {}) => ({
+        client: "interlude", chart: il.charts[0].hash, rate: 1, startedAt: f.now() - 60_000, endedAt: f.now(), outcome: "finished",
+        artist: "Reader Artist", title: "Reader Title", version: "Reader Diff", ...over,
+    });
+    let at = null;
+    f.later(1_200, () => {
+        at = f.now();
+        saveIlPlay(il, { at });
+    });
+    const out = await service.playEnded(play());
+    assert.deepEqual({ ...out, accuracy: null }, {
+        source: "interlude", play: il.play(at), chart: il.charts[0].hash, outcome: "pass", md5: null, artist: "Artist", title: "Interlude Roll", version: "4K Hard",
+        rate: 1, accuracy: null, at, file: null, reason: null, moved: false,
+    }, "the chart's names from the library, the time the play was saved");
+    assert.ok(out.accuracy > 90 && out.accuracy <= 100);
+    assert.deepEqual(f.sent, [["replay-ended", out]]);
+    const opened = await service.open({ play: out.play });
+    assert.deepEqual([opened.ok, opened.replay.play], [true, out.play], "the tab opens it by that id");
+
+    f.sent.length = 0;
+    await f.opts.sleep(60_000); // the next play begins well after that one was saved
+    const from = f.now();
+    const quit = await service.playEnded(play({ startedAt: from - 1_000, endedAt: from, outcome: "quit" }));
+    assert.deepEqual([quit.play, quit.outcome, quit.reason, quit.title], [null, "quit", "none", "Reader Title"], "a quit: nothing saved, the reader's names");
+    assert.ok(f.now() - from < 3_000);
+
+    f.sent.length = 0;
+    const later = f.now();
+    let failedAt = null;
+    f.later(5_000, () => {
+        failedAt = f.now();
+        saveIlPlay(il, { at: failedAt, failed: true });
+    });
+    const failed = await service.playEnded(play({ startedAt: later - 3_000, endedAt: later }));
+    assert.deepEqual([failed.play, failed.outcome], [il.play(failedAt), "fail"]);
+    assert.deepEqual(f.sent.map(([, p]) => [p.waiting ?? false, p.play]), [[true, null], [false, il.play(failedAt)]], "told it is on its way, then the play");
+
+    // the score screen before the chart's end comes as a quit (app/interludeLive.js): a play failed partway was saved
+    // as it ended, so its row is found in the quit's short wait and it is a fail all the same, with no note on the way
+    await f.opts.sleep(60_000);
+    f.sent.length = 0;
+    const cut = f.now();
+    saveIlPlay(il, { at: cut - 50, failed: true });
+    const early = await service.playEnded(play({ startedAt: cut - 20_000, endedAt: cut, outcome: "quit" }));
+    assert.deepEqual([early.play, early.outcome, early.reason], [il.play(cut - 50), "fail", null]);
+    assert.deepEqual(f.sent.map(([, p]) => p.waiting ?? false), [false]);
+    assert.ok(f.now() - cut < 1_000);
+});
+
+test("a play ends in Interlude: a newer play's end or the switch ends the wait; nothing came is 'none'; no folder says so; osu!'s path as it was", async (t) => {
+    const f = await endedFixture(t);
+    const il = await withInterlude(t);
+    const service = createReplayService({ ...f.opts, interlude: il.interlude });
+    const play = (over = {}) => ({ client: "interlude", chart: il.charts[0].hash, rate: 1, startedAt: f.now() - 60_000, endedAt: f.now(), outcome: "finished", ...over });
+
+    let newer = null;
+    f.later(1_000, () => { newer = service.playEnded(play({ startedAt: f.now() - 500, outcome: "quit" })); });
+    assert.equal(await service.playEnded(play()), null, "the first gives way");
+    assert.equal((await newer).reason, "none");
+
+    f.later(1_000, () => service.setAfterPlay({ on: false }));
+    f.sent.length = 0;
+    assert.equal(await service.playEnded(play()), null);
+    assert.equal(f.sent.length, 0);
+    await service.setAfterPlay({ on: true });
+
+    const from = f.now();
+    const none = await service.playEnded(play());
+    assert.deepEqual([none.reason, none.play, none.outcome], ["none", null, "finished"]);
+    assert.ok(f.now() - from >= IL_ENDED_WAIT_MS.finished);
+
+    const unlinked = createReplayService({ ...f.opts, userData: path.join(f.root, "unlinked"), interlude: null });
+    assert.equal((await unlinked.playEnded(play())).reason, "noFolder");
+    assert.equal(await unlinked.playEnded(play({ chart: null })), null, "no chart: nothing to wait for");
+
+    // an osu! play after them is waited for as before
+    const bytes = makeOsr({ md5: f.hash, presses: honestPresses(f.notes), at: f.now() });
+    let written = null;
+    f.during.push(async () => { written = await f.put(`${f.hash}-900.osr`, bytes); });
+    assert.equal((await service.playEnded(f.play({ startedAt: f.now() - 1000 }))).file, written);
 });

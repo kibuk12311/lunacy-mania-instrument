@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { buildHints, biasTells, HINTS } from "../../src/replay/hints.js";
 import { MANIP } from "../../src/replay/manip.js";
 import { PACE } from "../../src/replay/flow.js";
-import { setLang, t } from "../../src/i18n/i18n.js";
+import { setLang, getLang, t } from "../../src/i18n/i18n.js";
 import { AREAS } from "../../src/i18n/messages/index.js";
 
 const apart = HINTS.momentSec + 1; // seconds of play that keep two moments apart
@@ -1153,7 +1153,7 @@ test("the texts: Russian takes the singular after a number ending in 1, and afte
     assert.match(say("replay.hint.hold.late", { n: 11, of: 150 }), /^11 из 150 холдов отпущены поздно/);
     assert.match(say("replay.hint.hold.early", { n: 42, of: 151 }), /^42 из 151 холда отпущены рано/);
     assert.match(say("replay.hint.hold.early", { n: 21, of: 40 }), /^21 из 40 холдов отпущен рано/);
-    for (const key of ["replay.hint.break.shape", "replay.hint.break.none", "replay.hint.break.early", "replay.hint.break.released"]) {
+    for (const key of ["replay.hint.break.shape", "replay.hint.break.none", "replay.hint.break.early", "replay.hint.break.released", "replay.hint.break.off"]) {
         assert.match(say(key, { n: 6, of: 21 }), /^6 из 21 срыва на стримах/, key);
         assert.match(say(key, { n: 6, of: 11 }), /^6 из 11 срывов на стримах/, key);
         assert.match(say(key, { n: 6, of: 22 }), /^6 из 22 срывов на стримах/, key);
@@ -1171,4 +1171,106 @@ test("the texts: Russian takes the singular after a number ending in 1, and afte
 test("the texts: tech reads as a thing that can be glued", () => {
     setLang("ru");
     assert.equal(t("replay.hint.manip.family", { families: t("replay.hint.many.tech"), percent: 15 }), "Сильнее всего склеены тех-паттерны, 15 %.");
+});
+
+// ---- an Interlude play (src/replay/analyzeInterlude.js): no header, exact, judged by its ruleset ----
+const SC_SLOTS = [["Marvellous", "max"], ["Perfect", "n300"], ["Great", "n200"], ["Good", "n100"], ["Bad", "n50"], ["Miss", "miss"]];
+const interlude = (data) => {
+    Object.assign(data.analysis, { source: "interlude", exact: true, holdHeavy: false, comparison: null, ruleset: { name: "SC J4", judgements: SC_SLOTS.map(([name, slot]) => ({ name, slot })) } });
+    data.replay = { modNames: null, rate: 1 };
+    return data;
+};
+
+test("an Interlude play: no header's counts, no mod names, earlier plays without them, and nothing breaks", () => {
+    const data = interlude(quiet());
+    assert.deepEqual(buildHints(data), { top: [], bySection: {} });
+    const worse = 150 + HINTS.earlier.minUr;
+    data.earlier = { plays: [old(worse, 98, { modNames: null }), old(worse, 98, { modNames: null })], total: 2 };
+    assert.deepEqual(ids(data), ["earlier.progress"], "the same mods: none on either side");
+    assert.deepEqual(buildHints({ analysis: null, replay: { modNames: null } }), { top: [], bySection: {} });
+});
+
+test("an Interlude play at a rate: its earlier plays are of its rate as the tab shows it, not as its scores keep it", () => {
+    const data = interlude(quiet());
+    data.analysis.rate = Math.fround(1.1); // 1.100000023841858, what the judging takes
+    data.replay = { modNames: ["MR"], rate: 1.1 };
+    const worse = 150 + HINTS.earlier.minUr;
+    data.earlier = { plays: [old(worse, 98, { rate: 1.1, modNames: ["MR"] }), old(worse, 98, { rate: 1.1, modNames: ["MR"] })], total: 2 };
+    assert.deepEqual(ids(data), ["earlier.progress"]);
+    data.earlier.plays = data.earlier.plays.map((p) => ({ ...p, rate: 1.15 }));
+    assert.deepEqual(ids(data), [], "another rate");
+});
+
+// an Interlude analysis's results and the totals the engine gives with them: a judgement per result and per ghost tap
+// judged (ghostPoints: the points of each), the accuracy their points over their count
+const judgedPlay = (analysis, results, ghostPoints = []) => {
+    const points = [...results.map((r) => r.points), ...ghostPoints];
+    Object.assign(analysis, {
+        results, judgementCounts: [points.length, 0, 0, 0, 0, 0], accuracy: (points.reduce((a, b) => a + b, 0) / points.length) * 100,
+    });
+};
+
+test("an Interlude play: the accuracy lost to misses by its ruleset's points, in words true below 0 %", () => {
+    const judged = (n, kind, points, from) => Array.from({ length: n }, (_, i) => result((from + i) * 100, i % 4, { kind, points, weight: 1 }));
+    const data = interlude(quiet());
+    judgedPlay(data.analysis, [...judged(900, "max", 1, 0), ...judged(80, "n200", 0.5, 900), ...judged(20, "miss", -1, 980)]);
+    // lost: 80 × 0.5 + 20 × 2 of 1000 = 8 %; on misses 20 × 2 = 4 %
+    const h = fires(data, "judgements.misses");
+    assert.equal(h.key, "replay.hint.judge.mostlyMissesIl");
+    assert.deepEqual(h.params, { lost: 8, misses: 4 });
+    // SC takes a point away for a miss: 60 misses of 100 notes leave the accuracy at −20 %, 120 % short of 100 %
+    const poor = interlude(quiet());
+    judgedPlay(poor.analysis, [...judged(40, "max", 1, 0), ...judged(60, "miss", -1, 40)]);
+    const below = fires(poor, "judgements.misses");
+    assert.equal(below.key, "replay.hint.judge.mostlyMissesIl");
+    assert.deepEqual(below.params, { lost: 120, misses: 120 });
+    const was = getLang();
+    for (const lang of ["ru", "en"]) {
+        setLang(lang);
+        assert.match(t(below.key, { lost: 120, misses: 120 }), lang === "ru" ? /^До 100 % точности не хватает 120 %/ : /^The accuracy is 120 % short of 100 %/);
+    }
+    setLang(was);
+    // a ruleset with a GhostTapJudgement scores presses that met no note: what is lost is the play's own accuracy's
+    // shortfall, those judgements counted too, never more or less than the accuracy shown says
+    const ghosts = interlude(quiet());
+    judgedPlay(ghosts.analysis, [...judged(900, "max", 1, 0), ...judged(80, "n200", 0.5, 900), ...judged(20, "miss", -1, 980)], [-1, -1, -1]);
+    const withGhosts = fires(ghosts, "judgements.misses");
+    assert.equal(withGhosts.params.lost, Math.round((100 - ghosts.analysis.accuracy) * 10) / 10);
+    assert.equal(withGhosts.params.lost, 8.6, "920 − 3 points of 1003 judgements");
+    assert.equal(withGhosts.params.misses, 4, "the notes' misses, 40 points of 1003");
+    notWhole(data);
+    assert.equal(fires(data, "judgements.misses"), null, "a failed play: not the whole map");
+});
+
+test("an Interlude play: the window that lets glued notes through is told without osu!'s OD", () => {
+    const data = interlude(manipPlay());
+    const h = fires(data, "manip.family");
+    assert.equal(h.key, "replay.hint.manip.familyForgivenIl");
+    assert.deepEqual(h.params, { families: "jumpstream", percent: 60, judgement: "Perfect" });
+    data.analysis.results = data.analysis.results.map((r) => ({ ...r, kind: "n100" }));
+    assert.equal(fires(data, "manip.family").key, "replay.hint.manip.family");
+});
+
+test("an Interlude play: no HitPosition hint, its counts are exact, a break judged too far off is told as such", () => {
+    assert.ok(fires(leaning(P.minMs), "errors.position"));
+    assert.equal(fires(interlude(leaning(P.minMs)), "errors.position"), null);
+    const uneven = interlude(unevenPlay(30, (d) => {
+        d.report.fingers[3].breaks = 6;
+        d.report.breaks = new Array(23).fill({ shape: null, cause: "none", part: null });
+    }));
+    uneven.analysis.holds = true;
+    assert.equal(fires(uneven, "fingers.uneven", fingerLimits()).key, "replay.hint.finger.unevenBreaks", "exact, holds or not");
+    uneven.analysis.exact = false;
+    assert.equal(fires(uneven, "fingers.uneven", fingerLimits()).key, "replay.hint.finger.uneven");
+    const off = fires(breakPlay(onJumps(6, 2, "off")), "breaks.shape", breakLimits());
+    assert.equal(off.key, "replay.hint.break.off", "pressed, but judged too far off to keep the combo");
+    assert.deepEqual(off.params, { n: 6, of: 8, shape: "jump" });
+});
+
+test("breaks: whatever the cause, the hint's text is there in both languages", () => {
+    for (const cause of ["none", "early", "released", "off", "unheard-of"]) {
+        const { key } = fires(breakPlay(onJumps(6, 2, cause)), "breaks.shape", breakLimits());
+        const entry = AREAS.replay[key];
+        assert.ok(entry && entry.ru && entry.en, `${cause}: ${key}`);
+    }
 });

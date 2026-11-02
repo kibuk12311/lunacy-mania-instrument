@@ -4,15 +4,19 @@
 // press; a missed one falls on through. The stage is cut out of osu!'s 640 × 480 so it fills the height; what is left of
 // the width beside it holds combo, accuracy and the judgements so far. Space plays, ←/→ move 2 s, the wheel 0.25 s.
 // Notes fall the way the skin says (its UpsideDown) until the direction button is used; the button's word is then kept.
+// An Interlude play speaks its ruleset's words: its judgements' names and colours, its points for the accuracy, a combo
+// that breaks where the ruleset says, and the judgement as coloured text (an osu! skin has no pictures for them).
 import { t } from "../../src/i18n/i18n.js";
 import { createStagePainter, STAGE_H, columnLefts } from "./skinStage.js";
 import { KINDS as KIND_LIST, playedColumn, accuracyPercent } from "../../src/replay/judge.js";
 import { manipPairs, MANIP, HANDS } from "../../src/replay/manip.js";
 import { KEYS } from "../../src/skin/maniaFields.js";
+import { shortJudgement } from "../../src/overlay/interludeData.js";
 
 export const KIND_COLOUR = { max: "#8fd3ff", n300: "#7be08f", n200: "#f5c66b", n100: "#ffb36b", n50: "#c9a2ff", miss: "#ff8f8f" };
 export const KIND_IMAGE = { max: "Hit300g", n300: "Hit300", n200: "Hit200", n100: "Hit100", n50: "Hit50", miss: "Hit0" };
 export const KIND_LABEL = { max: "MAX", n300: "300", n200: "200", n100: "100", n50: "50", miss: "MISS" };
+const STRAY_COLOUR = "#6b667a";
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
 const SCROLL = { min: 10, max: 40, initial: 24 };
 const SCROLL_KEY = "replay-scroll";
@@ -23,8 +27,9 @@ const TAIL_MS = 1500;
 const SEEK_MS = 2000;
 const WHEEL_MS = 250;
 const TICK_UNITS = 3;
-const STRAY_COLOUR = "#6b667a";
 const MANIP_COLOUR = "#ff9ad5";
+const POPUP_UNITS = 20; // an Interlude judgement's text, in stage units, before it is fitted to the stage
+const POPUP_MS = 450;
 const STAGE_MARGIN_PX = 10;
 const PANEL_MIN_PX = 96;
 
@@ -70,13 +75,45 @@ export function playTime(mapMs, rate = 1) {
 // Whether the stage is upside down: the button's "1" / "0" once it was used, the skin's UpsideDown before that.
 export const stageIsUp = (choice, cfg) => (choice === null ? Boolean(cfg?.upsideDown) : choice === "1");
 
+// Whether an analysis is of an Interlude play, judged by its ruleset (src/replay/analyzeInterlude.js).
+export const fromInterlude = (analysis) => analysis?.source === "interlude";
+
+const hasWindow = (j) => j.early !== null && j.early !== undefined && j.late !== null && j.late !== undefined;
+
+// The ruleset judgement an error of `ms` real ms (late above 0) falls in: the first whose window holds it, the widest past
+// them all. judgements: analysis.ruleset.judgements, windows in real ms.
+export function judgementOfMs(judgements, ms) {
+    let widest = judgements.length - 1;
+    for (let i = 0; i < judgements.length; i += 1) {
+        if (!hasWindow(judgements[i])) continue;
+        if (ms >= -Math.abs(judgements[i].early) && ms <= Math.abs(judgements[i].late)) return i;
+        widest = i;
+    }
+    return widest;
+}
+
+// The widest side of any of the ruleset's windows, real ms.
+export const rulesetReach = (judgements) => Math.max(1, ...judgements.filter(hasWindow).map((j) => Math.max(Math.abs(j.early), Math.abs(j.late))));
+
+// result → its colour: osu!'s six, or the ruleset's colour of the note's judgement (grey for a note that got none).
+export function resultColour(analysis) {
+    if (!fromInterlude(analysis)) return (r) => KIND_COLOUR[r.kind];
+    const { judgements } = analysis.ruleset;
+    return (r) => judgements[r.j]?.color ?? STRAY_COLOUR;
+}
+
 // What the view needs of an opened replay, in lists it can search:
-// notes [{ t, col, end, gone }] played columns; holds' reach; presses per column; what each press did; the judged notes
-// in judging order with their running totals.
+// notes [{ t, col, end, gone }] played columns; holds' reach; presses per column; the colour of what each press did; the
+// running totals and combo (osu!'s from the judged notes in judging order, an Interlude play's from its analysis's
+// steps); an Interlude play's ruleset. A failed Interlude play's stage also draws the holds whose head was judged but
+// whose end never came (analysis.unfinished), as its HUD counts their heads.
 export function playbackData({ map, presses, analysis, modNames = [], hands = HANDS }) {
     const results = analysis?.results ?? null;
-    const notes = results
-        ? results.map((r) => ({ t: r.t, col: r.col, end: r.end, gone: r.end === null && r.press !== null ? r.press : Infinity }))
+    const ruleset = fromInterlude(analysis) ? analysis.ruleset : null;
+    const unfinished = (results && analysis.unfinished) || [];
+    const onStage = unfinished.length ? [...results, ...unfinished].sort((a, b) => a.t - b.t || a.col - b.col) : results;
+    const notes = onStage
+        ? onStage.map((r) => ({ t: r.t, col: r.col, end: r.end, gone: r.end === null && r.press !== null ? r.press : Infinity }))
         : map.notes.map((n) => ({ t: n.t, col: playedColumn(n.col, modNames), end: n.end, gone: Infinity }));
     const reach = [];
     let far = -Infinity;
@@ -84,24 +121,91 @@ export function playbackData({ map, presses, analysis, modNames = [], hands = HA
         far = Math.max(far, n.end ?? n.t);
         reach.push(far);
     }
+    const colourOf = resultColour(analysis);
+    // a press's colour: its note's judgement. A failed Interlude play's hold whose end never came (unfinished, or let go
+    // before the last frame) has none when the ruleset judges a hold only at its end, though the HUD counted its head:
+    // the judgement the head's error falls in (a head missed and grabbed later: the miss, the last judgement)
+    const pressColour = (r) => {
+        if (!ruleset || r.j !== null || r.end === null) return colourOf(r);
+        const j = r.delta === null ? ruleset.judgements.length - 1 : judgementOfMs(ruleset.judgements, r.delta);
+        return colourOf({ ...r, j });
+    };
     const ofPress = presses.map(() => new Map());
-    for (const r of results ?? []) if (r.press !== null) ofPress[r.col].set(r.press, r.kind);
-    const hits = presses.map((_, c) => (results ?? []).filter((r) => r.col === c && r.press !== null).map((r) => r.press).sort((a, b) => a - b));
-    const judged = [...(results ?? [])].sort((a, b) => a.at - b.at);
-    const totals = [];
-    const counts = Object.fromEntries(KIND_LIST.map((k) => [k, 0]));
-    let combo = 0;
-    for (const r of judged) {
-        counts[r.kind] += 1;
-        combo = r.kind === "miss" ? 0 : combo + 1;
-        totals.push({ at: r.at, combo, kind: r.kind, counts: { ...counts } });
+    for (const r of [...(results ?? []), ...unfinished]) if (r.press !== null) ofPress[r.col].set(r.press, pressColour(r));
+    const hits = presses.map((_, c) => (onStage ?? []).filter((r) => r.col === c && r.press !== null).map((r) => r.press).sort((a, b) => a - b));
+    let totals = [];
+    let combos = [];
+    if (ruleset) {
+        ({ totals, combos } = rulesetTotals(analysis.steps ?? [], ruleset));
+    } else {
+        const judged = [...(results ?? [])].sort((a, b) => a.at - b.at);
+        const counts = Object.fromEntries(KIND_LIST.map((k) => [k, 0]));
+        let combo = 0;
+        for (const r of judged) {
+            counts[r.kind] += 1;
+            combo = r.kind === "miss" ? 0 : combo + 1;
+            totals.push({ at: r.at, combo, kind: r.kind, counts: { ...counts } });
+        }
+        combos = totals.map((x) => ({ at: x.at, combo: x.combo }));
     }
     const pairs = results ? manipPairs(results, analysis.rate, MANIP, hands) : [];
-    const holds = presses.map((_, c) => (results ?? []).filter((r) => r.col === c && r.end !== null && r.press !== null).map((r) => ({ t: r.press, end: r.end })));
-    return { notes, reach, presses, ofPress, hits, holds, totals, marks: pairs.filter((p) => p.glued), pairs };
+    const holds = presses.map((_, c) => (onStage ?? []).filter((r) => r.col === c && r.end !== null && r.press !== null).map((r) => ({ t: r.press, end: r.end })));
+    return { notes, reach, presses, ofPress, hits, holds, totals, combos, marks: pairs.filter((p) => p.glued), pairs, ruleset };
 }
 
-// What the keys are doing at a moment: { pressed, hold, lastHit, judgement } for the stage.
+// The combo at a moment: as the last change at or before it left it.
+export function comboAt(data, now) {
+    const i = lastAtOrBefore(data.combos, now, (c) => c.at);
+    return i >= 0 ? data.combos[i].combo : 0;
+}
+
+// An Interlude play's running numbers, as the analysis's steps give them (src/replay/analyzeInterlude.js: one per event of
+// Interlude's judging that changed the combo or gave a judgement, in the order the judging made them, so nothing is
+// worked out again here): combos [{ at, combo }], and totals at each judgement: the counts per ruleset judgement, the
+// points and judgements so far for the accuracy (Σpoints / Σjudgements), the judgement just given for the text on the
+// stage.
+function rulesetTotals(steps, ruleset) {
+    const combos = steps.map((s) => ({ at: s.t, combo: s.combo }));
+    const totals = [];
+    const counts = ruleset.judgements.map(() => 0);
+    let points = 0;
+    let weight = 0;
+    for (const s of steps) {
+        if (s.j === null || s.j === undefined) continue;
+        counts[s.j] += 1;
+        points += s.points;
+        weight += 1;
+        totals.push({ at: s.t, combo: s.combo, j: s.j, points, weight, counts: [...counts] });
+    }
+    return { totals, combos };
+}
+
+// The running accuracy at a total, percent: osu!'s from the counts, an Interlude play's from its points.
+export function totalAccuracy(data, total) {
+    if (!total) return null;
+    if (!data.ruleset) return accuracyPercent(total.counts);
+    return total.weight ? (total.points / total.weight) * 100 : null;
+}
+
+// An Interlude accuracy (percent) the way Interlude writes it by default: two decimals, more above 99.98 %, so a play
+// short of 100 % never reads 100.00 % (src/interlude/ruleset.js formatAccuracy); ilAccDigits without the sign.
+export function ilAccDigits(x) {
+    if (x === null || x === undefined) return "—";
+    if (x === 100) return "100.00";
+    return x.toFixed(x > 99.998 ? 4 : x > 99.98 ? 3 : 2);
+}
+export const ilAccText = (x) => (x === null || x === undefined ? "—" : `${ilAccDigits(x)} %`);
+
+// An Interlude play's judgement at a moment, to be drawn as text: { text, colour, since } | null.
+export function popupAt(data, now) {
+    if (!data.ruleset) return null;
+    const j = lastAtOrBefore(data.totals, now, (x) => x.at);
+    const judgement = j >= 0 ? data.ruleset.judgements[data.totals[j].j] : null;
+    return judgement ? { text: judgement.name, colour: judgement.color, since: now - data.totals[j].at } : null;
+}
+
+// What the keys are doing at a moment: { pressed, hold, lastHit, judgement } for the stage (an Interlude play's judgement
+// is not a skin's picture: popupAt).
 export function keysAt(data, now) {
     const pressed = [];
     const hold = [];
@@ -117,9 +221,12 @@ export function keysAt(data, now) {
         hold.push(down && held >= 0 && data.holds[c][held].end > now);
     }
     const j = lastAtOrBefore(data.totals, now, (x) => x.at);
-    const judgement = j >= 0 ? { key: KIND_IMAGE[data.totals[j].kind], since: now - data.totals[j].at } : null;
+    const judgement = j >= 0 && !data.ruleset ? { key: KIND_IMAGE[data.totals[j].kind], since: now - data.totals[j].at } : null;
     return { pressed, hold, lastHit, judgement };
 }
+
+// The mods that move notes on the stage: osu!'s Mirror; an Interlude play's notes come as played, its mods already in.
+const playedMods = (opened) => (opened.replay.source === "interlude" ? [] : opened.replay.modNames);
 
 // canvas: the stage; controls: where the buttons go; player: replayPlayer.js.
 export function createReplayView({ canvas, controls, player }) {
@@ -210,24 +317,51 @@ export function createReplayView({ canvas, controls, player }) {
         ctx.textAlign = "left";
         let y = 22;
         write(t("replay.hud.combo"), y);
-        write(String(cur?.combo ?? 0), y + 22, { size: 20, colour: "#eeeeee", weight: "600" });
+        write(String(comboAt(data, now)), y + 22, { size: 20, colour: "#eeeeee", weight: "600" });
         y += 48;
         write(t("replay.hud.accuracy"), y);
-        const acc = cur ? accuracyPercent(cur.counts) : null;
-        write(acc === null ? "—" : `${acc.toFixed(2)} %`, y + 19, { size: 15, colour: "#eeeeee", weight: "600" });
+        const acc = totalAccuracy(data, cur);
+        const accText = data.ruleset ? ilAccText(acc) : acc === null ? "—" : `${acc.toFixed(2)} %`;
+        write(accText, y + 19, { size: 15, colour: "#eeeeee", weight: "600" });
         y += 42;
         write(t("replay.hud.manip"), y);
         write(seen >= 0 ? `${((glued / (seen + 1)) * 100).toFixed(1)} %` : "—", y + 19, { size: 15, colour: MANIP_COLOUR, weight: "600" });
         y += 42;
-        for (const kind of KIND_LIST) {
-            write(KIND_LABEL[kind], y, { colour: KIND_COLOUR[kind], size: 12, weight: "600" });
+        const lines = data.ruleset
+            ? data.ruleset.judgements.map((jd, i) => ({ label: shortJudgement(jd.name), colour: jd.color, n: cur?.counts[i] ?? 0 }))
+            : KIND_LIST.map((kind) => ({ label: KIND_LABEL[kind], colour: KIND_COLOUR[kind], n: cur?.counts[kind] ?? 0 }));
+        for (const line of lines) {
+            write(line.label, y, { colour: line.colour, size: 12, weight: "600" });
             ctx.textAlign = "right";
             ctx.font = `${px(12)}px "Segoe UI", sans-serif`;
             ctx.fillStyle = "#cccccc";
-            ctx.fillText(String(cur?.counts[kind] ?? 0), x + px(PANEL_MIN_PX - 26), px(y));
+            ctx.fillText(String(line.n), x + px(PANEL_MIN_PX - 26), px(y));
             ctx.textAlign = "left";
             y += 18;
         }
+    }
+
+    // an Interlude play's judgement, centred on the stage at the skin's ScorePosition: a quick pop, then a fade, as
+    // skinStage.js draws osu!'s pictures; the text shrinks to fit the stage
+    function drawPopup(ctx, popup, { stageL, stageR, up }) {
+        if (!popup || popup.since >= POPUP_MS) return;
+        const k = popup.since < 60 ? 1.25 - popup.since / 240 : 1;
+        const room = Math.max(10, stageR - stageL - 8);
+        let size = POPUP_UNITS * k;
+        ctx.save();
+        ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
+        const wide = ctx.measureText(popup.text).width;
+        if (wide > room) {
+            size = (size * room) / wide;
+            ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
+        }
+        ctx.globalAlpha = popup.since > 300 ? 1 - (popup.since - 300) / 150 : 1;
+        ctx.fillStyle = popup.colour;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const y = cfg.scorePosition ?? STAGE_H * 0.6;
+        ctx.fillText(popup.text, (stageL + stageR) / 2, up ? STAGE_H - y : y);
+        ctx.restore();
     }
 
     function draw() {
@@ -286,8 +420,7 @@ export function createReplayView({ canvas, controls, player }) {
                     for (let i = first; i < list.length && list[i].t <= to; i += 1) {
                         const y = yOf(list[i].t);
                         if (y > hit + 40) continue;
-                        const kind = data.ofPress[c]?.get(list[i].t);
-                        box(xs[c] + 2, y - TICK_UNITS / 2, widths[c] - 4, TICK_UNITS, kind ? KIND_COLOUR[kind] : STRAY_COLOUR);
+                        box(xs[c] + 2, y - TICK_UNITS / 2, widths[c] - 4, TICK_UNITS, data.ofPress[c]?.get(list[i].t) ?? STRAY_COLOUR);
                     }
                 }
                 ctx.strokeStyle = MANIP_COLOUR;
@@ -303,6 +436,7 @@ export function createReplayView({ canvas, controls, player }) {
                 }
             },
         });
+        drawPopup(ctx, popupAt(data, now), { stageL, stageR, up });
         ctx.restore();
         const panelX = (STAGE_MARGIN_PX + stageW * scale + 12) * ratio;
         if ((cssW - STAGE_MARGIN_PX - stageW * scale - 12) >= PANEL_MIN_PX - 26) drawPanel(ctx, now, panelX, ratio);
@@ -346,7 +480,7 @@ export function createReplayView({ canvas, controls, player }) {
         setReplay(opened, hands) {
             source = opened;
             rate = opened.replay.rate;
-            data = playbackData({ map: opened.map, presses: opened.presses, analysis: opened.analysis, modNames: opened.replay.modNames, hands });
+            data = playbackData({ map: opened.map, presses: opened.presses, analysis: opened.analysis, modNames: playedMods(opened), hands });
             const first = data.notes[0]?.t ?? 0;
             const end = Math.max(data.reach.at(-1) ?? 0, opened.analysis?.reachedMs ?? 0);
             player.setRange(first - LEAD_MS, end + TAIL_MS);
@@ -359,7 +493,7 @@ export function createReplayView({ canvas, controls, player }) {
         // the fingers changed: the same replay with other manip pairs, the clock where it is
         setHands(hands) {
             if (!source) return;
-            data = playbackData({ map: source.map, presses: source.presses, analysis: source.analysis, modNames: source.replay.modNames, hands });
+            data = playbackData({ map: source.map, presses: source.presses, analysis: source.analysis, modNames: playedMods(source), hands });
             draw();
         },
         // cfg: maniaConfig; pictures: value → { img, hd } | null

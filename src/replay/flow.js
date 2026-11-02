@@ -1,7 +1,7 @@
 // How a play went along the map: the timing from start to end, keys pressed against notes written, presses that met no note,
 // combo breaks with their place and the pattern under them, and the parts of the map and the pattern families one by one.
 // Each answer is null or empty when the play gives no data for it; nothing here is a made-up zero. Pure.
-import { countKinds, accuracyPercent } from "./judge.js";
+import { resultsAccuracy } from "./judge.js";
 import { spread, unstableRate } from "./analyze.js";
 import { manipByPart } from "./manip.js";
 
@@ -15,7 +15,7 @@ const SHAPE_ROWS = 3; // rows looked at on each side of the note
 export const HARDEST = 3;
 
 const round1 = (x) => (x === null || x === undefined ? null : Math.round(x * 10) / 10);
-const accuracyIn = (list) => (list.length ? accuracyPercent(countKinds(list)) : null);
+const accuracyIn = (list) => (list.length ? resultsAccuracy(list) : null);
 const groupUr = (list, min = 2) => {
     const deltas = list.filter((r) => r.delta !== null).map((r) => r.delta);
     return deltas.length >= min ? unstableRate(deltas) : null;
@@ -129,15 +129,21 @@ export function shapeAt(results, i, rate = 1) {
 }
 
 // The combo breaks with their place: [{ t, col, combo, cause, shape, part }]. cause: "early" (pressed too soon), "released"
-// (a hold let go), "none" (no press in time). part: index into parts, null outside them.
+// (a hold let go), "off" (pressed or let go in time but too far from the note: an Interlude ruleset breaks the combo on
+// more than a miss; osu! never gives it, a pressed note there is not a break), "none" (no press in time). part: index
+// into parts, null outside them.
 export function comboBreaks(analysis) {
     const { results, rate, parts = [] } = analysis;
     const index = new Map(results.map((r, i) => [`${r.t}:${r.col}`, i]));
     return analysis.combo.breaks.map((b) => {
         const i = index.get(`${b.t}:${b.col}`);
         const r = results[i];
-        const cause = r?.early ? "early" : r && r.end !== null && r.press !== null ? "released" : "none";
-        const part = parts.findIndex((p) => b.t >= p.fromMs && b.t < p.toMs);
+        // an osu! result has no `dropped`: its pressed holds that break were let go. An Interlude one's tells whether the key
+        // went up before the end; a hold pressed after its window and held to the end was not let go, it is "off".
+        const released = r && r.end !== null && r.press !== null && r.dropped !== false;
+        const cause = r?.early ? "early" : released ? "released" : r && r.press !== null ? "off" : "none";
+        const when = b.at ?? b.t; // an Interlude hold broken after its head: where that was
+        const part = parts.findIndex((p) => when >= p.fromMs && when < p.toMs);
         return { ...b, cause, shape: i === undefined ? null : shapeAt(results, i, rate), part: part < 0 ? null : part };
     });
 }

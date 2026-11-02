@@ -6,7 +6,9 @@
 // is not said: a number with too little behind it (every rule has a minimum), a count chance gives by itself (chanceOf), what
 // falls together counted as if it fell apart (momentsOf), a play cut short for what needs the whole map, ScoreV2 for what it
 // counts differently, per-note counts on a hold-heavy map whose recount is not exact (src/replay/judge.js), manip that is plain
-// scatter or stands on too few pairs (isLoose, isThin).
+// scatter or stands on too few pairs (isLoose, isThin). An Interlude play (src/replay/analyzeInterlude.js) is judged by its
+// own ruleset, exactly: its points stand for osu!'s, its judgements are named by the ruleset, and what only osu! has
+// (HitPosition, OD) is not said of it.
 // Pure.
 import { labelKey } from "../core/labels.js";
 import { KINDS, accuracyPercent } from "./judge.js";
@@ -106,18 +108,53 @@ function chanceOf(k, n, q) {
     return Math.min(1, sum);
 }
 
-// From the header's counts, osu!'s own, so it needs no map.
-function lostToMisses({ replay, facts }, limits) {
+// What an Interlude play lost, by its ruleset's points (src/replay/analyzeInterlude.js): each judgement is worth at most 1,
+// so a note lost its weight less its points; a miss can lose more than its own share (SC takes points away for one).
+// What was lost in all is the play's own: 100 % less its accuracy, out of every judgement it got, those of presses that
+// met no note too (a ruleset with a GhostTapJudgement scores them). → { total, misses, lost, onMisses } (judgements,
+// misses, and the two in % of the accuracy).
+function lostByPoints(analysis) {
+    const total = sumOf(analysis.judgementCounts ?? []);
+    if (!total || analysis.accuracy === null || analysis.accuracy === undefined) return null;
+    let onMisses = 0;
+    let misses = 0;
+    for (const r of analysis.results) {
+        if (r.kind === "miss") {
+            misses += 1;
+            onMisses += r.weight - r.points;
+        }
+    }
+    return { total, misses, lost: 100 - analysis.accuracy, onMisses: (onMisses / total) * 100 };
+}
+
+// osu!'s from the header's counts, its own, so it needs no map; Interlude's from the recount, which is its own too, in
+// words of its own: what is lost can pass 100 % there, so it says how far the accuracy is from 100 %.
+function lostToMisses({ replay, analysis, facts }, limits) {
     const own = limits.judgements;
-    if (!replay || facts.scoreV2 || !facts.whole) return null;
-    const { counts } = replay;
-    const total = sumOf(KINDS.map((k) => counts[k]));
-    if (total < own.minNotes || counts.miss < own.minMisses) return null;
-    const lost = 100 - accuracyPercent(counts);
-    const misses = (counts.miss / total) * 100;
+    if (facts.scoreV2 || !facts.whole) return null;
+    const il = analysis?.source === "interlude";
+    let total;
+    let missCount;
+    let lost;
+    let misses;
+    if (il) {
+        const byPoints = lostByPoints(analysis);
+        if (!byPoints) return null;
+        ({ total, misses: missCount, lost, onMisses: misses } = byPoints);
+    } else {
+        const counts = replay?.counts;
+        if (!counts) return null;
+        total = sumOf(KINDS.map((k) => counts[k]));
+        missCount = counts.miss;
+        lost = 100 - accuracyPercent(counts);
+        misses = (counts.miss / total) * 100;
+    }
+    if (total < own.minNotes || missCount < own.minMisses) return null;
     const share = misses / lost;
     if (lost < own.minLost || share < own.minShare) return null;
-    return hint("judgements.misses", "judgements", share >= own.mostShare ? "replay.hint.judge.mostlyMisses" : "replay.hint.judge.misses", { lost: round1(lost), misses: round1(misses) }, own.weight * over(share, own.minShare, limits));
+    const mostly = share >= own.mostShare;
+    const key = il ? (mostly ? "replay.hint.judge.mostlyMissesIl" : "replay.hint.judge.missesIl") : mostly ? "replay.hint.judge.mostlyMisses" : "replay.hint.judge.misses";
+    return hint("judgements.misses", "judgements", key, { lost: round1(lost), misses: round1(misses) }, own.weight * over(share, own.minShare, limits));
 }
 
 function unevenFinger({ report, facts }, limits) {
@@ -167,12 +204,16 @@ function standsOut(group, maxChance, { report, analysis }, { manip: own }) {
     return on >= own.minRuns && chanceOf(on, runs.length, group.length / report.pairs.length) <= maxChance;
 }
 
-// How much of the glued notes were judged 300 or better: the window let them through.
+// How much of the glued notes were judged 300 or better (an Interlude play: its ruleset's judgements in those two slots):
+// the window let them through.
 function forgiven(pairs, results) {
     const kinds = new Map(results.map((r) => [`${r.t}:${r.col}`, r.kind]));
     const notes = pairs.filter((p) => p.glued).flatMap((p) => [kinds.get(`${p.t}:${p.col}`), kinds.get(`${p.tb}:${p.colb}`)]);
     return notes.length ? notes.filter((kind) => kind === "max" || kind === "n300").length / notes.length : 0;
 }
+
+// The worst of an Interlude ruleset's judgements that forgiven counts, by its name: what such notes still got.
+const forgivenName = (ruleset) => (ruleset?.judgements ?? []).filter((j) => j.slot === "max" || j.slot === "n300").at(-1)?.name ?? null;
 
 function gluedFamily({ report, analysis, later }, limits) {
     const own = limits.manip;
@@ -185,8 +226,13 @@ function gluedFamily({ report, analysis, later }, limits) {
     if (!solid.length) return null;
     const top = most(solid, (f) => f.percent);
     if (top.percent < own.minPercent || !standsOut(pairsOf(top.family), own.maxChance, { report, analysis }, limits)) return null;
-    const key = forgiven(pairsOf(top.family), analysis.results) >= own.forgivenShare ? "replay.hint.manip.familyForgiven" : "replay.hint.manip.family";
-    return hint("manip.family", "manip", key, { families: top.family, percent: Math.round(top.percent) }, own.weight * over(top.percent, own.minPercent, limits));
+    const weight = own.weight * over(top.percent, own.minPercent, limits);
+    const params = { families: top.family, percent: Math.round(top.percent) };
+    if (forgiven(pairsOf(top.family), analysis.results) < own.forgivenShare) return hint("manip.family", "manip", "replay.hint.manip.family", params, weight);
+    // osu!'s text speaks of a stricter OD and 100s; an Interlude ruleset has no OD, so it has a text of its own, given the
+    // ruleset's judgement those notes still got
+    if (analysis.source === "interlude") return hint("manip.family", "manip", "replay.hint.manip.familyForgivenIl", { ...params, judgement: forgivenName(analysis.ruleset) }, weight);
+    return hint("manip.family", "manip", "replay.hint.manip.familyForgiven", params, weight);
 }
 
 function gluedHand({ report, analysis }, limits) {
@@ -226,8 +272,10 @@ function columnBias({ analysis }, limits) {
 
 // A lean of the last plays, never of one. HitPosition's step is not told, only its way: the scroll speed behind a step is a
 // community measurement, not verified for stable. At the end of HitPosition's range only the offset is left to try.
-function hitPosition({ bias }, limits) {
+// HitPosition is osu!'s skin: an Interlude play gets none of this.
+function hitPosition({ bias, analysis = null }, limits) {
     const own = limits.position;
+    if (analysis?.source === "interlude") return null;
     const plays = bias?.plays ?? [];
     if (plays.length < own.minPlays || new Set(plays.map((p) => p.md5)).size < own.minMaps) return null;
     const mean = meanOf(plays.map((p) => p.mean));
@@ -340,7 +388,8 @@ function ghostColumn({ report }, limits) {
     return hint("ghosts.column", "ghosts", "replay.hint.ghost.column", { n, of: ghosts.total, col: ghosts.byColumn.indexOf(n) + 1 }, own.weight * over(n / ghosts.total, own.minColumnShare, limits));
 }
 
-const CAUSE_KEY = { none: "replay.hint.break.none", early: "replay.hint.break.early", released: "replay.hint.break.released" };
+// The causes with a text of their own ("off" only an Interlude ruleset gives, flow.js); any other is told by its shape alone.
+const CAUSE_KEY = { none: "replay.hint.break.none", early: "replay.hint.break.early", released: "replay.hint.break.released", off: "replay.hint.break.off" };
 
 // How much of the notes are of a shape, by every few notes on a long map: that tells it as well, in a fraction of the time.
 function shareOfShape({ results, rate }, shape, notes) {
@@ -371,7 +420,7 @@ function breakShape({ report, analysis, facts }, limits) {
     const on = momentsOn(moments, (b) => b.shape === shape);
     if (share / written < own.minLift || on < own.minMoments || chanceOf(on, moments.length, written) > own.maxChance) return null;
     const [cause, sure] = most(counted(shaped.filter((b) => b.shape === shape), "cause"), ([, count]) => count);
-    const worded = sure >= own.minOnShape && sure / n >= own.minCause;
+    const worded = CAUSE_KEY[cause] !== undefined && sure >= own.minOnShape && sure / n >= own.minCause;
     return hint("breaks.shape", "breaks", worded ? CAUSE_KEY[cause] : "replay.hint.break.shape", { n: worded ? sure : n, of: breaks.length, shape }, own.weight * over(share / written, own.minLift, limits));
 }
 
@@ -435,13 +484,16 @@ function weakFamily({ report, later }, limits) {
     return hint("families.weak", "families", "replay.hint.family.weak", { family: worst.family, ur: Math.round(worst.ur), on: best.family, otherUr: Math.round(best.ur) }, own.weight * over(gap, own.minGap, limits));
 }
 
-const sameMods = (a, b) => [...a].sort().join() === [...b].sort().join();
+const sameMods = (a, b) => [...(a ?? [])].sort().join() === [...(b ?? [])].sort().join();
 
-// Against the last plays of the map at the same rate and mods, each played to the end, each recount told as it is.
+// Against the last plays of the map at the same rate and mods, each played to the end, each recount told as it is. The
+// earlier plays' rates are as the play's own is shown (replay.rate: an Interlude play's analysis judges by the float32
+// its scores keep, 1.100000023841858, the tab and its earlier plays say 1.1; an osu! play's are the same number).
 function quietProgress({ analysis, replay, earlier, facts }, limits) {
     const own = limits.earlier;
     if (!facts.whole || !facts.exact || facts.scoreV2 || analysis.ur === null || analysis.accuracy === null) return null;
-    const same = (earlier?.plays ?? []).filter((p) => p.whole !== false && p.exact !== false && p.ur !== null && p.accuracy !== null && p.rate === analysis.rate && sameMods(p.modNames, replay.modNames));
+    const rate = replay?.rate ?? analysis.rate;
+    const same = (earlier?.plays ?? []).filter((p) => p.whole !== false && p.exact !== false && p.ur !== null && p.accuracy !== null && p.rate === rate && sameMods(p.modNames, replay?.modNames));
     if (same.length < own.minPlays) return null;
     const last = same.slice(0, own.plays);
     const better = meanOf(last.map((p) => p.ur)) - analysis.ur;
@@ -456,12 +508,14 @@ const RULES = [
     ghostColumn, breakShape, breakPart, hardestPart, danStep, weakFamily, quietProgress,
 ];
 
-// What is known of the play's numbers. exact: the recount's per-note counts can be told as they are.
+// What is known of the play's numbers. exact: the recount's per-note counts can be told as they are (an Interlude play's
+// always: they are Interlude's own judging, src/replay/analyzeInterlude.js).
 function factsOf({ analysis, replay }) {
-    const scoreV2 = analysis ? analysis.scoreV2 : Boolean(replay?.modNames?.includes("V2"));
+    const scoreV2 = analysis ? Boolean(analysis.scoreV2) : Boolean(replay?.modNames?.includes("V2"));
+    const recounted = () => (scoreV2 ? !analysis.holds : !analysis.holdHeavy || Boolean(analysis.comparison?.same));
     return {
         scoreV2, whole: !analysis || analysis.played >= analysis.notes,
-        exact: Boolean(analysis) && (scoreV2 ? !analysis.holds : !analysis.holdHeavy || Boolean(analysis.comparison?.same)),
+        exact: Boolean(analysis) && (typeof analysis.exact === "boolean" ? analysis.exact : recounted()),
     };
 }
 

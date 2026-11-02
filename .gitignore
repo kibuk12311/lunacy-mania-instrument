@@ -13,3 +13,4 @@ models/mapper-xgb3.json
 models/critic.json
 models/archive/
 extension/build/
+tests/smoke/replay-out/

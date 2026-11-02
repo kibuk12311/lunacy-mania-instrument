@@ -1,4 +1,5 @@
-// "replay" texts (the Replay tab: replays of osu!mania 4K, app/replayIpc.js, app/renderer/replayTab.js): key → { ru, en }.
+// "replay" texts (the Replay tab: replays of osu!mania 4K and Interlude's 4K plays, app/replayIpc.js,
+// app/renderer/replayTab.js): key → { ru, en }. A text that would be false for an Interlude play has an "Il" twin.
 // «со 120», but «с 90» and «с 200»
 const fromNumber = (n) => (Number(n) >= 100 && Number(n) < 200 ? "со" : "с");
 // Whether a number takes the singular: «из 21 холда», «из 12,5 нажатия», but «из 11 холдов», «из 22 холдов»
@@ -63,6 +64,10 @@ export default {
         ru: "osu! stable сам сохраняет реплей каждой засчитанной игры в Data\\r. Если напротив игры есть кнопка, реплей нашёлся.",
         en: "osu! stable keeps a replay of every saved score in Data\\r by itself. A play with a button below has one.",
     },
+    "replay.game.howIl": {
+        ru: "Interlude хранит реплей каждой сохранённой игры в своей базе, так что у его игр он тоже есть.",
+        en: "Interlude keeps the replay of every saved play in its own database, so its plays have one too.",
+    },
     "replay.game.recent": { ru: "Последние игры", en: "Recent plays" },
     "replay.game.none": { ru: "В профиле пока нет игр. Включи запись в ⚙ Настройки или импортируй историю на вкладке «Профиль».", en: "No plays in the profile yet. Turn recording on in ⚙ Settings or import your history on the Profile tab." },
     "replay.game.open": { ru: "Открыть реплей", en: "Open the replay" },
@@ -79,6 +84,22 @@ export default {
     "replay.list.unknownMap": { ru: "карта {md5}…", en: "map {md5}…" },
     "replay.list.readOnly": { ru: "Папка osu! только читается.", en: "The osu! folder is only read." },
     "replay.list.title": { ru: "{map}: точность {acc} %, промахов {miss}", en: "{map}: accuracy {acc} %, {miss} misses" },
+    "replay.list.interlude": { ru: "Interlude", en: "Interlude" },
+    "replay.list.failed": { ru: "не пройдена", en: "failed" },
+    "replay.list.unknownChart": { ru: "чарт {hash}…", en: "chart {hash}…" },
+    "replay.list.onlyInterlude": {
+        ru: "Папка osu! не найдена: здесь только игры Interlude. Запусти osu! stable или выбери папку.",
+        en: "The osu! folder was not found: only Interlude's plays are here. Start osu! stable or pick the folder.",
+    },
+    "replay.list.ilMissing": {
+        ru: "Папка Interlude не найдена или не читается: проверь её в ⚙ Настройки → Interlude.",
+        en: "Interlude's folder was not found or cannot be read: check it in ⚙ Settings → Interlude.",
+    },
+    "replay.list.emptyIl": { ru: "В Interlude пока нет сохранённых игр.", en: "No saved plays in Interlude yet." },
+    "replay.list.emptyBoth": {
+        ru: "В папках Replays и Data\\r нет реплеев osu!mania, а в Interlude нет сохранённых игр.",
+        en: "No osu!mania replays in the Replays and Data\\r folders, and no saved plays in Interlude.",
+    },
 
     // opening
     "replay.pickTitle": { ru: "Реплей osu!", en: "osu! replay" },
@@ -87,6 +108,7 @@ export default {
     "replay.err.notReplay": { ru: "Это не .osr.", en: "That is not an .osr." },
     "replay.err.notOsuFolder": { ru: "Здесь нет osu! stable: выбери папку, где лежит osu!.exe, или любую внутри неё.", en: "No osu! stable here: pick the folder with osu!.exe, or any folder inside it." },
     "replay.err.noFile": { ru: "Файла больше нет.", en: "The file is gone." },
+    "replay.err.noPlay": { ru: "Этой игры больше нет в результатах Interlude.", en: "This play is no longer in Interlude's scores." },
     "replay.err.tooBig": { ru: "Слишком большой файл для реплея.", en: "Too big for a replay." },
     "replay.err.badReplay": { ru: "Реплей не читается: файл повреждён.", en: "The replay cannot be read: the file is damaged." },
     "replay.err.notMania": { ru: "Это реплей не osu!mania.", en: "This is not an osu!mania replay." },
@@ -108,13 +130,36 @@ export default {
     },
     "replay.reason.keys": { ru: "Разбор работает только для 4K.", en: "The analysis is for 4K only." },
     "replay.reason.empty": { ru: "В реплее нет нажатий или на карте нет нот.", en: "The replay has no key data or the map has no notes." },
+    "replay.reason.mods": {
+        ru: "Моды этой игры пока не поддерживаются: {mods}. Они меняют ноты, а разбор с ними ещё не сверен с самим Interlude.",
+        en: "This play's mods are not supported yet: {mods}. They change the notes, and the analysis has not been checked against Interlude with them.",
+    },
+    "replay.reason.nochart": { ru: "Чарта этой игры больше нет в библиотеке Interlude.", en: "This play's chart is no longer in Interlude's library." },
+    "replay.reason.badReplay": { ru: "Реплей этой игры в базе Interlude не читается.", en: "This play's replay in Interlude's database cannot be read." },
 
     // the head
     "replay.head.by": { ru: "{player} · {date}", en: "{player} · {date}" },
     "replay.head.rate": { ru: "×{rate}", en: "×{rate}" },
+    "replay.head.interlude": { ru: "Interlude · {date}", en: "Interlude · {date}" },
+    "replay.head.failed": { ru: "не пройдена", en: "failed" },
+    "replay.head.ruleset": { ru: "Рулсет", en: "Ruleset" },
+    "replay.head.rulesetTitle": {
+        ru: "По какому рулсету судить игру: Interlude сам пересчитывает реплей по выбранному",
+        en: "Which ruleset judges the play: Interlude itself judges the replay again by the one chosen",
+    },
+    "replay.head.fallback": {
+        ru: "Рулсет, выбранный в Interlude, не читается: игра судится по {name}, рулсету Interlude по умолчанию.",
+        en: "The ruleset chosen in Interlude cannot be read: the play is judged by {name}, Interlude's default.",
+    },
     "replay.stat.accuracy": { ru: "Точность", en: "Accuracy" },
     "replay.stat.ur": { ru: "UR", en: "UR" },
     "replay.stat.urTitle": { ru: "Unstable rate: разброс нажатий, как его показывает osu!", en: "Unstable rate: the spread of your hits, as osu! shows it" },
+    "replay.stat.urTitleIl": { ru: "Unstable rate: разброс нажатий, 10 × стандартное отклонение в мс", en: "Unstable rate: the spread of your hits, 10 × the standard deviation in ms" },
+    "replay.stat.ilAccuracy": { ru: "Точность так, как её пишет Interlude, по рулсету {name}", en: "The accuracy as Interlude writes it, by the ruleset {name}" },
+    "replay.stat.ilFailed": {
+        ru: "Здесь точность посчитана до последнего нажатия. Interlude считает непройденную игру по всему чарту, все ноты после провала идут как промахи: так выходит {whole}.",
+        en: "Here the accuracy is counted up to the last key press. Interlude judges a failed play over the whole chart, every note after the fail a miss: that gives {whole}.",
+    },
     "replay.stat.misses": { ru: "Промахи", en: "Misses" },
     "replay.stat.combo": { ru: "Комбо", en: "Combo" },
     "replay.stat.presses": { ru: "Нажатий", en: "Presses" },
@@ -201,6 +246,7 @@ export default {
     "replay.family.jack": { ru: "Джек", en: "Jack" },
     "replay.family.tech": { ru: "Тех", en: "Tech" },
     "replay.shape.hold": { ru: "холд", en: "hold" },
+    "replay.shape.holdEnd": { ru: "конец холда", en: "hold end" },
     "replay.shape.chordjack": { ru: "чордджек", en: "chordjack" },
     "replay.shape.jack": { ru: "джек", en: "jack" },
     "replay.shape.quad": { ru: "квад", en: "quad" },
@@ -227,6 +273,11 @@ export default {
     "replay.judge.holdHeavy": { ru: "Холды пересчитываются приближённо: на картах, где их много, расходится до 3 % нот, поэтому промахи по пальцам и срывы комбо здесь примерные.", en: "Holds are recounted approximately: on maps with many of them up to 3 % of the notes differ, so misses per finger and combo breaks are near, not exact." },
     "replay.judge.holds": { ru: "Комбо здесь без тиков холдов, в osu! оно выше.", en: "Combo here leaves out hold ticks, osu!'s is higher." },
     "replay.judge.part": { ru: "Сыграно {played} нот из {notes}.", en: "{played} of {notes} notes played." },
+    "replay.judge.count": { ru: "Сколько", en: "Count" },
+    "replay.judge.byRuleset": { ru: "по рулсету {name}", en: "by the ruleset {name}" },
+    "replay.judge.lamp": { ru: "Лампа {lamp}", en: "Lamp {lamp}" },
+    "replay.judge.grade": { ru: "Грейд {grade}", en: "Grade {grade}" },
+    "replay.judge.failed": { ru: "Карта не пройдена: попадания посчитаны до последнего нажатия.", en: "The map was failed: the judgements are counted up to the last key press." },
 
     // hit errors
     "replay.err.summary": { ru: "В среднем {mean} мс, разброс ±{sd} мс", en: "Mean {mean} ms, spread ±{sd} ms" },
@@ -259,6 +310,7 @@ export default {
     "replay.hold.mean": { ru: "Отпускание, среднее", en: "Release, mean" },
     "replay.hold.dropped": { ru: "Сорвано", en: "Dropped" },
     "replay.hold.note": { ru: "Рано и поздно: дальше окна 300 от конца холда.", en: "Early and late: further from the hold's end than the 300 window." },
+    "replay.hold.noteIl": { ru: "Рано и поздно: дальше окна {name} от конца холда.", en: "Early and late: further from the hold's end than the {name} window." },
     "replay.ghost.summary": { ru: "{n} шт.", en: "{n}" },
     "replay.ghost.split": { ru: "Среди нот: {flow}, в пустоте: {idle}", en: "Among notes: {flow}, in the open: {idle}" },
     "replay.ghost.columns": { ru: "По колонкам {list}", en: "By column {list}" },
@@ -283,6 +335,13 @@ export default {
     "replay.hint.seek": { ru: "Перейти к этому месту", en: "Go to this place" },
     "replay.hint.judge.misses": { ru: "Из потерянных {lost} % точности {misses} % ушло на промахи.", en: "Of the {lost} % of accuracy lost, {misses} % went on misses." },
     "replay.hint.judge.mostlyMisses": { ru: "Из потерянных {lost} % точности {misses} % ушло на промахи, а не на тайминг.", en: "Of the {lost} % of accuracy lost, {misses} % went on misses, not on timing." },
+    // an Interlude play's, by its ruleset's points: a miss can take away more than its share (SC gives it −1), so what is
+    // lost can pass 100 % (the accuracy below 0)
+    "replay.hint.judge.missesIl": { ru: "До 100 % точности не хватает {lost} %, из них {misses} % потеряно на промахах.", en: "The accuracy is {lost} % short of 100 %, and {misses} % of that was lost on misses." },
+    "replay.hint.judge.mostlyMissesIl": {
+        ru: "До 100 % точности не хватает {lost} %, из них {misses} % потеряно на промахах, а не на тайминге.",
+        en: "The accuracy is {lost} % short of 100 %, and {misses} % of that was lost on misses, not on timing.",
+    },
     "replay.hint.finger.L5": { ru: "Левый мизинец", en: "The left little finger" },
     "replay.hint.finger.L4": { ru: "Левый безымянный", en: "The left ring finger" },
     "replay.hint.finger.L3": { ru: "Левый средний", en: "The left middle finger" },
@@ -307,6 +366,10 @@ export default {
     "replay.hint.many.tech": { ru: "тех-паттерны", en: "tech" },
     "replay.hint.manip.family": { ru: "Сильнее всего склеены {families}, {percent} %.", en: "Glued the most: {families}, {percent} %." },
     "replay.hint.manip.familyForgiven": { ru: "Сильнее всего склеены {families}, {percent} %: здесь окно это прощает, на более жёстком OD будут 100-ки.", en: "Glued the most: {families}, {percent} %. The window lets it through here, on a stricter OD it would give 100s." },
+    "replay.hint.manip.familyForgivenIl": {
+        ru: "Сильнее всего склеены {families}, {percent} %: здесь окно это прощает, большинство таких нот всё равно получает {judgement} или лучше. На более строгом рулсете оценки будут ниже.",
+        en: "Glued the most: {families}, {percent} %. The window lets it through here: most of those notes still get {judgement} or better. A stricter ruleset would judge them lower.",
+    },
     "replay.hint.manip.leftHand": { ru: "На левой руке склеено больше: {percent} % против {other} % на правой.", en: "The left hand glues more: {percent} % against {other} % on the right." },
     "replay.hint.manip.rightHand": { ru: "На правой руке склеено больше: {percent} % против {other} % на левой.", en: "The right hand glues more: {percent} % against {other} % on the left." },
     "replay.hint.manip.part": { ru: "Больше всего склеено на {from}–{to}: {percent} %.", en: "Glued the most at {from}–{to}: {percent} %." },
@@ -359,6 +422,8 @@ export default {
     "replay.hint.break.none": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, ноты не нажаты: похоже, это отставание, а не мимо.`, en: "{n} of {of} combo breaks {shape}, the notes not pressed: it looks like falling behind, not a slip." },
     "replay.hint.break.early": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, нажато раньше окна: похоже, это спешка.`, en: "{n} of {of} combo breaks {shape}, pressed before the window: it looks like rushing." },
     "replay.hint.break.released": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, отпущены раньше конца.`, en: "{n} of {of} combo breaks {shape}, let go before the end." },
+    // an Interlude ruleset's: a note pressed (or a hold let go) in time, but judged too far off to keep the combo
+    "replay.hint.break.off": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} {shape}, нажатие или отпускание слишком далеко от ноты.`, en: "{n} of {of} combo breaks {shape}, pressed or let go too far from the note." },
     "replay.hint.break.part": { ru: ({ of }) => `{n} из {of} ${ofBreaks(of)} на {from}–{to}.`, en: "{n} of {of} combo breaks at {from}–{to}." },
     "replay.hint.hard.part": { ru: "{from}–{to} на {delta} % хуже остальной карты, начни тренировку с этого куска.", en: "{from}–{to} went {delta} % under the rest of the map, start practising with this stretch." },
     "replay.hint.part.dan": { ru: "До {easy} держишь {hold} %, с {hard} падаешь до {fall} %.", en: "Up to {easy} you hold {hold} %, from {hard} you drop to {fall} %." },
@@ -422,4 +487,17 @@ export default {
         en: "osu! lazer keeps replays in its own store ({map}). Export the replay from the results screen and drop the .osr here.",
     },
     "replay.ended.noFolder": { ru: "Игра закончилась ({map}), но папка osu! не найдена. Укажи её в ⚙ Настройках.", en: "The play ended ({map}), but the osu! folder was not found. Set it in ⚙ Settings." },
+    "replay.ended.ilWaiting": { ru: "Игра закончилась ({map}). Жду, когда Interlude её сохранит.", en: "The play ended ({map}). Waiting for Interlude to save it." },
+    "replay.ended.ilNone": {
+        ru: "Игра закончилась ({map}), но новой записи в Interlude не появилось, разбирать нечего.",
+        en: "The play ended ({map}), but no new score appeared in Interlude, so there is nothing to analyse.",
+    },
+    "replay.ended.ilNoFolder": {
+        ru: "Игра закончилась ({map}), но папка Interlude не подключена или не читается, поэтому разбора нет. Подключи её в ⚙ Настройки → Interlude.",
+        en: "The play ended ({map}), but Interlude's folder is not linked or cannot be read, so there is no analysis. Link it in ⚙ Settings → Interlude.",
+    },
+    "replay.ended.ilQuit": {
+        ru: "Игра прервана ({map}). Interlude не сохраняет прерванные игры, так что разбора этой нет.",
+        en: "The play was cut short ({map}). Interlude does not keep plays cut short, so there is no analysis of this one.",
+    },
 };
