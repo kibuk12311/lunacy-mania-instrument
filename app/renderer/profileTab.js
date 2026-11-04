@@ -21,6 +21,7 @@ import {
     LOCAL_AXES, localAxisName, localChangeText, localAxesText, lineChart, skillSummary, patternTable, playRow, whenText,
 } from "./profileViews.js";
 import { skillChart } from "./danCharts.js";
+import { interludeOff, onInterludeState } from "./interlude.js";
 
 export const PAGES = ["tracker", "local"];
 export const SOURCES = ["tracker", "manual", "local"];
@@ -266,12 +267,15 @@ function renderCompare() {
     box.replaceChildren(el("div", "flabel", t("profile.local.compare", { name: p.player?.username ?? "" })), ...rows);
 }
 
+// Why Interlude's plays cannot be imported: no folder linked, or Interlude turned off in ⚙ Settings (its folder kept).
+const noInterludeText = () => (interludeOff() ? t("profile.local.interludeOff") : t("profile.local.noInterlude"));
+
 function renderImport() {
     const busy = Boolean(importing && importing.phase !== "end") || Boolean(local?.importing);
     $("prof-import-stable").disabled = busy;
     $("prof-pick-osu").disabled = busy;
     $("prof-import-interlude").disabled = busy || !local?.interludeLinked;
-    $("prof-import-interlude").title = local?.interludeLinked ? "" : t("profile.local.noInterlude");
+    $("prof-import-interlude").title = local?.interludeLinked ? "" : noInterludeText();
     $("prof-import-lazer").disabled = busy || !local?.lazerFound;
     $("prof-import-lazer").title = local?.lazerFound ? "" : t("profile.local.noLazer");
     $("prof-import-cancel").hidden = !busy;
@@ -329,7 +333,7 @@ async function showLocal() {
 
 const IMPORT_REFUSALS = {
     "no-folder": "profile.import.noFolder", "no-scores": "profile.import.noScores", busy: "profile.import.busy",
-    "no-interlude": "profile.local.noInterlude", "no-lazer": "profile.local.noLazer",
+    "no-lazer": "profile.local.noLazer",
 };
 
 // phase: what the line says until the first progress event (lazer first reads a copy of its database)
@@ -345,7 +349,8 @@ async function runImport(fn, phase = "scan") {
         text = t(r.finished ? "profile.import.done" : "profile.import.stopped", { added: r.added, total: r.total })
             + (r.missing ? ` · ${t(missing, { n: r.missing })}` : "");
     } else if (!r?.cancelled) {
-        text = IMPORT_REFUSALS[r?.reason] ? t(IMPORT_REFUSALS[r.reason], { folder: r.folder ?? "" }) : failText(r);
+        if (r?.reason === "no-interlude") text = noInterludeText();
+        else text = IMPORT_REFUSALS[r?.reason] ? t(IMPORT_REFUSALS[r.reason], { folder: r.folder ?? "" }) : failText(r);
     }
     $("prof-import-status").textContent = text;
     await refreshLocal();
@@ -419,6 +424,15 @@ export function initProfileTab() {
         if ($("profile-tab").hidden || view.page !== "local") return;
         clearTimeout(pendingRefresh);
         pendingRefresh = setTimeout(() => { void showLocal(); }, 400);
+    });
+    // Interlude linked, unlinked, turned off or on in ⚙ Settings (a page over this one: closing it shows no tab again): the
+    // import button follows at once while the page is open (a chart put on the card changes nothing here)
+    let interludeKey = null;
+    onInterludeState((s) => {
+        const key = `${Boolean(s.linked)}|${Boolean(s.off)}`;
+        const changed = interludeKey !== null && key !== interludeKey;
+        interludeKey = key;
+        if (changed && !$("profile-tab").hidden && view.page === "local") void loadLocal();
     });
     // the picks tab switched the source, or loaded a player there
     window.addEventListener("profile-source", (e) => { if (e.detail?.from !== "profile") renderSource(); });

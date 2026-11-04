@@ -388,7 +388,31 @@ test("a play that just ended in Interlude opens by its id, or says why there is 
         await m.on.ended({ ...play, outcome, play: null, reason: "noFolder" });
         assert.equal(m.$("rp-ended").children[0].textContent, t("replay.ended.ilNoFolder", { map: "Test - Fixture Roll [Rolls]" }), outcome);
     }
+    // Interlude turned off in ⚙ Settings while its row was waited for: the waiting note goes, nothing else is said
+    await m.on.ended({ ...play, waiting: true });
+    await m.on.ended({ ...play, outcome: "finished", play: null, reason: "off" });
+    assert.equal(m.$("rp-ended").hidden, true);
+    assert.equal(m.$("rp-ended").children.length, 0);
     assert.equal(m.asked.open.length, 1);
+});
+
+test("Interlude's folder unlinked while a play's row is waited for says so where it is, and leaves ⚙ Settings open", async () => {
+    const m = mount({ replayOpen: async () => ({ ok: false, message: "x" }) });
+    const tabs = [];
+    const onTab = (e) => tabs.push(e.detail);
+    window.addEventListener("open-tab", onTab);
+    try {
+        const play = { source: "interlude", outcome: "finished", artist: "Test", title: "Fixture Roll", version: "Rolls", accuracy: null, file: null, play: null, reason: null };
+        await m.on.ended({ ...play, waiting: true });
+        await m.on.ended({ ...play, reason: "noFolder" });
+        assert.equal(m.$("rp-ended").children[0].textContent, t("replay.ended.ilNoFolder", { map: "Test - Fixture Roll [Rolls]" }));
+        assert.deepEqual(tabs, [], "unlinking is done in ⚙ Settings: the tab does not switch and close it");
+        // a folder that cannot be read when the play ends, with no wait before, still brings the Replay tab up
+        await m.on.ended({ ...play, reason: "noFolder" });
+        assert.deepEqual(tabs, [{ tab: "replay" }]);
+    } finally {
+        window.removeEventListener("open-tab", onTab);
+    }
 });
 
 test("the profile's Interlude plays find their saved play by id, and an osu! play never takes an Interlude one", async () => {

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { setLang } from "../src/i18n/i18n.js";
 import {
     parseSessionSettings, sessionRequest, sessionText, itemParts, libraryText, libraryNotes, phaseText, rateMark, sourceText, playlistItems,
-    DEFAULT_SESSION,
+    interludeHint, recentNoneText, DEFAULT_SESSION,
 } from "../app/renderer/recSession.js";
 
 const item = (patch = {}) => ({
@@ -49,6 +49,21 @@ test("texts: an item's meta, the list as text, the library line", () => {
     assert.equal(libraryText({ ...st, interlude: { linked: false } }), "osu! stable: 42 карт 4K · проанализировано 20 из 54 · не райс (LN и т. п.): 3");
 });
 
+test("Interlude turned off in Settings: no Interlude count in the line; the hint and the recent-plays note say it is off", () => {
+    setLang("en");
+    const st = { phase: "done", songsDir: "C:\\osu!\\Songs", interlude: { linked: false, off: true, count: 0 }, counts: { stable: 42, both: 0, total: 42, analysed: 42, pending: 0 } };
+    assert.equal(libraryText(st), "osu! stable: 42 4K maps · 42 of 42 analysed");
+    assert.equal(interludeHint(st), "Interlude is turned off in ⚙ Settings → Interlude");
+    assert.equal(recentNoneText(st), "No plays known: load a mania-tracker profile or turn Interlude on (⚙ Settings → Interlude)");
+    // no folder linked: as before
+    assert.equal(interludeHint({ ...st, interlude: { linked: false } }), "Link Interlude in ⚙ Settings → Interlude");
+    assert.equal(recentNoneText({ ...st, interlude: { linked: false } }), "No plays known: load a mania-tracker profile or link Interlude");
+    setLang("ru");
+    assert.equal(interludeHint(st), "Interlude выключен в ⚙ Настройки → Interlude");
+    assert.equal(recentNoneText(st), "Нет данных о сыгранном: загрузи профиль mania-tracker или включи Interlude (⚙ Настройки → Interlude)");
+    assert.equal(interludeHint({ ...st, interlude: { linked: false } }), "Interlude подключается в ⚙ Настройки → Interlude");
+});
+
 test("osu! lazer: its count in the library line when read, a note only when it could not be read", () => {
     setLang("en");
     const base = { phase: "done", songsDir: "C:\\osu!\\Songs", interlude: { linked: false }, counts: { stable: 40, both: 0, total: 47, analysed: 47 } };
@@ -74,4 +89,53 @@ test("a lazer-only item: 'lazer' as its source, the Interlude playlist looks it 
     assert.deepEqual(fromLazer, { hash: undefined, md5: "c".repeat(32), path: undefined, rate: 1.1, label: "Alpha - Song [Hard]" });
     assert.deepEqual(both, { hash: "B".repeat(64), md5: "a".repeat(32), path: "C:\\x.osu", rate: 1.1, label: "Alpha - Song [Hard]" });
     assert.deepEqual(playlistItems(undefined), []);
+});
+
+test("the page open while Interlude is turned off or on in ⚙ Settings: the library line, the hint and the recent-plays row follow at once", async () => {
+    const { fakeDom } = await import("./helpers/fakeDom.js");
+    const { initInterludeState } = await import("../app/renderer/interlude.js");
+    const { initSession, showSession } = await import("../app/renderer/recSession.js");
+    setLang("en");
+    const on = { phase: "done", songsDir: "C:\osu!\Songs", interlude: { linked: true, count: 3 }, playedKnown: true, counts: { stable: 4, both: 1, interlude: 2, total: 7, analysed: 7, pending: 0 } };
+    const off = { ...on, interlude: { linked: false, off: true, count: 0 }, playedKnown: false, counts: { stable: 5, both: 0, interlude: 0, total: 5, analysed: 5, pending: 0 } };
+    let library = on;
+    let asked = 0;
+    const api = {
+        sessionLibraryScan: async () => ({ ok: true, ...library }),
+        sessionLibraryStatus: async () => { asked += 1; return { ok: true, ...library }; },
+        sessionList: async () => ({ ok: true, items: [] }),
+        interludeExport: async () => ({ ok: true }),
+    };
+    const { $ } = fakeDom(api);
+    let push = null;
+    initInterludeState({ interludeStatus: async () => ({ linked: true }), onInterludeState: (cb) => { push = cb; } });
+    const flush = async () => { for (let i = 0; i < 8; i += 1) await new Promise((r) => { setImmediate(r); }); };
+    await flush();
+    initSession({ settings: () => ({}), ensurePlayer: async () => null, manualProfile: () => null });
+    await showSession();
+    assert.equal($("ses-lib-status").textContent, "osu! stable: 5 4K maps · Interlude: 3 · 7 of 7 analysed");
+    assert.equal($("ses-recent").disabled, false);
+
+    // ⚙ → unchecked → Back: no tab is shown again, the page follows all the same
+    library = off;
+    push({ linked: false, off: true, folder: "C:\Games\Interlude" });
+    await flush();
+    assert.equal(asked, 1);
+    assert.equal($("ses-lib-status").textContent, "osu! stable: 5 4K maps · 5 of 5 analysed");
+    assert.equal($("ses-lib-notes").children.at(-1).textContent, "Interlude is turned off in ⚙ Settings → Interlude");
+    assert.equal($("ses-recent").disabled, true);
+    assert.equal($("ses-recent-row").title, "No plays known: load a mania-tracker profile or turn Interlude on (⚙ Settings → Interlude)");
+    // a chart put on the card (the same switch told again): nothing asked
+    push({ linked: false, off: true, folder: "C:\Games\Interlude", selected: null });
+    await flush();
+    assert.equal(asked, 1);
+
+    library = on;
+    push({ linked: true, folder: "C:\Games\Interlude" });
+    await flush();
+    assert.equal(asked, 2);
+    assert.equal($("ses-lib-status").textContent, "osu! stable: 5 4K maps · Interlude: 3 · 7 of 7 analysed");
+    assert.ok(!$("ses-lib-notes").children.some((n) => /turned off/.test(n.textContent)));
+    assert.equal($("ses-recent").disabled, false);
+    setLang("ru");
 });

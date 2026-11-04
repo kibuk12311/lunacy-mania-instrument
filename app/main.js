@@ -38,7 +38,7 @@ import { registerInterludeIpc } from "./interludeIpc.js";
 import { createLocalProfile, registerLocalProfileIpc } from "./localProfileIpc.js";
 import { createReaderProcess, readerArgs, readerPath } from "./interludeReader.js";
 import { createKeyReader, keyReaderPath } from "./keyReader.js";
-import { createInterludeLive, liveText } from "./interludeLive.js";
+import { createInterludeLive, createReaderSync, liveText } from "./interludeLive.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { chartTimeNotes } from "../src/overlay/interludeData.js";
 import { registerSessionIpc } from "./sessionIpc.js";
@@ -75,7 +75,7 @@ let osuClient = null; // the osu! tosu reads: "stable" | "lazer" | null (none, o
 let cardController = null; // the selection controller once made (the card), for the tabs that put a map on it
 let interludeReader = null; // app/interludeReader.js: the reader of the running Interlude, while it is followed
 let interludeLive = null; // app/interludeLive.js: what its lines do (the card, the overlay, the live state)
-let readerDownload = false; // the reader running was started with --allow-download
+let readerSync = null; // app/interludeLive.js createReaderSync: starts and stops the reader as Interlude's settings say
 let interlude = null; // app/interludeClient.js (made in main(); the overlay reads Interlude's charts through it)
 let danAnalyze = null; // the overlay's Dan widget analysis (app/overlay/danSource.js), once the shared services exist
 let localProfileRef = null; // the local profile, for the Dan widget's "this play"
@@ -350,8 +350,8 @@ async function main() {
         userData, analysis, interlude, port: TOSU_PORT, log, send, tosuProfile: () => fetchProfile(TOSU_PORT), lazer,
     });
     localProfileRef = localProfile;
-    // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked, and every
-    // map in the local profile's history
+    // the picks' "hide played" also knows the osu! maps played in Interlude, once its folder is linked (status() says
+    // not linked while Interlude is turned off), and every map in the local profile's history
     const recommender = createRecommender({
         api: trackerApi,
         extraPlayed: async () => {
@@ -389,6 +389,8 @@ async function main() {
         card: Object.freeze({
             showExternal: (request) => cardController?.showExternal(request),
             showInfo: (request) => cardController?.showInfo(request),
+            // the Interlude chart off the card (Interlude turned off in Settings): osu!'s map on it again
+            end: () => cardController?.endExternal(),
             rateMap: () => cardController?.rateMap() ?? null,
         }),
         // the live reader's state, for the IL panel (app/interludeLive.js)
@@ -472,20 +474,22 @@ async function main() {
     setInterval(() => controller.tick(), 1000);
     cardController = controller;
 
-    // Interlude followed live: the reader runs while a folder is linked (or the setting says so), its lines go to the
-    // card and the overlay; --allow-download only when the user allowed it (app/interludeReader.js); a play that ends
-    // there goes to whoever listens for the end of a play (the Replay tab), not to the recorder
+    // Interlude followed live: the reader runs while a folder is linked (or the setting says so) and Interlude is not
+    // turned off in Settings, its lines go to the card and the overlay; --allow-download only when the user allowed it
+    // (app/interludeReader.js); a play that ends there goes to whoever listens for the end of a play (the Replay tab),
+    // not to the recorder
     interludeLive = createInterludeLive({
         interlude, card: deps.card, overlay: () => overlay, log, onPlayEnded: (p) => localProfile.tellPlayEnded(p),
         onState: (s) => void interlude.liveSettings().then((settings) => send("interlude-live", { ok: true, settings, state: s, text: liveText(s) }), () => {}),
     });
     interludeReader = createReaderProcess({
         exe: () => readerPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appDir: here }),
-        args: () => readerArgs({ allowDownload: readerDownload }),
+        args: () => readerArgs({ allowDownload: readerSync.allowDownload() }),
         onMessage: (msg) => interludeLive.onMessage(msg),
         onState: (r) => interludeLive.onReader(r),
         log,
     });
+    readerSync = createReaderSync({ interlude, reader: interludeReader, live: interludeLive, card: deps.card, stopped: () => quitting });
     await syncInterludeReader();
 
     let everConnected = false;
@@ -512,28 +516,9 @@ async function main() {
     });
 }
 
-// The reader runs while Interlude is followed (the setting, or a linked folder by default); a change of the download
-// setting starts it again with the new command line.
+// The reader runs while Interlude is followed (app/interludeLive.js createReaderSync; nothing before it is made).
 async function syncInterludeReader() {
-    if (!interludeReader || quitting) return;
-    let settings;
-    try {
-        settings = await interlude.liveSettings();
-    } catch {
-        return;
-    }
-    const downloadChanged = settings.allowDownload !== readerDownload;
-    readerDownload = settings.allowDownload;
-    interludeLive.setAllowDownload(settings.allowDownload);
-    if (!settings.follow) {
-        if (interludeReader.wanted()) {
-            await interludeReader.stop();
-            interludeLive.off();
-        }
-        return;
-    }
-    if (interludeReader.wanted() && downloadChanged) await interludeReader.restart();
-    else interludeReader.start();
+    await readerSync?.sync();
 }
 
 app.on("before-quit", async (event) => {

@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLibrary, headKind, chartMeta, analysisSummary, normalizeStore } from "../app/sessionLibrary.js";
 import { createInterludeLibrary } from "../app/interludeLibrary.js";
+import { createInterludeClient } from "../app/interludeClient.js";
 import { analyzeChart } from "../src/core/analyze.js";
 import { makeSongsFolder, withMeta, standardChart } from "./fixtures/songsFolder.js";
 import { makeInterludeFolder } from "./fixtures/interludeFolder.js";
@@ -378,4 +379,187 @@ test("the store takes lazer ids (lz:<sha256>) and nothing like them", () => {
     };
     const ids = Object.keys(normalizeStore({ v: 1, analyzer: "x", maps }, "x").maps);
     assert.deepEqual(ids.sort(), [`il:${"A".repeat(64)}`, `lz:${"ab".repeat(32)}`, `osu:${"a".repeat(32)}`]);
+});
+
+// ---- Interlude turned off in ⚙ Settings (the real client, app/interludeClient.js, over a fixture folder) ----
+
+// Interlude linked through the client: the Songs map Hard, a chart only it has, and one lazer has too (lazer: a fake
+// app/lazerRealm.js holding that one)
+async function switchable(songs) {
+    const hardText = await readFile(path.join(songs, "101 Alpha - First Song", "Alpha - First Song (M) [Hard].osu"), "utf8");
+    const fx = await makeInterludeFolder({
+        charts: [
+            { osuText: hardText, title: "First Song", artist: "Alpha", version: "Hard", creator: "Test", beatmapId: 1002, beatmapsetId: 101, keepOriginal: true },
+            { osuText: makeChart({ kind: "jumpstream", bpm: 175, seconds: 120 }), title: "Only Here", artist: "Eta", version: "4K Hard" },
+            { osuText: makeChart({ kind: "stream", bpm: 165, seconds: 90 }), title: "In Lazer Too", artist: "Iota", version: "4K Both", keepOriginal: true },
+        ],
+    });
+    const dir = await mkdtemp(path.join(tmpdir(), "seslib-il-"));
+    let saved = { folder: null };
+    const interlude = createInterludeClient({
+        store: { get: async () => saved, set: async (x) => { saved = x; } }, docsDir: dir, mapsDir: dir, cacheDir: path.join(dir, "cache"),
+    });
+    await interlude.link(fx.root);
+    const both = fx.charts[2].osuText;
+    const lazer = fakeLazer([{ ...lazerMap(both), text: both }]);
+    return { ...fx, interlude, lazer, lazerHash: sha256(both) };
+}
+// what the session is offered: each rated map by its difficulty name → its sources
+const sourcesOf = (maps) => Object.fromEntries(maps.map((m) => [m.version, Object.keys(m.sources).sort().join("+")]));
+const ALL_ON = { Easy: "stable", Hard: "interlude+stable", Jacks: "stable", Stream: "stable", "4K Hard": "interlude", "4K Both": "interlude+lazer" };
+
+test("Interlude turned off: its maps leave the session at once and stay in the store; on again, nothing is analysed anew", async () => {
+    const songs = await makeSongsFolder();
+    const { interlude, lazer, charts, lazerHash } = await switchable(songs);
+    const { analyze, asked } = fakeAnalyze();
+    const file = await tempStore();
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, lazer, analyze, file });
+    await lib.scan();
+    const on = await lib.status();
+    assert.deepEqual(on.interlude, { linked: true, count: 3 });
+    assert.deepEqual([on.counts.total, on.counts.both, on.counts.interlude], [7, 1, 2]);
+    assert.deepEqual(sourcesOf(await lib.maps()), ALL_ON);
+    const analysed = asked.length;
+
+    await interlude.setLiveSettings({ enabled: false });
+    // at once, before any scan: no Interlude-only map, no Interlude source, no Interlude count
+    const check = async () => {
+        const st = await lib.status();
+        assert.deepEqual(st.interlude, { linked: false, off: true, count: 0 });
+        assert.deepEqual([st.counts.total, st.counts.both, st.counts.interlude, st.counts.stable, st.counts.lazer], [6, 0, 0, 5, 1]);
+        assert.equal(st.counts.pending, 0);
+        const maps = await lib.maps();
+        assert.deepEqual(sourcesOf(maps), { Easy: "stable", Hard: "stable", Jacks: "stable", Stream: "stable", "4K Both": "lazer" });
+        assert.deepEqual(maps.find((m) => m.version === "4K Both").sources.lazer, { hash: lazerHash }, "a map lazer has too stays as lazer's");
+    };
+    await check();
+    // a scan while it is off keeps what was known of Interlude, and reads nothing of it
+    await lib.scan();
+    await check();
+    const kept = JSON.parse(await readFile(file, "utf8")).maps;
+    assert.equal(kept[`il:${charts[1].hash}`].a.kind, "ok", "the Interlude-only map and its analysis are kept");
+    assert.equal(Object.values(kept).find((m) => m.version === "Hard" && m.path).hash, charts[0].hash);
+    assert.equal(kept[`il:${charts[2].hash}`].lz, lazerHash);
+    // a library started afresh while it is off (the app started again): the same
+    const again = createSessionLibrary({ songsDir: async () => songs, interlude, lazer, analyze, file });
+    await again.scan();
+    assert.deepEqual((await again.status()).interlude, { linked: false, off: true, count: 0 });
+    assert.equal((await again.maps()).length, 5, "the four rated stable maps (not the LN one) and the lazer one");
+    assert.equal(asked.length, analysed, "nothing analysed while it is off");
+
+    await interlude.setLiveSettings({ enabled: true });
+    // on again: the maps are back at once, from the store; the next status lists again (Interlude was off at the last
+    // listing), which analyses nothing
+    assert.deepEqual(sourcesOf(await again.maps()), ALL_ON);
+    await again.status();
+    await again.idle();
+    const back = await again.status();
+    assert.deepEqual(back.interlude, { linked: true, count: 3 });
+    assert.deepEqual([back.counts.total, back.counts.both, back.counts.interlude, back.counts.pending], [7, 1, 2, 0]);
+    assert.equal(asked.length, analysed, "nothing analysed anew");
+    // unlinking the folder is not turning it off: its maps are forgotten, as before
+    await interlude.unlink();
+    await again.scan();
+    assert.deepEqual((await again.status()).interlude, { linked: false, count: 0 });
+    assert.ok(!Object.keys(JSON.parse(await readFile(file, "utf8")).maps).some((id) => id.startsWith("il:")));
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("Interlude turned off before its maps were analysed: they are not marked failed, and are analysed once it is on", async () => {
+    const songs = await makeSongsFolder();
+    const { interlude, charts } = await switchable(songs);
+    const file = await tempStore();
+    const first = createSessionLibrary({ songsDir: async () => songs, interlude, analyze: fakeAnalyze().analyze, file });
+    first.pause();
+    await first.scan(); // listed, not analysed
+    await interlude.setLiveSettings({ enabled: false });
+    const off = fakeAnalyze();
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, analyze: off.analyze, file });
+    await lib.scan();
+    const st = await lib.status();
+    assert.deepEqual([st.counts.failed, st.counts.pending, st.phase], [0, 0, "done"]);
+    assert.ok(!off.asked.includes("4K Hard") && !off.asked.includes("4K Both"), "Interlude's own maps wait");
+    const saved = JSON.parse(await readFile(file, "utf8")).maps;
+    assert.equal(saved[`il:${charts[1].hash}`].a, undefined);
+    await interlude.setLiveSettings({ enabled: true });
+    const on = fakeAnalyze();
+    const back = createSessionLibrary({ songsDir: async () => songs, interlude, analyze: on.analyze, file });
+    await back.scan();
+    assert.deepEqual(on.asked.sort(), ["4K Both", "4K Hard"]);
+    assert.equal((await back.status()).counts.pending, 0);
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("Interlude turned off while an Interlude map's .osu is read: the map is not marked failed, and is analysed once it is on", async () => {
+    const songs = await makeSongsFolder();
+    const { interlude, charts } = await switchable(songs);
+    const file = await tempStore();
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, analyze: fakeAnalyze().analyze, file });
+    // the switch is turned off after the library looked at it, while the chart is being read
+    const osuFor = interlude.library.osuFor;
+    interlude.library.osuFor = async (...a) => { await interlude.setLiveSettings({ enabled: false }); return osuFor(...a); };
+    await lib.scan();
+    interlude.library.osuFor = osuFor;
+    const saved = JSON.parse(await readFile(file, "utf8")).maps;
+    assert.deepEqual([saved[`il:${charts[1].hash}`].a, saved[`il:${charts[2].hash}`].a], [undefined, undefined], "no answer, not a failed analysis");
+    await interlude.setLiveSettings({ enabled: true });
+    await lib.scan();
+    const st = await lib.status();
+    assert.deepEqual([st.counts.failed, st.counts.pending], [0, 0]);
+    assert.deepEqual(sourcesOf(await lib.maps()), { ...ALL_ON, "4K Both": "interlude" });
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("Interlude turned off while the library lists it: what was known of it stays, and nothing is analysed anew when it is on", async () => {
+    const songs = await makeSongsFolder();
+    const { interlude, charts } = await switchable(songs);
+    const file = await tempStore();
+    const { analyze, asked } = fakeAnalyze();
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, analyze, file });
+    await lib.scan();
+    const analysed = asked.length;
+    // its status said linked, the switch is turned off before its charts are read
+    const list = interlude.library.list;
+    interlude.library.list = async (...a) => { await interlude.setLiveSettings({ enabled: false }); return list(...a); };
+    await lib.scan();
+    interlude.library.list = list;
+    const kept = JSON.parse(await readFile(file, "utf8")).maps;
+    assert.equal(kept[`il:${charts[1].hash}`]?.a?.kind, "ok", "the Interlude-only map and its analysis are kept");
+    assert.equal(Object.values(kept).find((m) => m.version === "Hard" && m.path).hash, charts[0].hash);
+    assert.deepEqual((await lib.status()).interlude, { linked: false, off: true, count: 0 });
+    await interlude.setLiveSettings({ enabled: true });
+    await lib.status(); // listed again: Interlude was off at the last listing
+    await lib.idle();
+    const back = await lib.status();
+    assert.deepEqual(back.interlude, { linked: true, count: 3 });
+    assert.equal(asked.length, analysed, "nothing analysed anew");
+    assert.deepEqual(sourcesOf(await lib.maps()), { ...ALL_ON, "4K Both": "interlude" });
+    await rm(songs, { recursive: true, force: true });
+});
+
+test("Interlude turned off while the library analyses, then on: its maps left waiting are analysed without a scan asked for", async () => {
+    const songs = await makeSongsFolder();
+    const { interlude } = await switchable(songs);
+    const file = await tempStore();
+    const { analyze: plain, asked } = fakeAnalyze();
+    let turned = false;
+    const analyze = async (text, rate) => {
+        // the player turns Interlude off while the first map is analysed
+        if (!turned) {
+            turned = true;
+            await interlude.setLiveSettings({ enabled: false });
+        }
+        return plain(text, rate);
+    };
+    analyze.lanes = 1;
+    const lib = createSessionLibrary({ songsDir: async () => songs, interlude, analyze, file });
+    await lib.scan();
+    assert.ok(!asked.includes("4K Hard"), "left waiting while it is off");
+    await interlude.setLiveSettings({ enabled: true });
+    await lib.status(); // the window looks again once the switch changes
+    await lib.idle();
+    const st = await lib.status();
+    assert.deepEqual([st.phase, st.counts.pending, st.counts.failed], ["done", 0, 0]);
+    assert.deepEqual(sourcesOf(await lib.maps()), { ...ALL_ON, "4K Both": "interlude" });
+    await rm(songs, { recursive: true, force: true });
 });

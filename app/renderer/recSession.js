@@ -9,7 +9,7 @@ import { mmss } from "../../src/recommend/format.js";
 import { t, plural as pluralOf } from "../../src/i18n/i18n.js";
 import { isDetailed, onPatternMode, createPatternModeSwitch } from "./patternMode.js";
 import { el, call, failText, fix2 } from "./recCard.js";
-import { exportButton, sendButtons } from "./interlude.js";
+import { exportButton, sendButtons, onInterludeState } from "./interlude.js";
 import { togglePattern } from "./recPlan.js";
 
 const KEY = "rec-session";
@@ -134,6 +134,11 @@ export function libraryNotes(st) {
     return notes;
 }
 
+// While no Interlude is linked: the link to where it is linked, or, when it is only turned off there (its folder
+// kept), that it is off; and why recent plays cannot be left out.
+export const interludeHint = (st) => (st?.interlude?.off ? t("session.lib.interludeOff") : t("session.lib.interludeHint"));
+export const recentNoneText = (st) => (st?.interlude?.off ? t("session.recentNoneOff") : t("session.recentNone"));
+
 export function phaseText(st) {
     const c = st?.counts ?? {};
     if (st?.error) return t("session.lib.failed", { message: st.error });
@@ -235,7 +240,7 @@ function renderLibrary(st) {
     const rows = libraryNotes(st).map((n) => el("div", "", n));
     if (!st?.interlude?.linked) {
         // a link: the IL block lives on the Settings page
-        const hint = el("div", "link", t("session.lib.interludeHint"));
+        const hint = el("div", "link", interludeHint(st));
         hint.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-settings", { detail: { section: "interlude" } })));
         rows.push(hint);
     }
@@ -244,7 +249,7 @@ function renderLibrary(st) {
     const known = Boolean(st?.playedKnown);
     $("ses-recent").disabled = !known;
     $("ses-recent-row").classList.toggle("off", !known);
-    $("ses-recent-row").title = known ? "" : t("session.recentNone");
+    $("ses-recent-row").title = known ? "" : recentNoneText(st);
 }
 
 async function refreshLibrary() {
@@ -465,6 +470,16 @@ export function initSession(s) {
         if (!r?.cancelled) renderLibrary(r);
     });
     window.danApi.onSessionLibrary?.((st) => renderLibrary({ ok: true, ...st, playedKnown: library?.playedKnown ?? false }));
+    // Interlude linked, unlinked, turned off or on in ⚙ Settings (a page over this one: closing it shows no tab again):
+    // the line, the hint and the recent-plays row follow at once, once the page has been shown (a chart put on the card
+    // changes nothing here)
+    let interludeKey = null;
+    onInterludeState((st) => {
+        const key = `${Boolean(st.linked)}|${Boolean(st.off)}`;
+        const changed = interludeKey !== null && key !== interludeKey;
+        interludeKey = key;
+        if (changed && started) void refreshLibrary();
+    });
     window.danApi.onSessionProgress?.((p) => {
         if (!busy) return;
         const key = { rates: "session.progress.rates", copy: "session.progress.copy", build: "session.marathonBuilding" }[p?.phase];

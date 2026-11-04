@@ -615,7 +615,9 @@ export function createReplayService({
     // and the window told as for osu!: replay-ended { source: "interlude", play (the row's id, null when none came), chart,
     // outcome ("pass" or "fail" by the row; "finished" or "quit" when none came), artist, title, version, rate, accuracy,
     // at, file: null, reason (null, "none", or "noFolder" when Interlude's folder cannot be read), moved: false }, with
-    // waiting: true once while a finished play's row takes its time. A newer play's end and the switch end the wait too.
+    // waiting: true once while a finished play's row takes its time. A newer play's end and the switch end the wait too;
+    // while Interlude is turned off in ⚙ Settings nothing is waited for or told, and turned off after waiting: true was
+    // told, reason "off" closes the wait.
     async function interludeEnded(play) {
         if (typeof play.chart !== "string" || !play.chart || !Number.isFinite(play.startedAt)) return null;
         lastEnded += 1;

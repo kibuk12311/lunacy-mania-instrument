@@ -11,8 +11,10 @@ import path from "node:path";
 import { createLocalProfileStore } from "../../app/localProfileStore.js";
 import { createLocalProfileService, pointsChange } from "../../app/localProfileService.js";
 import { createSongsMd5Index } from "../../app/osuSongsScan.js";
-import { createLocalProfileHandlers, recentPlays, TRACKER_SITE } from "../../app/localProfileIpc.js";
+import { createLocalProfile, createLocalProfileHandlers, recentPlays, TRACKER_SITE } from "../../app/localProfileIpc.js";
+import { createInterludeClient } from "../../app/interludeClient.js";
 import { makeChart } from "../fixtures/makeChart.js";
+import { makeInterludeFolder } from "../fixtures/interludeFolder.js";
 import { makeScoresDb } from "../fixtures/makeScoresDb.js";
 import { MOD_BITS } from "../../src/localProfile/scoresDb.js";
 
@@ -300,6 +302,24 @@ test("Interlude import: passes count without accuracy (weaker), fails are kept b
     assert.equal((await s.importInterlude()).added, 0);
     assert.equal((await (await service()).s.importInterlude()).reason, "no-interlude");
     assert.ok((await s.playedBeatmaps()).has(503));
+});
+
+test("Interlude import as main wires it (the client's status): refused while Interlude is turned off in ⚙ Settings", async () => {
+    const root = await tempDir();
+    const fx = await makeInterludeFolder({ charts: [{ osuText: makeChart({ kind: "jumpstream", bpm: 180 }) }], plays: [{ index: 0, at: NOW - DAY }] });
+    let saved = { folder: null };
+    const interlude = createInterludeClient({
+        store: { get: async () => saved, set: async (x) => { saved = x; } }, docsDir: root, mapsDir: root, cacheDir: path.join(root, "il-cache"),
+    });
+    await interlude.link(fx.root);
+    const s = createLocalProfile({ userData: root, analysis: { bulk: fakeAnalyze().analyze }, interlude, port: 1, env: {} });
+    await interlude.setLiveSettings({ enabled: false });
+    assert.equal((await s.importInterlude()).reason, "no-interlude");
+    assert.equal((await s.status()).interludeLinked, false, "the Profile tab's import button is off");
+    await interlude.setLiveSettings({ enabled: true });
+    assert.equal((await s.status()).interludeLinked, true);
+    const r = await s.importInterlude();
+    assert.deepEqual([r.ok, r.added], [true, 1]);
 });
 
 test("backup and reset through the service; the handlers' file dialogs; the tracker's recent plays and site link", async () => {

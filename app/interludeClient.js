@@ -5,6 +5,9 @@
 //   - the folder: picked or found, kept in userData\interlude.json; only Songs\charts.db is required there;
 //   - following it live: the same file keeps whether the app reads the running game (app/interludeReader.js, on by
 //     default while a folder is linked) and whether that reader may fetch .NET's DAC file once (off by default);
+//   - the switch (⚙ Settings → Interlude, kept in the same file, on by default): turned off, the whole app goes on as
+//     if no folder were linked (status, folder(), the library, following it live, the selection) while the folder
+//     stays kept, and the library's copies of the databases with it, for when it is turned on again;
 //   - the selection: select(hash) makes a chart of the library the map the tabs work on (picked in the IL
 //     panel, or by app/interludeLive.js for what is selected in the running game), copied out with its audio into
 //     Documents\<app>\interlude\ like a lazer map, so the tabs that need a folder keep working;
@@ -64,15 +67,17 @@ export function sendPipe(message, { connect = createConnection, timeoutMs = 1500
     });
 }
 
-// The live settings as kept → { live: true | false | null (null: on while a folder is linked), allowDownload }.
+// The live settings as kept → { live: true | false | null (null: on while a folder is linked), allowDownload,
+// enabled } with enabled the switch for Interlude as a whole (a file from before it has none: on).
 export function liveSettingsOf(saved) {
     return {
         live: typeof saved?.live === "boolean" ? saved.live : null,
         allowDownload: saved?.allowDownload === true,
+        enabled: saved?.enabled !== false,
     };
 }
 
-// store: { get, set } of { folder, live, allowDownload }; docsDir, mapsDir, cacheDir: the app's folders; home/env: for finding the folder.
+// store: { get, set } of { folder, live, allowDownload, enabled }; docsDir, mapsDir, cacheDir: the app's folders; home/env: for finding the folder.
 export function createInterludeClient({
     store, docsDir, mapsDir, cacheDir, home = "", env = {}, log = () => {}, onChange = () => {},
     running = () => isInterludeRunning(), pipe = sendPipe, launch = null, reveal = () => {}, now = () => new Date(),
@@ -82,7 +87,9 @@ export function createInterludeClient({
     let loaded = null;
     let live = liveSettingsOf(null);
     let selection = null; // { hash, path, dir, audioPath, backgroundPath, label } of the chart the tabs work on
-    const library = createInterludeLibrary({ folder: () => folder, cacheDir, log, ...(sqlite ? { sqlite } : {}) });
+    // the folder the app reads: none while Interlude is turned off (the linked one stays kept)
+    const usable = () => (live.enabled ? folder : null);
+    const library = createInterludeLibrary({ folder: usable, cacheDir, log, ...(sqlite ? { sqlite } : {}) });
 
     const ready = () => (loaded ??= store.get().then((s) => {
         folder = typeof s?.folder === "string" ? s.folder : null;
@@ -92,6 +99,8 @@ export function createInterludeClient({
 
     async function status() {
         await ready();
+        // turned off: not linked for the app, off: true so the window can tell it from no folder, the folder kept
+        if (!live.enabled) return { linked: false, off: true, folder, selected: null };
         if (!folder) return { linked: false, folder: null, selected: selection ? selection.label : null };
         const ok = await interludeFolderOf(folder);
         if (!ok) return { linked: false, folder, missing: true, message: t("app.interlude.folderGone", { folder }), selected: null };
@@ -106,6 +115,7 @@ export function createInterludeClient({
     }
 
     async function setFolder(dir) {
+        await ready(); // the settings kept beside the folder are read before the file is written
         folder = dir;
         library.forget();
         if (!dir) selection = null;
@@ -130,6 +140,7 @@ export function createInterludeClient({
 
     const need = async () => {
         await ready();
+        if (!live.enabled) throw new Error(t("app.interlude.off"));
         if (!folder || !(await interludeFolderOf(folder))) throw new Error(t("app.interlude.noFolder"));
     };
 
@@ -161,6 +172,8 @@ export function createInterludeClient({
     // The chart copied out (copyOut), made the map the tabs work on. → the selection
     async function select(hash) {
         const { meta, path: file, dir, audioPath, backgroundPath, text, original } = await copyOut(hash);
+        // turned off while the chart was being copied out: it is not the tabs' map
+        if (!live.enabled) throw new Error(t("app.interlude.off"));
         selection = {
             hash: meta.hash, path: file, dir, audioPath, backgroundPath, text, original,
             label: `${meta.artist} - ${meta.title} [${meta.version}]`,
@@ -250,25 +263,36 @@ export function createInterludeClient({
         return { ok: true, name: added.name, count: added.count, backup, file };
     }
 
-    // { live, allowDownload, follow }: follow = whether the reader should run now
+    // { live, allowDownload, enabled, follow }: follow = whether the reader should run now (never while turned off)
     async function liveSettings() {
         await ready();
-        return { ...live, follow: live.live ?? Boolean(folder) };
+        return { ...live, follow: live.enabled && (live.live ?? Boolean(folder)) };
     }
 
+    // patch: { live, allowDownload, enabled } (enabled: the switch for Interlude as a whole)
     async function setLiveSettings(patch) {
         await ready();
         if (typeof patch?.live === "boolean") live.live = patch.live;
         if (typeof patch?.allowDownload === "boolean") live.allowDownload = patch.allowDownload;
+        if (typeof patch?.enabled === "boolean") {
+            live.enabled = patch.enabled;
+            // turned off: the chart picked from Interlude is the tabs' map no more
+            if (!live.enabled) selection = null;
+        }
         await save();
-        log(`interlude: live ${live.live ?? "default"}, download ${live.allowDownload}`);
+        log(`interlude: ${live.enabled ? "on" : "turned off"}, live ${live.live ?? "default"}, download ${live.allowDownload}`);
         onChange();
         return liveSettings();
     }
 
     return {
         status, link, detect, liveSettings, setLiveSettings, unlink: () => setFolder(null), select, copyOut, clearSelection, send, writeCollection, wake,
-        library, folder: () => folder, ready,
+        library, folder: usable, ready,
+        // the switch in ⚙ Settings → Interlude: false while Interlude is turned off
+        enabled: async () => {
+            await ready();
+            return live.enabled;
+        },
         selection: () => selection,
         // the source the tabs read their map from while an Interlude chart is selected (tosu's beatmap() shape)
         beatmap: () => (selection ? { client: "interlude", path: selection.path, audioPath: selection.audioPath, backgroundPath: selection.backgroundPath, hash: selection.hash } : null),

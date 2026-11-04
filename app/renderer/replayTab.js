@@ -10,6 +10,7 @@ import { createReplayPlayer } from "./replayPlayer.js";
 import { createReplayView, playTime, ilAccText, ilAccDigits } from "./replayView.js";
 import { reportSections, el, button, percent, acc2, num1, dateText } from "./replayReport.js";
 import { manipStrip } from "./replayCharts.js";
+import { onInterludeState } from "./interlude.js";
 import { MANIP } from "../../src/replay/manip.js";
 import { buildReport } from "../../src/replay/report.js";
 import { buildHints, biasTells } from "../../src/replay/hints.js";
@@ -315,6 +316,18 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
         if (source === "gameplay") void drawGame();
     });
 
+    // Interlude linked, unlinked, turned off or on in ⚙ Settings: its plays join or leave the list, read again at once
+    // while the tab is shown, else when it is next shown (a chart put on the card meanwhile changes nothing here)
+    let interludeKey = null;
+    onInterludeState((s) => {
+        const key = `${Boolean(s.linked)}|${Boolean(s.off)}`;
+        const changed = interludeKey !== null && key !== interludeKey;
+        interludeKey = key;
+        if (!changed) return;
+        listed = false;
+        if (shown) void refresh();
+    });
+
     // ---- one replay open ----
     // An Interlude play's hints: from the recount, which is its result (src/replay/hints.js counts it by the ruleset's
     // points), none about HitPosition; with no recount none at all.
@@ -477,12 +490,22 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
     // that it is still on its way: waiting. A retry mid-map (a quit) leaves the tab where it is, and so does a next play
     // already going on: the note waits there for whoever comes to look. So does a replay that comes while another plays.
     // An Interlude play comes with source "interlude", its chart, and its play's id in place of the file (null when no row
-    // of Interlude's scores came: reason "none", or "noFolder" when Interlude's folder could not be read).
+    // of Interlude's scores came: reason "none", or "noFolder" when Interlude's folder could not be read; reason "off" when
+    // Interlude was turned off in ⚙ Settings while its row was waited for: the waiting note goes, nothing else is said).
+    // A "noFolder" that closes such a wait comes from the folder unlinked in ⚙ Settings (or gone from the disk): its note
+    // takes the waiting one's place, and the tab does not switch, which would close ⚙ Settings under the player.
+    let ilWaited = false; // the note up is an Interlude play's waiting one
     async function playEnded(play) {
         const name = endedName(play);
         const il = play.source === "interlude";
+        const waited = ilWaited;
+        ilWaited = il && Boolean(play.waiting);
         if (play.waiting) {
             endedNote(t(il ? "replay.ended.ilWaiting" : "replay.ended.waiting", { map: name }));
+            return;
+        }
+        if (il && play.reason === "off") {
+            endedNote("");
             return;
         }
         const found = play.file || play.play;
@@ -504,6 +527,7 @@ function createReplayTab({ $ = (id) => document.getElementById(id), api = window
             const key = play.reason === "lazer" || play.reason === "noFolder" ? play.reason : play.outcome;
             endedNote(t(ENDED_TEXT[key] ?? ENDED_TEXT.quit, { map: name, acc: play.accuracy === null ? "—" : play.accuracy.toFixed(2) }));
         }
+        if (il && play.reason === "noFolder" && waited) return;
         if (play.outcome !== "quit" && !play.moved) goToTab();
     }
     api.onReplayEnded?.((play) => void playEnded(play));

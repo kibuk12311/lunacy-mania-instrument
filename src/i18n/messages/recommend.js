@@ -56,8 +56,12 @@ export default {
         en: "the overall dan is the mean of Speed, Jack, Stamina and Tech, as on mania-tracker",
     },
     "recommend.manual.noPlays": {
-        ru: "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или привяжи папку Interlude (кнопка IL), чтобы их скрывать",
-        en: "mania-tracker and Interlude know the maps you've played — load your nick or link your Interlude folder (the IL button) to hide them",
+        ru: "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или привяжи папку Interlude (⚙ Настройки → Interlude), чтобы их скрывать",
+        en: "mania-tracker and Interlude know the maps you've played — load your nick or link your Interlude folder (⚙ Settings → Interlude) to hide them",
+    },
+    "recommend.manual.noPlaysOff": {
+        ru: "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или включи Interlude (⚙ Настройки → Interlude), чтобы их скрывать",
+        en: "mania-tracker and Interlude know the maps you've played — load your nick or turn Interlude on (⚙ Settings → Interlude) to hide them",
     },
     "recommend.progress.needTracker": {
         ru: "Прогресс считает mania-tracker по твоим играм — у ручного профиля его нет. Загрузи ник в «С mania-tracker», чтобы его увидеть.",

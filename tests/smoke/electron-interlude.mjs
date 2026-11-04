@@ -10,8 +10,9 @@
 // scores.db, assets — synthetic charts, in the temp folder): the IL panel unlinked, the folder picked (a stubbed
 // dialog), the library searched, a chart put on the card (a fake analysis), a rate copy made of it and "sent"
 // (Interlude is never started or focused for real: the process check, pipe, start and Explorer are stubs), a marathon
-// list added as a playlist to the fixture's Data\collections.json. The fixture folder must change in nothing but that
-// file. Screenshots go to <out-dir>; exits 0 when every check holds.
+// list added as a playlist to the fixture's Data\collections.json, then Interlude turned off with the switch in
+// ⚙ Settings (the block, the IL button, the marathon's playlist button) and on again. The fixture folder must change
+// in nothing but that file. Screenshots go to <out-dir>; exits 0 when every check holds.
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -204,6 +205,57 @@ ${await js("document.body.innerText.slice(0, 1500)")}`);
     const collections = JSON.parse(readFileSync(path.join(fx.root, "Data", "collections.json"), "utf8"));
     report.playlist = collections.Playlists?.["Smoke course"]?.Charts ?? null;
 
+    // Interlude turned off with the switch in ⚙ Settings: the block shows the switch, the folder and a note; the IL
+    // button under the card and the marathon's "Playlist in Interlude" are gone; turned on again, all of it is back
+    await js(`document.getElementById("settings-open").click(); document.getElementById("st-interlude").scrollIntoView({ block: "start" });`);
+    await waitFor(`!document.getElementById("settings-page").hidden`);
+    // every "→ Interlude" and "Playlist in Interlude" the tabs have made by now (each a .il-send), the shown ones
+    const sends = `[...document.querySelectorAll(".il-send")].filter((n) => !n.hidden).map((n) => n.querySelector("button").innerText)`;
+    const saved = () => JSON.parse(readFileSync(path.join(userData, "interlude.json"), "utf8"));
+    report.sendsBefore = await js(sends);
+    report.switchLabel = await js(`document.querySelector("#interlude-panel .il-enable").innerText`);
+    report.switchOn = await js(`document.querySelector("#interlude-panel .il-enable input").checked`);
+    report.switchInLine = await js(`(() => {
+        const left = (sel) => document.querySelector(sel).querySelector("input").getBoundingClientRect().left;
+        return Math.abs(left("#interlude-panel .il-enable") - left("#interlude-panel .il-live-box .il-check")) < 0.5;
+    })()`);
+    await js(`document.querySelector("#interlude-panel .il-enable input").click();`);
+    await waitFor(`!document.querySelector("#interlude-panel .il-off-note").hidden && document.getElementById("interlude-toggle").hidden`);
+    const shown = (sel) => `(() => { const n = document.querySelector(${JSON.stringify(sel)}); return Boolean(n && n.getClientRects().length); })()`;
+    report.off = {
+        checked: await js(`document.querySelector("#interlude-panel .il-enable input").checked`),
+        status: await js(shown("#interlude-panel .il-status")), actions: await js(shown("#interlude-panel .il-actions")),
+        live: await js(shown("#interlude-panel .il-live-box")), library: await js(shown("#interlude-panel .il-library")),
+        folder: await js(`document.querySelector("#interlude-panel .il-folder").innerText`),
+        note: await js(`document.querySelector("#interlude-panel .il-off-note").innerText`),
+        ilButton: await js(`!document.getElementById("interlude-toggle").hidden`),
+        playlistButton: await js(`!document.querySelector("#mar-interlude .il-send").hidden`),
+        sends: await js(sends), saved: saved(),
+    };
+    report.overflowOff = await js(`[...document.querySelectorAll("#interlude-panel *")]
+        .filter((n) => n.getClientRects().length && n.getBoundingClientRect().right > document.documentElement.clientWidth + 0.5).length`);
+    await shot(`interlude-${lang}-7-off.png`);
+    await js(`document.querySelector("#interlude-panel .il-enable input").click();`);
+    // the library searched again, by the search left in the box ("xi zenith")
+    await waitFor(`document.querySelectorAll("#interlude-panel .il-row").length === 1 && !document.getElementById("interlude-toggle").hidden`);
+    report.on = {
+        checked: await js(`document.querySelector("#interlude-panel .il-enable input").checked`),
+        status: await js(`document.querySelector("#interlude-panel .il-status").innerText`), offNote: await js(shown("#interlude-panel .il-off-note")),
+        playlistButton: await js(`!document.querySelector("#mar-interlude .il-send").hidden`),
+        ilButton: await js(`!document.getElementById("interlude-toggle").hidden`),
+        sends: await js(sends), saved: saved(),
+    };
+    await shot(`interlude-${lang}-8-on.png`);
+    const switched = report.switchLabel === t("interlude.panel.enable") && report.switchOn === true && report.switchInLine
+        && report.sendsBefore.includes(t("interlude.send")) && report.sendsBefore.includes(t("interlude.export"))
+        && report.off.checked === false && !report.off.status
+        && !report.off.actions && !report.off.live && !report.off.library && report.off.folder === fx.root
+        && report.off.note === t("interlude.panel.offNote") && !report.off.ilButton && !report.off.playlistButton
+        && report.off.sends.length === 0 && report.off.saved.enabled === false && report.off.saved.folder === fx.root
+        && report.overflowOff === 0 && report.on.checked === true && !report.on.offNote && report.on.ilButton
+        && report.on.playlistButton && report.on.sends.join("|") === report.sendsBefore.join("|")
+        && report.on.saved.enabled === true && report.on.saved.folder === fx.root;
+
     // the fixture: only Data\collections.json is new
     const after = listing(fx.root);
     report.fixtureChanged = after.filter((l) => !before.includes(l));
@@ -218,7 +270,7 @@ ${await js("document.body.innerText.slice(0, 1500)")}`);
         && report.rateNote && report.oszMade.length === 1 && report.oszMade[0].endsWith(".osz") && report.revealed.length === 1
         && Array.isArray(report.playlist) && report.playlist.length === 1 && report.playlist[0][1].Rate === 1.15
         && report.fixtureChanged.length === 1 && report.fixtureChanged[0].startsWith(path.join("Data", "collections.json"))
-        && !report.overflow.page && !report.overflow.wide.length && report.ilHidden === true && report.buttonLive === true;
+        && !report.overflow.page && !report.overflow.wide.length && report.ilHidden === true && report.buttonLive === true && switched;
     app.exit(ok ? 0 : 2);
 }).catch((error) => {
     console.error("smoke failed:", error?.stack ?? error);

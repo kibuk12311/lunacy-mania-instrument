@@ -14,6 +14,7 @@ import { makeIlReplay, framesOfPresses } from "../fixtures/makeIlReplay.js";
 import { rollNotes, chartText, honestPresses } from "../fixtures/makeOsr.js";
 import { osuJson } from "../interlude/rulesets.js";
 import { createInterludeLibrary } from "../../app/interludeLibrary.js";
+import { createInterludeClient } from "../../app/interludeClient.js";
 import { createIlReplays, parsePlayId, playIdOf, rateShown, BUILTIN_RULESET, IL_ENDED_WAIT_MS, IL_ENDED_SLACK_MS } from "../../app/replayInterlude.js";
 import { createReplayService } from "../../app/replayIpc.js";
 import { analyzeIlReplay } from "../../src/replay/analyzeInterlude.js";
@@ -315,6 +316,65 @@ test("no Interlude, an unlinked one or a folder gone: no plays, no error, and wh
     // nothing played yet: no scores.db
     await rm(path.join(f.root, "Data", "scores.db"));
     assert.deepEqual(await il.list(), { interlude: { linked: true, ok: true, reason: null }, items: [] });
+});
+
+test("Interlude turned off in ⚙ Settings: no plays listed, none opened, nothing told after a play; on again, all of it back", async (t) => {
+    setLang("en");
+    t.after(() => setLang("ru"));
+    const f = await fixture(t);
+    const docs = path.join(f.root, "..", `${path.basename(f.root)}-docs`);
+    t.after(() => rm(docs, { recursive: true, force: true }));
+    let saved = { folder: null };
+    const interlude = createInterludeClient({ store: { get: async () => saved, set: async (x) => { saved = x; } }, docsDir: docs, mapsDir: docs, cacheDir: path.join(docs, "cache") });
+    await interlude.link(f.root);
+    const sent = [];
+    const s = service(f, { interlude, send: (channel, payload) => sent.push([channel, payload]) });
+    t.after(() => rm(path.join(f.root, "..", `${path.basename(f.root)}-user`), { recursive: true, force: true }));
+    assert.equal((await s.list({ titles: false })).items.length, 7);
+
+    await interlude.setLiveSettings({ enabled: false });
+    const listed = await s.list({ titles: false });
+    assert.deepEqual([listed.items, listed.interlude], [[], { linked: false, ok: false, reason: "off" }]);
+    const opened = await s.open({ play: f.play(DAY + 5000) });
+    assert.deepEqual([opened.ok, opened.message], [false, "Interlude is turned off (⚙ Settings → Interlude)."]);
+    const c = clockAt(DAY + 60_000);
+    const il = createIlReplays({ interlude, now: c.now, sleep: c.sleep });
+    const play = { client: "interlude", chart: f.hash, rate: 1, startedAt: c.now() - 40_000, endedAt: c.now(), outcome: "finished" };
+    assert.equal(await il.ended(play), null, "no Interlude play is waited for");
+    assert.equal(await s.playEnded(play), null);
+    assert.deepEqual(sent.filter(([channel]) => channel === "replay-ended"), [], "the tab is told nothing");
+
+    await interlude.setLiveSettings({ enabled: true });
+    assert.equal((await s.list({ titles: false })).items.length, 7);
+    assert.equal((await s.open({ play: f.play(DAY + 5000) })).ok, true);
+    // turned off while a play's row is waited for: the wait ends with nothing
+    c.later(1_000, () => interlude.setLiveSettings({ enabled: false }));
+    const from = c.now();
+    assert.equal(await il.ended({ ...play, startedAt: from - 40_000 }), null);
+    assert.ok(c.now() - from < 2_000);
+    // turned off after the window was told the row is on its way: the wait is closed, so the note does not stay
+    await interlude.setLiveSettings({ enabled: true });
+    c.later(5_000, () => interlude.setLiveSettings({ enabled: false }));
+    let noted = 0;
+    const later = c.now();
+    assert.deepEqual(await il.ended({ ...play, startedAt: later - 40_000 }, { waiting: () => { noted += 1; } }), { reason: "off" });
+    assert.equal(noted, 1);
+    assert.ok(c.now() - later < 7_000);
+    // and not when a newer play ended meanwhile (that one has the tab)
+    await interlude.setLiveSettings({ enabled: true });
+    c.later(5_000, () => interlude.setLiveSettings({ enabled: false }));
+    let wanted = true;
+    c.later(4_500, () => { wanted = false; });
+    assert.equal(await il.ended({ ...play, startedAt: c.now() - 40_000 }, { waiting: () => {}, stillWanted: async () => wanted }), null);
+    // the folder unlinked after the window was told: the wait is closed too, as a folder that cannot be read
+    await c.sleep(1_000); // the switch left over from the step above
+    await interlude.setLiveSettings({ enabled: true });
+    c.later(5_000, () => interlude.unlink());
+    noted = 0;
+    const unlinked = c.now();
+    assert.deepEqual(await il.ended({ ...play, startedAt: unlinked - 40_000 }, { waiting: () => { noted += 1; } }), { reason: "noFolder" });
+    assert.equal(noted, 1);
+    assert.ok(c.now() - unlinked < 7_000);
 });
 
 // The service (app/replayIpc.js) with no osu! folder at all and Interlude linked.

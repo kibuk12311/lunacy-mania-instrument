@@ -9,7 +9,7 @@ import { playerDanFor } from "../../src/recommend/skill.js";
 import { numericToLabel } from "../../src/core/labels.js";
 import { fillDanSelects, readDanSelects } from "./danSelect.js";
 import { getProfile, onProfile, ensureProfile } from "./profile.js";
-import { interludeLinked, onInterludeState } from "./interlude.js";
+import { interludeLinked, interludeOff, onInterludeState } from "./interlude.js";
 import { mapsText } from "./marathonCurveView.js";
 import { togglePattern } from "./recPlan.js";
 
@@ -115,10 +115,11 @@ function renderProfile() {
     }
     box.textContent = text;
     // a profile loaded from mania-tracker knows what was played; a hand-set one only with a linked Interlude folder
-    // (its scores, main's recommender.playedMaps)
+    // (its scores, main's recommender.playedMaps); Interlude turned off in ⚙ Settings: the title says where to turn it on
     const skip = $("mar-skip-played");
     skip.disabled = p.state !== "ready" || (Boolean(p.manual) && !interludeLinked());
     skip.checked = !skip.disabled && settings.skipPlayed;
+    $("mar-skip-played-row").title = interludeOff() ? t("marathon.auto.skipPlayedOff") : t("marathon.html.skipPlayedTitle");
 }
 
 // The patterns in the General / Detailed mode (patternMode.js): in General a remembered kind (quadstream …) shows as

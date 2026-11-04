@@ -59,6 +59,52 @@ function errorText(s) {
     return s.code === "dac_not_found" && !s.allowDownload ? `${text} ${t("app.interlude.live.dacHint")}` : text;
 }
 
+// The reader runs while Interlude is followed (the client's liveSettings().follow: the setting, or a linked folder by
+// default, never while Interlude is turned off in Settings); a change of the download setting starts it again with the
+// new command line. While Interlude is turned off, an Interlude chart still on the card leaves it. main.js runs sync() at
+// start and on every change of the client, without waiting: each sync runs after the one before it, so a quick off and on
+// again starts the reader once the one being stopped has exited.
+// interlude: createInterludeClient(); reader: createReaderProcess() (app/interludeReader.js); live: createInterludeLive();
+// card: { end } (the selection controller's endExternal); stopped() → true once the app is quitting.
+// allowDownload(): what the reader is (to be) started with.
+export function createReaderSync({ interlude, reader, live, card = null, stopped = () => false }) {
+    let allowDownload = false;
+    let last = Promise.resolve(); // the sync before this one
+    async function once() {
+        if (stopped()) return;
+        let settings;
+        try {
+            settings = await interlude.liveSettings();
+        } catch {
+            return;
+        }
+        const downloadChanged = settings.allowDownload !== allowDownload;
+        allowDownload = settings.allowDownload;
+        live.setAllowDownload(settings.allowDownload);
+        if (!settings.enabled) {
+            // turned off: live's selection is dropped before the card is ended, so a chart still being looked up or
+            // copied out goes nowhere after it (the reader may take a moment to stop)
+            live.off();
+            card?.end();
+        }
+        if (!settings.follow) {
+            if (reader.wanted()) {
+                await reader.stop();
+                live.off();
+            }
+            return;
+        }
+        if (reader.wanted() && downloadChanged) await reader.restart();
+        else reader.start();
+    }
+    function sync() {
+        const run = last.then(once);
+        last = run.catch(() => {});
+        return run;
+    }
+    return { sync, allowDownload: () => allowDownload };
+}
+
 // interlude: createInterludeClient(); card: { showExternal, showInfo } of the selection controller;
 // overlay: () → the overlay (its onInterlude); onState(state): the live state changed (to the window);
 // onPlayEnded({ client: "interlude", chart, rate, startedAt, endedAt, outcome: "finished" | "quit", artist, title,
@@ -111,7 +157,10 @@ export function createInterludeLive({
     async function select(chart, key, my) {
         const hash = chart.hash;
         const rate = Number.isFinite(chart.rate) && chart.rate > 0 ? chart.rate : 1;
-        const linked = Boolean((await interlude.status().catch(() => null))?.linked);
+        const status = await interlude.status().catch(() => null);
+        // Interlude turned off in Settings (a line read while the reader stops): nothing for the card
+        if (status?.off) return;
+        const linked = Boolean(status?.linked);
         let meta = null;
         if (linked) {
             meta = await interlude.library.meta(hash).catch(() => null);

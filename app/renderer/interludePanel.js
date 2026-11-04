@@ -1,9 +1,11 @@
-// Interlude's block on the Settings page (app/renderer/settingsPage.js): its folder (picked, found or unlinked) and its library,
-// searched by artist, title, difficulty name or creator; a click puts the chart on the card (dan, patterns, MSD,
-// rates), and the rate tab then works on it. Above the library: following the running game (the card shows what is
-// selected in Interlude, the overlay its plays, through app/interludeReader.js) with its state in words, and the
-// setting that lets the reader download .NET's DAC file once when none matches (off by default). The IL button under
-// the card (there only while a folder is linked) shows the live state and opens this block, for the library.
+// Interlude's block on the Settings page (app/renderer/settingsPage.js). First the switch for Interlude as a whole
+// (main keeps it beside the live settings, app/interludeClient.js): turned off, the app goes on as if no folder were
+// linked, and the block shows only the switch, the folder kept and a note. Then its folder (picked, found or
+// unlinked) and its library, searched by artist, title, difficulty name or creator; a click puts the chart on the card
+// (dan, patterns, MSD, rates), and the rate tab then works on it. Above the library: following the running game (the
+// card shows what is selected in Interlude, the overlay its plays, through app/interludeReader.js) with its state in
+// words, and the setting that lets the reader download .NET's DAC file once when none matches (off by default). The IL
+// button under the card (there only while a folder is linked) shows the live state and opens this block, for the library.
 import { t } from "../../src/i18n/i18n.js";
 import { onInterludeState } from "./interlude.js";
 
@@ -41,9 +43,10 @@ export function initInterludePanel({ button = null, panel, api = window.danApi, 
     const libraryBox = el("div", "il-library");
     libraryBox.append(search, results);
     const note = el("div", "il-note muted", t("interlude.panel.note"));
-    // following the running game
-    const check = (label, title) => {
-        const box = el("label", "il-check");
+    const offNote = el("div", "il-off-note muted");
+    // following the running game, and the switch for Interlude as a whole
+    const check = (label, title, cls = "") => {
+        const box = el("label", `il-check${cls ? ` ${cls}` : ""}`);
         const input = el("input");
         input.type = "checkbox";
         box.title = title;
@@ -55,7 +58,8 @@ export function initInterludePanel({ button = null, panel, api = window.danApi, 
     const liveLine = el("div", "il-live muted");
     const liveBox = el("div", "il-live-box");
     liveBox.append(liveCheck.box, liveLine, downloadCheck.box);
-    panel.replaceChildren(statusLine, folderLine, actions, answer, liveBox, libraryBox, note);
+    const enableCheck = check(t("interlude.panel.enable"), t("interlude.panel.enableTitle"), "il-enable");
+    panel.replaceChildren(enableCheck.box, statusLine, folderLine, actions, answer, offNote, liveBox, libraryBox, note);
 
     let state = null;
     let token = 0;
@@ -99,6 +103,12 @@ export function initInterludePanel({ button = null, panel, api = window.danApi, 
     function render(s) {
         state = s;
         const linked = Boolean(s?.linked);
+        // turned off: the switch, the folder kept and the note; nothing to pick, follow or search
+        const off = Boolean(s?.off);
+        enableCheck.input.checked = !off;
+        for (const part of [statusLine, actions, liveBox, note]) part.hidden = off;
+        offNote.hidden = !off;
+        offNote.textContent = s?.folder ? t("interlude.panel.offNote") : t("interlude.panel.offNoteNoFolder");
         if (button) {
             button.hidden = !linked;
             button.classList.toggle("live", linked);
@@ -125,6 +135,21 @@ export function initInterludePanel({ button = null, panel, api = window.danApi, 
         render(await api.interludeStatus());
         return undefined;
     };
+    // the switch: main keeps it (over the live settings' channel) and tells every tab; the block is drawn again from
+    // what main then says, so a refused click leaves the switch as it is
+    enableCheck.input.addEventListener("change", async () => {
+        enableCheck.input.disabled = true;
+        try {
+            const r = await api.interludeLiveSet({ enabled: enableCheck.input.checked });
+            if (r?.ok) {
+                say("");
+                renderLive(r);
+            } else say(r?.message ?? "", "bad");
+            render(await api.interludeStatus());
+        } finally {
+            enableCheck.input.disabled = false;
+        }
+    });
     pick.addEventListener("click", act(() => api.interludePickFolder()));
     detect.addEventListener("click", act(() => api.interludeDetect()));
     unlink.addEventListener("click", act(() => api.interludeUnlink()));

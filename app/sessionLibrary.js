@@ -4,7 +4,9 @@
 // head of an .osu is read until it is known to be 4K mania. Interlude is read through its library
 // (app/interludeLibrary.js, copies of its databases), osu! lazer through app/lazerRealm.js (a copy of its realm
 // database; a map's .osu comes out of lazer's hashed file store, only read). A map that is in more than one of them
-// (the same .osu) is one map with every source it is in.
+// (the same .osu) is one map with every source it is in. Interlude turned off in ⚙ Settings (app/interludeClient.js)
+// is left out of what the session is offered, the counts and the line at once, but what is known of it stays in the
+// store (its maps and their analyses), so turning it on again analyses nothing anew.
 // The analysis runs in the background line (app/analysisService.js bulk), a few maps at once on the line's own workers
 // (app/workerPool.js; one at a time on a machine with no cores to spare), and can be paused; the store is written
 // every few maps, so a closed app goes on where it stopped.
@@ -108,7 +110,8 @@ export function createSessionLibrary({
     let phase = "idle"; // idle | listing | analysing | paused | done
     let lastError = null;
     let lastScan = null; // { ms, listed, read } of the last listing
-    let interludeState = { linked: false, count: 0 };
+    let interludeState = { linked: false, count: 0 }; // as the last listing with Interlude on found it
+    let listedOff = false; // Interlude was turned off at the last listing, or an Interlude map was left waiting for it
     let lazerState = { found: false, count: 0 };
     let dirty = 0;
     let savedAt = 0;
@@ -131,13 +134,23 @@ export function createSessionLibrary({
         return savePromise;
     }
 
-    function counts() {
+    // Interlude turned off in ⚙ Settings (the client's switch; a client without one is never off)
+    const interludeOff = async () => Boolean(interlude?.enabled) && !(await interlude.enabled().catch(() => true));
+    // a map's Interlude chart as the session sees it: none while Interlude is off; a map with no other source is then
+    // left out (onlyInterlude)
+    const chartOf = (m, off) => (off ? null : m.hash);
+    const onlyInterlude = (m) => !m.path && !m.lz;
+
+    // off: Interlude is turned off (its maps and sources left out)
+    function counts(off = false) {
         const c = { stable: 0, interlude: 0, both: 0, lazer: 0, total: 0, analysed: 0, pending: 0, stale: 0, skipped: 0, failed: 0 };
         for (const m of Object.values(store?.maps ?? {})) {
+            if (off && onlyInterlude(m)) continue;
+            const hash = chartOf(m, off);
             c.total += 1;
-            if (m.path && m.hash) c.both += 1;
+            if (m.path && hash) c.both += 1;
             else if (m.path) c.stable += 1;
-            else if (m.hash) c.interlude += 1;
+            else if (hash) c.interlude += 1;
             if (m.lz) c.lazer += 1;
             if (m.a?.kind === "ok") c.analysed += 1;
             else if (m.a?.kind === "error") c.failed += 1;
@@ -150,9 +163,15 @@ export function createSessionLibrary({
 
     async function status() {
         await load();
+        const off = await interludeOff();
+        // turned on again since a listing that had it off: listed again, once (its maps were kept, nothing is analysed anew)
+        if (!off && listedOff && !running) {
+            listedOff = false;
+            void scan();
+        }
         return {
-            phase, paused, songsDir: store.songsDir, interlude: interludeState, lazer: lazerState, counts: counts(), lastScan,
-            ...(lastError ? { error: lastError } : {}),
+            phase, paused, songsDir: store.songsDir, interlude: off ? { linked: false, off: true, count: 0 } : interludeState,
+            lazer: lazerState, counts: counts(off), lastScan, ...(lastError ? { error: lastError } : {}),
         };
     }
 
@@ -275,8 +294,12 @@ export function createSessionLibrary({
         return ids;
     }
 
+    // Interlude's 4K charts → Map hash → chart; null while Interlude is turned off (what the store knew of it stays, and
+    // so does what the last listing with it on found)
     async function listInterlude() {
         const st = interlude ? await interlude.status().catch(() => ({ linked: false })) : { linked: false };
+        listedOff = Boolean(st.off);
+        if (listedOff) return null;
         if (!st.linked) {
             interludeState = { linked: false, count: 0 };
             return new Map();
@@ -286,6 +309,11 @@ export function createSessionLibrary({
             interludeState = { linked: true, count: charts.length };
             return new Map(charts.map((c) => [c.hash, c]));
         } catch (error) {
+            // turned off meanwhile (its status said linked): what the store knew of it stays, as when it was off before
+            if (await interludeOff()) {
+                listedOff = true;
+                return null;
+            }
             interludeState = { linked: true, count: 0, error: String(error?.message ?? error) };
             log(`session library: Interlude not read: ${error?.message}`);
             return new Map();
@@ -319,18 +347,30 @@ export function createSessionLibrary({
     // The maps the store keeps: every stable chart listed (with the Interlude chart and the lazer map that are the same
     // .osu), then the Interlude charts that are not in Songs, then lazer's maps that are in neither. Charts gone from
     // all of them are forgotten. lazerMaps null: lazer could not be read this time, its maps stay as they were.
+    // charts null: Interlude is turned off, what the store knew of it stays as it was (a stable map keeps its chart,
+    // an Interlude map stays, with the lazer map found to be it).
     function merge(stable, charts, lazerMaps = []) {
         const maps = {};
         const byMd5 = new Map(); // md5 of an .osu → the id of the map it is
+        const kept = charts === null;
         for (const [id, p] of stable) {
             const m = store.maps[id];
             if (!m) continue;
-            const { hash: _old, lz: _lz, ...rest } = m;
-            maps[id] = { ...rest, path: p };
+            const { hash, lz: _lz, ...rest } = m;
+            maps[id] = { ...rest, path: p, ...(kept && hash ? { hash } : {}) };
             byMd5.set(id.slice(4), id);
         }
         const interludeOnly = [];
-        for (const [hash, c] of charts) {
+        const byLz = new Map(); // (Interlude off) the hash of a lazer map → the Interlude map it was found to be
+        if (kept) {
+            for (const [id, m] of Object.entries(store.maps)) {
+                if (!id.startsWith("il:")) continue;
+                const { lz, ...rest } = m;
+                maps[id] = rest;
+                if (lz) byLz.set(lz, id);
+            }
+        }
+        for (const [hash, c] of charts ?? []) {
             const origins = (c.origins ?? []).map((o) => o.md5).filter(Boolean);
             const same = origins.find((h) => byMd5.has(h));
             if (same) {
@@ -355,7 +395,7 @@ export function createSessionLibrary({
             }
         } else {
             for (const z of lazerMaps) {
-                const same = z.md5 ? byMd5.get(z.md5) : null;
+                const same = (z.md5 ? byMd5.get(z.md5) : null) ?? byLz.get(z.hash);
                 if (same) {
                     maps[same].lz = z.hash;
                     continue;
@@ -370,7 +410,8 @@ export function createSessionLibrary({
         store.maps = maps;
     }
 
-    // A map's .osu from the first of its sources that has it: the Songs file, Interlude, lazer's store.
+    // A map's .osu from the first of its sources that has it: the Songs file, Interlude (not while it is turned off),
+    // lazer's store.
     async function textOf(id, m) {
         let failed = null;
         if (m.path) {
@@ -380,10 +421,13 @@ export function createSessionLibrary({
                 failed = error;
             }
         }
-        if (m.hash && interlude) {
+        let off = await interludeOff();
+        if (m.hash && interlude && !off) {
             const osu = await interlude.library.osuFor(m.hash).catch((error) => { failed = error; return null; });
             if (osu) return osu.text;
             failed ??= new Error("chart not found in Interlude");
+            // turned off while the chart was read: that is why it was not read
+            off = await interludeOff();
         }
         if (m.lz && lazer) {
             const text = await lazer.text(m.lz).catch((error) => { failed = error; return null; });
@@ -392,12 +436,21 @@ export function createSessionLibrary({
         }
         // lazer not read on this scan: no answer for its maps, they are tried again on the next one
         if (m.lz && lazerState.error) failed = Object.assign(failed ?? new Error(lazerState.error), { transient: true });
+        // Interlude turned off meanwhile: no answer either, its maps are tried again once it is on (the next status with
+        // it on lists again)
+        if (m.hash && off) {
+            listedOff = true;
+            failed = Object.assign(failed ?? new Error("Interlude is turned off"), { transient: true });
+        }
         throw failed ?? new Error("chart not found");
     }
 
     async function analyseAll(isStopped) {
-        // never analysed first, then the ones another version analysed
-        const todo = Object.entries(store.maps).filter(([, m]) => !m.a || m.stale).sort((x, y) => Number(Boolean(x[1].stale)) - Number(Boolean(y[1].stale)));
+        // never analysed first, then the ones another version analysed; while Interlude is off, not the maps only it has
+        const off = await interludeOff();
+        if (off) listedOff = true; // the maps only it has wait for it, and are taken once it is on again
+        const todo = Object.entries(store.maps).filter(([, m]) => (!m.a || m.stale) && !(off && onlyInterlude(m)))
+            .sort((x, y) => Number(Boolean(x[1].stale)) - Number(Boolean(y[1].stale)));
         // analyze.lanes maps at once (the background line's workers, app/workerPool.js), every lane taking the next map
         // of the one list; a stop lets the maps under way finish, a resume meanwhile brings the stopped lanes back
         const lanes = Math.max(1, Math.min(Math.floor(Number(analyze.lanes) || 1), todo.length));
@@ -460,7 +513,7 @@ export function createSessionLibrary({
         merge(stableIds(), charts, lazerMaps);
         lastScan = { ms: now() - started, sets: songs.listed, read: songs.read };
         const lazerText = lazerState.error ? "not read" : lazerState.found ? lazerState.count : "not found";
-        log(`session library: ${songs.dir ?? "no Songs folder"}: ${songs.listed} sets, ${songs.read} .osu read; Interlude ${interludeState.linked ? charts.size : "not linked"}; lazer ${lazerText}; ${Object.keys(store.maps).length} maps, listed in ${lastScan.ms} ms`);
+        log(`session library: ${songs.dir ?? "no Songs folder"}: ${songs.listed} sets, ${songs.read} .osu read; Interlude ${charts === null ? "turned off" : interludeState.linked ? charts.size : "not linked"}; lazer ${lazerText}; ${Object.keys(store.maps).length} maps, listed in ${lastScan.ms} ms`);
         await save();
         if (paused) {
             phase = "paused";
@@ -525,18 +578,20 @@ export function createSessionLibrary({
             await (running ?? Promise.resolve());
             return scan();
         },
-        // The analysed, rated maps as the session builder takes them.
+        // The analysed, rated maps as the session builder takes them (while Interlude is off: none of it).
         async maps() {
             await load();
+            const off = await interludeOff();
             const out = [];
             for (const [id, m] of Object.entries(store.maps)) {
-                if (m.a?.kind !== "ok") continue;
+                if (m.a?.kind !== "ok" || (off && onlyInterlude(m))) continue;
+                const hash = chartOf(m, off);
                 out.push({
                     id, artist: m.artist, title: m.title, version: m.version, creator: m.creator, beatmapId: m.beatmapId ?? null,
                     numeric: m.a.numeric, label: m.a.label, primary: m.a.primary, top3: m.a.top3, tech: m.a.tech,
                     durationSec: m.a.durationSec, bpm: m.a.bpm,
                     sources: {
-                        ...(m.path ? { stable: { path: m.path, md5: m.md5 } } : {}), ...(m.hash ? { interlude: { hash: m.hash } } : {}),
+                        ...(m.path ? { stable: { path: m.path, md5: m.md5 } } : {}), ...(hash ? { interlude: { hash } } : {}),
                         ...(m.lz ? { lazer: { hash: m.lz, ...(m.md5 ? { md5: m.md5 } : {}) } } : {}),
                     },
                 });

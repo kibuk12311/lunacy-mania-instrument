@@ -175,6 +175,10 @@ footer button.il-toggle.on { border-color: var(--blue); }
 .interlude-panel .il-check { display: flex; gap: 6px; align-items: center; font-size: 11px; margin: 2px 0; cursor: pointer; }
 .interlude-panel .il-live { font-size: 10px; margin: 2px 0 4px 20px; line-height: 1.35; }
 .interlude-panel .il-live.ok { color: var(--green); }
+/* the block's parts hidden while Interlude is turned off (its actions are a flex row, which would show a [hidden] one) */
+.interlude-panel [hidden] { display: none; }
+.interlude-panel .il-check.il-enable { font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+.interlude-panel .il-off-note { font-size: 11px; margin: 4px 0; line-height: 1.35; }
 footer button.il-toggle.attached { color: var(--green); }
 footer button.il-toggle.warn { color: var(--gold); }
 .osu-client.interlude.live { color: var(--green); }

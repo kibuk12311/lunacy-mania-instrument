@@ -440,3 +440,32 @@ test("an Interlude chart is never looked at as a rate map; a lookup that fails o
     assert.equal("rateMap" in noDan.last(), false);
     assert.equal(noDan.controller.rateMap().rate, 1.2, "the Rate tab still gets the original");
 });
+
+test("endExternal: the Interlude chart leaves the card (Interlude turned off), osu!'s map comes back; nothing on it, nothing happens", async () => {
+    const { controller, views, frame, last } = setup();
+    frame("A");
+    await flush();
+    let ended = 0;
+    controller.showExternal({ id: "h", text: "text-B", rate: 1, onEnd: () => { ended += 1; } });
+    await flush();
+    assert.equal(last().result.text, "text-B");
+    controller.endExternal();
+    await flush();
+    assert.equal(ended, 1);
+    assert.equal(controller.external(), null);
+    assert.equal(last().result.text, "text-A", "osu!'s selection again, without waiting for it to change");
+    const seen = views.length;
+    controller.endExternal();
+    await flush();
+    assert.equal(ended, 1);
+    assert.equal(views.length, seen);
+
+    // no osu! map seen yet: the card waits for osu!
+    const fresh = setup();
+    fresh.controller.showInfo({ id: "h", title: "x" });
+    fresh.controller.endExternal();
+    assert.deepEqual(fresh.last(), { screen: "waiting-osu" });
+    fresh.frame("A");
+    await flush();
+    assert.equal(fresh.last().result.text, "text-A");
+});

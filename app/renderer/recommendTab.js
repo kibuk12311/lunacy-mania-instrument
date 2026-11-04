@@ -15,7 +15,7 @@ import {
     el, call, failText, fix2, cardElement, onDownloadProgress, favourites, onFavourites, loadFavourites, redrawOurs,
 } from "./recCard.js";
 import { toggleSimilar } from "./recSimilar.js";
-import { interludeLinked, onInterludeState } from "./interlude.js";
+import { interludeLinked, interludeOff, onInterludeState } from "./interlude.js";
 import { initPlan, MAX_PLAN_PATTERNS, PLAN_SIZES } from "./recPlan.js";
 import { initFavourites, showFavourites, DEFAULT_COLLECTION_NAME } from "./recFavourites.js";
 import { initProgress, showProgress, PROGRESS_DAYS, CHART_AXES } from "./recProgress.js";
@@ -278,12 +278,14 @@ function applySource() {
 }
 
 // Manual mode has plays to hide only from a loaded tracker profile or a linked Interlude folder (its scores, which
-// main adds to the plays: recommend.js extraPlayed); without either the checkbox is off and says why.
+// main adds to the plays: recommend.js extraPlayed); without either the checkbox is off and says why (Interlude turned
+// off in ⚙ Settings: where to turn it on).
 function applyHidePlayed() {
     const noPlays = settings.source === "manual" && !player && !interludeLinked();
     $("rec-hide-played").disabled = noPlays;
     $("rec-hide-played-row").classList.toggle("off", noPlays);
-    $("rec-hide-played-row").title = noPlays ? t("recommend.manual.noPlays") : "";
+    const why = interludeOff() ? t("recommend.manual.noPlaysOff") : t("recommend.manual.noPlays");
+    $("rec-hide-played-row").title = noPlays ? why : "";
 }
 
 // ---- the hand-set profile ----

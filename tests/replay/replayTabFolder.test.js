@@ -267,6 +267,29 @@ async function oneReplay(t, more = {}) {
     return { file, service, quiet };
 }
 
+test("Interlude turned off or on in ⚙ Settings: the list is read again at once while the tab is shown, else when it is next shown", async () => {
+    const { initInterludeState } = await import("../../app/renderer/interlude.js");
+    let push = null;
+    initInterludeState({ interludeStatus: async () => ({ linked: true }), onInterludeState: (cb) => { push = cb; } });
+    await flush();
+    const m = await hit(mount({ list: inFolder }));
+    assert.equal(m.asked.list, 2, "the quick list, then the one with titles");
+    push({ linked: false, off: true, folder: "C:\Games\Interlude" });
+    await flush();
+    assert.equal(m.asked.list, 4, "turned off: read again at once");
+    push({ linked: false, off: true, folder: "C:\Games\Interlude", selected: null });
+    await flush();
+    assert.equal(m.asked.list, 4, "the same switch told again: nothing read");
+    m.tab.hidden();
+    push({ linked: true, folder: "C:\Games\Interlude" });
+    await flush();
+    assert.equal(m.asked.list, 4, "the tab not shown: nothing read yet");
+    await hit(m);
+    assert.equal(m.asked.list, 6, "on again: read when the tab is shown");
+    await hit(m);
+    assert.equal(m.asked.list, 6);
+});
+
 test("the song's note and the skin's share a line: a reread does not wipe the song's, nor the song's end bring back an old skin's", async (t) => {
     const { file, service, quiet } = await oneReplay(t);
     const m = await hit(mount({ list: inFolder }));

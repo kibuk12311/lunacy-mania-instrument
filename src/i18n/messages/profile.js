@@ -78,7 +78,8 @@ export default {
     "profile.local.fromLazer": { ru: "из osu! lazer {n}", en: "{n} from osu! lazer" },
     "profile.local.noTop": { ru: "Здесь пока нет игр", en: "No plays here yet" },
     "profile.local.compare": { ru: "Сравнение с mania-tracker ({name})", en: "Compared with mania-tracker ({name})" },
-    "profile.local.noInterlude": { ru: "Сначала привяжи папку Interlude (кнопка IL на карточке)", en: "Link your Interlude folder first (the IL button on the card)" },
+    "profile.local.noInterlude": { ru: "Сначала привяжи папку Interlude (⚙ Настройки → Interlude)", en: "Link your Interlude folder first (⚙ Settings → Interlude)" },
+    "profile.local.interludeOff": { ru: "Interlude выключен — включи его в ⚙ Настройки → Interlude", en: "Interlude is turned off — turn it on in ⚙ Settings → Interlude" },
     "profile.local.noLazer": {
         ru: "Не нашёл osu! lazer: нет его базы client.realm (в %APPDATA%\\osu или в папке из storage.ini)",
         en: "Couldn't find osu! lazer: no client.realm database (in %APPDATA%\\osu or the folder storage.ini names)",

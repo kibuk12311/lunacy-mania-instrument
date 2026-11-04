@@ -3,6 +3,7 @@
 // Interlude's collections.json. Every handler answers instead of throwing; the window is told of every change on
 // "interlude-state". Following the running game (app/interludeReader.js, app/interludeLive.js) is set here too:
 // "interlude-live-get" / "interlude-live-set" ({ live, allowDownload }); its state goes to the window on "interlude-live".
+// The switch for Interlude as a whole (⚙ Settings → Interlude) goes over "interlude-live-set" too ({ enabled }).
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { osuMd5 } from "../src/interlude/chart.js";
@@ -60,6 +61,8 @@ export function createInterludeHandlers({
 
     async function exportList(req) {
         try {
+            // turned off in ⚙ Settings: said so before the library (which sees no folder then) is asked anything
+            if (interlude.enabled && !(await interlude.enabled())) return { ok: false, message: t("app.interlude.off") };
             const items = (Array.isArray(req?.items) ? req.items.slice(0, MAX_ITEMS) : []).map(exportItem).filter(Boolean);
             if (!items.length) return { ok: false, message: t("app.interlude.nothingToExport") };
             const entries = [];
@@ -124,6 +127,7 @@ export function createInterludeHandlers({
                 const patch = {};
                 if (typeof req?.live === "boolean") patch.live = req.live;
                 if (typeof req?.allowDownload === "boolean") patch.allowDownload = req.allowDownload;
+                if (typeof req?.enabled === "boolean") patch.enabled = req.enabled;
                 await interlude.setLiveSettings(patch);
                 return liveInfo();
             } catch (error) {

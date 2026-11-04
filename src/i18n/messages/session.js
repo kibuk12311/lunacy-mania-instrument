@@ -59,6 +59,11 @@ export default {
         ru: "Нет данных о сыгранном: загрузи профиль mania-tracker или подключи Interlude",
         en: "No plays known: load a mania-tracker profile or link Interlude",
     },
+    // the same while Interlude is turned off in Settings (its folder kept)
+    "session.recentNoneOff": {
+        ru: "Нет данных о сыгранном: загрузи профиль mania-tracker или включи Interlude (⚙ Настройки → Interlude)",
+        en: "No plays known: load a mania-tracker profile or turn Interlude on (⚙ Settings → Interlude)",
+    },
     "session.progress.rates": { ru: "Проверяю рейты: {i} из {n}", en: "Checking rates: {i} of {n}" },
     "session.progress.copy": { ru: "Делаю рейт-копии: {i} из {n}", en: "Making rate copies: {i} of {n}" },
     "session.pickSongsTitle": { ru: "Папка Songs от osu!", en: "osu!'s Songs folder" },
@@ -83,6 +88,7 @@ export default {
         en: "Start osu! stable (tosu tells where Songs is) or point to it with “Songs folder…”",
     },
     "session.lib.interludeHint": { ru: "Interlude подключается в ⚙ Настройки → Interlude", en: "Link Interlude in ⚙ Settings → Interlude" },
+    "session.lib.interludeOff": { ru: "Interlude выключен в ⚙ Настройки → Interlude", en: "Interlude is turned off in ⚙ Settings → Interlude" },
 
     // notes on a built session
     "session.note.short": { ru: "Подходящих карт мало — сессия вышла короче, чем просил.", en: "Few maps fit — the session is shorter than asked." },

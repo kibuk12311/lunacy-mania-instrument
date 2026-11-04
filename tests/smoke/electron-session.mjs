@@ -7,7 +7,9 @@
 // rates, saved and opened, exported as an osu! collection (rate copies by a stub that writes into the fixture), as an
 // Interlude playlist (into the fixture's collections.json; the Interlude process check is a stub) and as a marathon (a
 // stub writes the .osz), copied as text; then a focus no map has (nothing near). A second scan must read nothing.
-// No network from the window. Screenshots go to <out-dir>; exits 1 on any failed check.
+// Then Interlude is turned off with the switch in ⚙ Settings (as main does it, on the client): the page's library has
+// none of it and says it is off, a session takes no Interlude map; turned on again, it is all back with nothing
+// analysed anew. No network from the window. Screenshots go to <out-dir>; exits 1 on any failed check.
 import { app, BrowserWindow, ipcMain, session as electronSession, clipboard } from "electron";
 import path from "node:path";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -115,7 +117,8 @@ app.whenReady().then(async () => {
     const handlers = createSessionHandlers({
         library: libraryApi,
         profile: { current: () => ({ ok: false }) },
-        played: async () => ({ known: true, beatmaps: new Map(), hashes: await interlude.library.played() }),
+        // as app/sessionIpc.js asks: Interlude's plays only while it is linked (and on)
+        played: async () => ({ known: true, beatmaps: new Map(), hashes: (await interlude.status()).linked ? await interlude.library.played() : new Map() }),
         analyze,
         // the rate tab's copy writes next to the map: here the fixture's map, with a made-up chart
         makeRateCopy: async ({ beatmapPath, rate }) => {
@@ -317,6 +320,46 @@ app.whenReady().then(async () => {
     check(st2.lastScan.read === 0, `rescan reads nothing (${st2.lastScan.read}; the page's own rescan after the export read the ${copies.length} rate copies and left them out)`);
     check(analysed === before2, "rescan analyses nothing");
     check(st2.counts.total === TOTAL, "rate copies are not added to the library");
+
+    // ---- Interlude turned off in ⚙ Settings: none of it in the library or a session; on again, nothing analysed anew ----
+    await interlude.setLiveSettings({ enabled: false });
+    const beforeOff = analysed;
+    await js(`localStorage.setItem("rec-session", JSON.stringify({ ...JSON.parse(localStorage.getItem("rec-session")), patternIds: ["jumpstream"], allowRates: false })); true`);
+    await win.loadFile(path.join(appDir, "renderer", "index.html"));
+    await js(`document.querySelector('[data-tab=recommend]').click(); true`);
+    check(await waitFor(`document.getElementById("ses-lib-phase").textContent === ${JSON.stringify(t("session.lib.done"))}`, 30000), "off: the library listed again");
+    const stOff = await library.status();
+    console.log("off:", await text("ses-lib-status"), "|", await text("ses-lib-notes"), "|", JSON.stringify(stOff.counts));
+    check(stOff.counts.total === TOTAL - 2 && stOff.counts.interlude === 0 && stOff.counts.both === 0, `off: ${TOTAL - 2} maps, none of Interlude (${JSON.stringify(stOff.counts)})`);
+    check(!(await text("ses-lib-status")).includes("Interlude"), "off: no Interlude count in the line");
+    check((await text("ses-lib-notes")).includes(t("session.lib.interludeOff")), "off: the note says Interlude is turned off in Settings");
+    check((await library.maps()).every((m) => !m.sources.interlude), "off: no map offered with Interlude as a source");
+    check(await js(`document.querySelector("#ses-interlude .il-send").hidden`), "off: no «Playlist in Interlude» on the page");
+    await click("ses-go");
+    check(await waitFor(`!document.getElementById("ses-go").disabled && !document.getElementById("ses-head").hidden`, 60000), "off: a session is built");
+    const offItems = handlers.current().session.items;
+    check(offItems.length > 0 && offItems.every((x) => !x.sources.interlude && x.sources.stable), `off: only osu! maps in the session (${offItems.length})`);
+    await scrollTo("#ses-lib-status");
+    await shot("7-interlude-off.png");
+    check(analysed === beforeOff, "off: nothing analysed");
+    await interlude.setLiveSettings({ enabled: true });
+    await library.status(); // Interlude was off at the last listing: listed again
+    await library.idle();
+    const stOn = await library.status();
+    check(stOn.counts.total === TOTAL && stOn.counts.interlude === 2 && stOn.counts.both === 1 && stOn.interlude.linked, `on again: every map back (${JSON.stringify(stOn.counts)})`);
+    check(analysed === beforeOff, "on again: nothing analysed anew");
+    // the page, opened again: the Interlude count back in the line, no "turned off" note, the playlist button back
+    await win.loadFile(path.join(appDir, "renderer", "index.html"));
+    await js(`document.querySelector('[data-tab=recommend]').click(); true`);
+    check(await waitFor(`document.getElementById("ses-lib-phase").textContent === ${JSON.stringify(t("session.lib.done"))}`, 30000), "on again: the library listed again");
+    console.log("on again:", await text("ses-lib-status"), "|", await text("ses-lib-notes"));
+    check((await text("ses-lib-status")).includes(t("session.lib.interlude", { n: 3 })), "on again: the Interlude count is back in the line");
+    check(!(await text("ses-lib-notes")).includes(t("session.lib.interludeOff")), "on again: no «turned off» note");
+    check(await waitFor(`!document.querySelector("#ses-interlude .il-send").hidden`, 3000), "on again: «Playlist in Interlude» is back");
+    check((await library.maps()).filter((m) => m.sources.interlude).length === 3, "on again: the 3 Interlude charts offered again");
+    await scrollTo("#ses-lib-status");
+    await shot("8-interlude-on.png");
+    check(analysed === beforeOff, "on again: the page's listing analysed nothing");
 
     if (lang === "en") {
         const cyr = await js(`(document.getElementById("rec-session-pane").innerText.match(/[А-Яа-яЁё][^\\n]{0,40}/g) || []).join(" ‖ ")`);

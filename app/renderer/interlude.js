@@ -1,6 +1,7 @@
 // Interlude in the window: what main says of it (linked folder, the chart on the card) and the two buttons every tab
 // that makes maps or lists shows once a folder is linked: "→ Interlude" for a map (an .osz shown in Explorer to drop
-// onto Interlude's window, which brought to the front) and "Playlist in Interlude" for a list of maps.
+// onto Interlude's window, which brought to the front) and "Playlist in Interlude" for a list of maps. Interlude turned
+// off in ⚙ Settings comes as not linked, with off: true (its folder kept), so all of that hides as for no folder.
 import { t } from "../../src/i18n/i18n.js";
 
 let state = { linked: false, folder: null, size: null, selected: null };
@@ -9,6 +10,8 @@ let started = false;
 
 export const interludeState = () => state;
 export const interludeLinked = () => Boolean(state.linked);
+// Interlude turned off in ⚙ Settings: a text that would ask for a folder says that instead
+export const interludeOff = () => Boolean(state.off);
 
 function setState(next) {
     state = { linked: false, ...next };
@@ -80,8 +83,9 @@ export function sendButton(files, api = window.danApi) {
     });
 }
 
-// For a result line: the send button while a folder is linked, else nothing ([] or [button], to spread).
-export const sendButtons = (files) => (interludeLinked() ? [sendButton(files)] : []);
+// For a result line, to spread: the send button, hidden while no folder is linked or Interlude is off, so it comes
+// back on a line made meanwhile.
+export const sendButtons = (files) => [sendButton(files)];
 
 // The answer to a playlist export in words.
 export function exportText(r) {

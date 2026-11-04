@@ -145,7 +145,7 @@ test("editor: four rows with the saved dans, the summary line, no plays to hide,
     assert.equal($("rec-skill").children[0].textContent, "TestPlayer · общий дан Delta low (13.65) · вручную");
     assert.equal($("rec-skill").children[2].textContent, "общий дан — среднее Speed, Jack, Stamina и Tech, как у mania-tracker");
     assert.equal($("rec-hide-played").disabled, true);
-    assert.equal($("rec-hide-played-row").title, "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или привяжи папку Interlude (кнопка IL), чтобы их скрывать");
+    assert.equal($("rec-hide-played-row").title, "Сыгранные карты знают mania-tracker и Interlude — загрузи ник или привяжи папку Interlude (⚙ Настройки → Interlude), чтобы их скрывать");
     assert.equal($("rec-manual-copy").disabled, true);
     assert.ok($("rec-manual-copy").title.startsWith("Сначала загрузи ник"));
     assert.equal(calls.ensure, 0, "manual mode does not load a tracker profile");
@@ -189,6 +189,17 @@ test("with a linked Interlude a hand-set profile can hide played maps (picks) an
     $("mar-skip-played").checked = false;
     await fire($("mar-skip-played"), "change");
     inEnglish(() => assert.ok(t("recommend.manual.noPlays").includes("link your Interlude folder")));
+    // Interlude turned off in ⚙ Settings, its folder kept: nothing to hide either, and the checkbox says where to turn it on
+    push({ linked: true, folder: "C:\\Games\\Interlude" });
+    push({ linked: false, off: true, folder: "C:\\Games\\Interlude" });
+    assert.equal($("rec-hide-played").disabled, true);
+    assert.ok($("rec-hide-played-row").title.includes("включи Interlude (⚙ Настройки → Interlude)"), $("rec-hide-played-row").title);
+    assert.equal($("mar-skip-played").disabled, true);
+    assert.equal($("mar-skip-played-row").title, "Нужен профиль mania-tracker, загруженный в «Подборе», или — для ручного профиля — включённый Interlude (⚙ Настройки → Interlude)");
+    inEnglish(() => assert.ok(t("recommend.manual.noPlaysOff").includes("turn Interlude on (⚙ Settings → Interlude)")));
+    inEnglish(() => assert.equal(t("marathon.auto.skipPlayedOff"), "Needs a mania-tracker profile loaded on the Picks tab or, for a hand-set profile, Interlude turned on (⚙ Settings → Interlude)"));
+    push({ linked: false });
+    assert.equal($("mar-skip-played-row").title, t("marathon.html.skipPlayedTitle"), "no folder linked: as before");
 });
 
 test("a changed dan is saved, the summary and every tab follow it", async () => {

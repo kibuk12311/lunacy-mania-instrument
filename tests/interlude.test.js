@@ -23,7 +23,7 @@ import { makeChart } from "./fixtures/makeChart.js";
 import { makeInterludeFolder } from "./fixtures/interludeFolder.js";
 import { makeIlReplay } from "./fixtures/makeIlReplay.js";
 import { readOsz } from "./fixtures/readOsz.js";
-import { setLang } from "../src/i18n/i18n.js";
+import { setLang, t } from "../src/i18n/i18n.js";
 
 const temp = (name) => mkdtemp(path.join(tmpdir(), `${name}-`));
 
@@ -405,13 +405,13 @@ function memoryStore(value = { folder: null }) {
 async function client(extra = {}) {
     const lib = await library2();
     const docs = await temp("il-docs");
-    const store = memoryStore();
+    const { store = memoryStore(), ...rest } = extra;
     const calls = { reveal: [], pipe: [], launch: [] };
     const c = createInterludeClient({
         store, docsDir: docs, mapsDir: path.join(docs, "карты"), cacheDir: await temp("il-cache"),
         running: async () => false, pipe: async (m) => { calls.pipe.push(m); return true; },
         launch: (exe, cwd) => calls.launch.push([exe, cwd]), reveal: (f) => calls.reveal.push(f),
-        now: () => new Date(2026, 9, 26, 15, 30, 12), ...extra,
+        now: () => new Date(2026, 9, 26, 15, 30, 12), ...rest,
     });
     return { ...lib, c, docs, store, calls };
 }
@@ -431,6 +431,76 @@ test("client: link, unlink and status; a wrong folder is refused", async () => {
     await c.unlink();
     assert.equal((await c.status()).linked, false);
     setLang("ru");
+});
+
+test("client: Interlude turned off in Settings is as if no folder were linked, the folder kept; on again, nothing read anew", async () => {
+    setLang("en");
+    const logs = [];
+    let changes = 0;
+    const { fx, c, store, docs } = await client({ log: (line) => logs.push(line), onChange: () => { changes += 1; } });
+    await c.link(fx.root);
+    assert.equal(await c.enabled(), true, "on by default");
+    assert.equal((await c.liveSettings()).enabled, true);
+    assert.equal((await c.status()).size, 3);
+    const sel = await c.select(fx.charts[0].hash);
+    changes = 0;
+
+    const off = await c.setLiveSettings({ enabled: false });
+    assert.deepEqual([off.enabled, off.follow], [false, false], "the reader stops");
+    assert.equal(changes, 1, "main hears of it (and tells every tab)");
+    assert.deepEqual(store.now(), { folder: fx.root, live: null, allowDownload: false, enabled: false }, "kept beside the folder");
+    assert.equal(await c.enabled(), false);
+    assert.deepEqual(await c.status(), { linked: false, off: true, folder: fx.root, selected: null });
+    assert.equal(c.folder(), null);
+    assert.equal(c.selection(), null, "the card's Interlude chart is the tabs' map no more");
+    assert.equal(c.beatmap(), null);
+    await assert.rejects(c.library.list({ keys: 4 }), /no Interlude folder/);
+    await assert.rejects(c.library.played(), /no Interlude folder/);
+    await assert.rejects(c.select(fx.charts[0].hash), /Interlude is turned off/);
+    await assert.rejects(c.writeCollection({ name: "x", entries: [{ hash: fx.charts[0].hash }] }), /Interlude is turned off/);
+    const sent = await c.send([sel.path]);
+    assert.deepEqual([sent.ok, sent.message], [false, "Interlude is turned off (⚙ Settings → Interlude)."]);
+
+    // a client started later reads it off from interlude.json
+    const later = createInterludeClient({ store, docsDir: docs, mapsDir: docs, cacheDir: path.join(docs, "cache") });
+    assert.equal((await later.status()).off, true);
+
+    const copies = logs.filter((l) => /copied/.test(l)).length;
+    const on = await c.setLiveSettings({ enabled: true });
+    assert.deepEqual([on.enabled, on.follow], [true, true]);
+    assert.equal(changes, 2);
+    assert.deepEqual(await c.status(), { linked: true, folder: fx.root, size: 3, selected: null });
+    assert.equal(c.folder(), fx.root);
+    assert.equal((await c.library.list({ keys: 4 })).length, 2);
+    assert.equal(logs.filter((l) => /copied/.test(l)).length, copies, "the copy of charts.db made before is used again");
+    setLang("ru");
+});
+
+test("client: a chart still being copied out when Interlude is turned off is not made the tabs' map", async () => {
+    setLang("en");
+    const selected = [];
+    const { fx, c, docs } = await client({ log: (line) => { if (/selected/.test(line)) selected.push(line); } });
+    await c.link(fx.root);
+    // turned off while select() copies the chart out, past every check of the switch: once its folder is made
+    const picking = c.select(fx.charts[0].hash);
+    while (!(await readdir(docs)).length) await new Promise((r) => setImmediate(r));
+    await c.setLiveSettings({ enabled: false });
+    await assert.rejects(picking, /Interlude is turned off/);
+    assert.equal(c.selection(), null);
+    assert.equal(c.beatmap(), null, "the tabs work on osu!'s map");
+    assert.deepEqual(selected, []);
+    setLang("ru");
+});
+
+test("client: an interlude.json from before the switch is on; only false turns it off", async () => {
+    const { fx, c } = await client({ store: memoryStore({ folder: null, live: false, allowDownload: true }) });
+    await c.link(fx.root);
+    assert.equal(await c.enabled(), true);
+    assert.deepEqual(await c.liveSettings(), { live: false, allowDownload: true, enabled: true, follow: false });
+    const junk = await client({ store: memoryStore({ folder: null, enabled: "no" }) });
+    assert.equal(await junk.c.enabled(), true);
+    await c.setLiveSettings({ enabled: "no" });
+    assert.equal(await c.enabled(), true, "only true or false changes it");
 });
 
 test("client: a chart selected is copied out with its audio and becomes the tabs' map; Interlude's folder untouched", async () => {
@@ -559,7 +629,16 @@ test("ipc: a marathon list becomes a playlist with its rates; maps not in the li
     assert.equal(none.ok, false);
     assert.deepEqual(none.missing, ["Nope"]);
     assert.match(none.message, /in your Interlude library yet/);
+    // Interlude turned off in ⚙ Settings: refused in the player's words, by hash or by file alike, nothing written
+    await c.setLiveSettings({ enabled: false });
+    const before = await readFile(path.join(fx.root, "Data", "collections.json"), "utf8");
+    for (const items of [[{ hash: fx.charts[0].hash, label: "A" }], [{ path: fileA, label: "A" }]]) {
+        assert.deepEqual(await h.exportList({ name: "Off", items }), { ok: false, message: t("app.interlude.off") });
+    }
     setLang("ru");
+    assert.deepEqual(await h.exportList({ name: "Off", items: [{ beatmapId: 222 }] }), { ok: false, message: t("app.interlude.off") });
+    assert.match(t("app.interlude.off"), /Interlude/);
+    assert.equal(await readFile(path.join(fx.root, "Data", "collections.json"), "utf8"), before);
 });
 
 test("ipc: selecting a chart puts it on the card; a bad hash is refused", async () => {

@@ -8,6 +8,8 @@
 // A play's id is interlude:<ChartId>:<Timestamp>, as the local profile's import names it (app/localProfileService.js).
 // Times: ms of the chart (absolute, the notes' clock, as played: after the mods), as on the osu! path.
 // After a play in Interlude (app/interludeLive.js sees it end) its new row of scores.db is looked for: see ended().
+// Interlude turned off in ⚙ Settings (app/interludeClient.js) is as if no folder were linked: no plays listed or opened,
+// none waited for after a play.
 import path from "node:path";
 import { stat, readFile } from "node:fs/promises";
 import { interludeFolderOf, SCORES_DB, DEFAULT_RULESET } from "./interludeLibrary.js";
@@ -54,7 +56,7 @@ export function parsePlayId(play) {
     return m && Number.isSafeInteger(Number(m[2])) ? { chart: m[1], at: Number(m[2]) } : null;
 }
 
-// interlude: app/interludeClient.js's client ({ ready, folder, library }), or null when the app has none.
+// interlude: app/interludeClient.js's client ({ ready, enabled, folder, library }), or null when the app has none.
 // liveRuleset() → the name of the ruleset Interlude judged its last play by, as the live reader saw it
 // (app/interludeLive.js), or null when Interlude is not followed or no play was seen since it started.
 export function createIlReplays({
@@ -64,10 +66,12 @@ export function createIlReplays({
     const library = interlude?.library ?? null;
     const judged = new Map(); // list items' { accuracy, miss, reason }, by the play, its row and the ruleset: see itemJudged
 
-    // Whether Interlude's folder can be read: { linked, ok, reason: null | "unlinked" | "missing" }.
+    // Whether Interlude's folder can be read: { linked, ok, reason: null | "unlinked" | "missing" | "off" } ("off":
+    // Interlude turned off in Settings, its folder kept).
     async function place() {
         if (!library) return { linked: false, ok: false, reason: "unlinked" };
         await interlude.ready?.();
+        if (interlude.enabled && !(await interlude.enabled())) return { linked: false, ok: false, reason: "off" };
         const dir = interlude.folder?.() ?? null;
         if (!dir) return { linked: false, ok: false, reason: "unlinked" };
         if (!(await interludeFolderOf(dir))) return { linked: true, ok: false, reason: "missing" };
@@ -204,7 +208,8 @@ export function createIlReplays({
     async function open({ play, ruleset: asked = null } = {}) {
         const id = parsePlayId(play);
         if (!id) return { answer: { ok: false, message: t("replay.err.noPlay") }, state: null };
-        if (!(await place()).ok) return { answer: { ok: false, message: t("app.interlude.noFolder") }, state: null };
+        const where = await place();
+        if (!where.ok) return { answer: { ok: false, message: where.reason === "off" ? t("app.interlude.off") : t("app.interlude.noFolder") }, state: null };
         // the library failing (scores.db gone: no play; a copy or a read that failed twice) is said in words, without paths
         const refused = (error) => {
             log(`interlude: play ${play} not opened: ${error?.message}`);
@@ -309,9 +314,12 @@ export function createIlReplays({
         return { plays, total: rows.length };
     }
 
-    // scores.db's size and time, and its -wal's: what changes when Interlude saves a play.
+    // scores.db's size and time, and its -wal's: what changes when Interlude saves a play; null with no folder to read
+    // (Interlude turned off, or its folder unlinked).
     async function scoresKey() {
-        const file = path.join(interlude.folder(), SCORES_DB);
+        const dir = interlude.folder();
+        if (!dir) return null;
+        const file = path.join(dir, SCORES_DB);
         const [db, wal] = await Promise.all([stat(file).catch(() => null), stat(`${file}-wal`).catch(() => null)]);
         return `${file}|${db?.size ?? -1}|${db?.mtimeMs ?? -1}|${wal?.size ?? -1}|${wal?.mtimeMs ?? -1}`;
     }
@@ -348,17 +356,29 @@ export function createIlReplays({
     // "quit", ruleset (the name of the one it was judged by, or null) }) → its row, looked for in scores.db until it comes
     // or the wait for its outcome is up:
     // { found: foundOf's }, { reason: "none" } when none came, { reason: "noFolder" } when Interlude's folder cannot be
-    // read; null as soon as stillWanted() says no (a newer play ended, the switch was turned off). Between two reads only
-    // scores.db's size and time are looked at, so its copy (it holds every replay: a real one runs to 100 MB) is made only
-    // when it changed. waiting(): once, when a finished play's row takes its time.
+    // read; null as soon as stillWanted() says no (a newer play ended, the switch was turned off) and while Interlude is
+    // turned off in ⚙ Settings (or its folder unlinked meanwhile), but once waiting() was told the wait is closed so the
+    // window's note that the row is on its way does not stay: { reason: "off" } when it is turned off, { reason: "noFolder" }
+    // when its folder is unlinked. Between two reads only scores.db's size
+    // and time are looked at, so its copy (it holds every replay: a real one runs to 100 MB) is made only when it changed.
+    // waiting(): once, when a finished play's row takes its time.
     async function ended(play, { stillWanted = async () => true, waiting = () => {} } = {}) {
-        if (!(await place()).ok) return (await stillWanted()) ? { reason: "noFolder" } : null;
+        const where = await place();
+        if (where.reason === "off") return null;
+        if (!where.ok) return (await stillWanted()) ? { reason: "noFolder" } : null;
         const from = now();
         const until = from + (IL_ENDED_WAIT_MS[play.outcome] ?? IL_ENDED_WAIT_MS.quit);
         let seen = null; // scores.db as it was when it was read last
         let noted = play.outcome !== "finished";
+        let told = false; // waiting() was told
         for (;;) {
             const key = await scoresKey();
+            if (key === null) {
+                // the folder went (turned off or unlinked): after waiting() the window's note is closed, by "off" or as a
+                // folder that cannot be read
+                if (!told || !(await stillWanted())) return null;
+                return { reason: (await place()).reason === "off" ? "off" : "noFolder" };
+            }
             let row = null;
             if (key !== seen) {
                 try {
@@ -373,6 +393,7 @@ export function createIlReplays({
             if (now() >= until) return { reason: "none" };
             if (!noted && now() - from >= IL_WAIT_NOTE_MS) {
                 noted = true;
+                told = true;
                 waiting();
             }
             await sleep(IL_ENDED_STEP_MS);

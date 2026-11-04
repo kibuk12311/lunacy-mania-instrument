@@ -54,6 +54,7 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
     // until osu!'s own selection is another one than when it was shown (osuKey)
     let external = null;
     let lastOsuKey = null;
+    let lastOsu = null; // { checksum, rate } of osu!'s last selection, for the card to go back to
     // deterministic analysis errors: not cached on disk, but never recomputed this session (per language: they hold text)
     const errorMemo = new Map();
 
@@ -147,6 +148,30 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
             failure = null;
             show({ screen: "external-info", info: { title, artist, diff, rate, note } });
         },
+        // The outside map off the card (Interlude turned off in Settings): onEnd() as when osu! takes the card back, and
+        // osu!'s selection on it again (the card waits for osu! when none was seen yet). Nothing on it: nothing happens.
+        endExternal() {
+            if (!external) return;
+            const ended = external;
+            external = null;
+            try {
+                ended.onEnd();
+            } catch {
+                // the listener's problem
+            }
+            if (lastOsu) {
+                run(lastOsu.checksum, lastOsu.rate);
+                return;
+            }
+            requestId += 1;
+            current = null;
+            currentResult = null;
+            currentKey = null;
+            currentOrigin = null;
+            currentVibro = null;
+            failure = null;
+            show({ screen: "waiting-osu" });
+        },
         external: () => (external ? { checksum: external.checksum, rate: external.rate } : null),
         // the original of the rate map on the card once its result is there (rateOrigin's answer with its `shown`
         // rate, null when the mods take it past the ladder), else null: the Rate tab works on it instead of the sped-up
@@ -155,7 +180,10 @@ export function createSelectionController({ fetchOsu, analyze, cache, now = Date
         onFrame(frame) {
             sawFrame = true;
             const osuKey = frame.checksum === null ? null : `${frame.checksum} ${frame.rate}`;
-            if (osuKey !== null) lastOsuKey = osuKey;
+            if (osuKey !== null) {
+                lastOsuKey = osuKey;
+                lastOsu = { checksum: frame.checksum, rate: frame.rate };
+            }
             if (external) {
                 if (osuKey === null || frame.state === "playing" || osuKey === external.osuKey) return;
                 const ended = external;

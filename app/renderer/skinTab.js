@@ -1,7 +1,8 @@
 // The «Скин» tab: open an osu! skin (from osu!'s Skins folder, an .osk / .zip, or made from scratch by the
 // builder), edit its osu!mania 4K part ([Mania] Keys: 4 of skin.ini) with a live preview, undo / redo, redraw parts
 // with the builder, and export: an .osk for osu! stable and lazer, a folder copy, and — for a skin made here — an
-// Interlude skin (.isk). Main keeps the working copy (app/skinIpc.js); this side holds the skin.ini text.
+// Interlude skin (.isk), not offered while Interlude is turned off in ⚙ Settings. Main keeps the working copy
+// (app/skinIpc.js); this side holds the skin.ini text.
 import { t } from "../../src/i18n/i18n.js";
 import { parseSkinIni, pairsOf, findSection, patchSkinIni } from "../../src/skin/skinIni.js";
 import { GROUPS, GENERAL_FIELDS, MANIA_FIELDS, fieldValue, fieldText, maniaConfig, toHex, fromHex, KEYS } from "../../src/skin/maniaFields.js";
@@ -12,6 +13,7 @@ import {
 import { createHistory } from "../../src/skin/history.js";
 import { createSkinPreview } from "./skinPreview.js";
 import { pictureToPngs, ACCEPT } from "./skinPictures.js";
+import { interludeOff, onInterludeState } from "./interlude.js";
 
 const SOURCE_KEY = "skin-source";
 const BUILDER_KEY = "skin-builder";
@@ -298,8 +300,7 @@ export function initSkinTab() {
         result.hidden = true;
         $("sk-origin").textContent = t(ORIGIN_TEXT[r.origin] ?? "skin.origin.osu");
         $("sk-no4k").hidden = Boolean(r.mania4);
-        $("sk-export-il").hidden = !session.interlude;
-        $("sk-il-note").textContent = session.interlude ? t("skin.interlude.how") : t("skin.interlude.onlyBuilt");
+        showInterlude();
         sessionBuilder = builderForm(r.builder ?? builderOptions, () => {});
         $("sk-builder").replaceChildren(sessionBuilder.node);
         drawParts();
@@ -749,6 +750,14 @@ export function initSkinTab() {
     $("sk-export-osk").addEventListener("click", () => void exportWith(() => api.skinExportOsk({ id: session.id, ini: history.current }), (r) => t(r.opened ? "skin.osk.opened" : "skin.osk.saved", { n: r.files })));
     $("sk-save-copy").addEventListener("click", () => void exportWith(() => api.skinSaveCopy({ id: session.id, ini: history.current }), (r) => t("skin.copy.saved", { n: r.files })));
     $("sk-export-il").addEventListener("click", () => void exportWith(() => api.skinExportInterlude({ id: session.id, ini: history.current }), () => t("skin.interlude.saved")));
+    // the Interlude export: for a skin made here, and nothing of it while Interlude is turned off in ⚙ Settings
+    function showInterlude() {
+        if (!session) return;
+        const off = interludeOff();
+        $("sk-export-il").hidden = off || !session.interlude;
+        $("sk-il-note").textContent = off ? "" : session.interlude ? t("skin.interlude.how") : t("skin.interlude.onlyBuilt");
+    }
+    onInterludeState(showInterlude);
 
     window.addEventListener("tab-shown", (e) => {
         const on = e.detail === "skin";

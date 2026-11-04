@@ -19,7 +19,7 @@ import { createOverlaySession } from "../src/overlay/session.js";
 import { parseManiaNotes } from "../src/overlay/maniaNotes.js";
 import { unstableRate } from "../src/overlay/format.js";
 import { createReaderProcess, parseReaderLine, readerArgs, restartDelay, BACKOFF } from "../app/interludeReader.js";
-import { createInterludeLive, liveText } from "../app/interludeLive.js";
+import { createInterludeLive, createReaderSync, liveText } from "../app/interludeLive.js";
 import { createInterludeClient, liveSettingsOf } from "../app/interludeClient.js";
 import { createInterludeHandlers } from "../app/interludeIpc.js";
 import { createSelectionController } from "../app/selectionController.js";
@@ -662,8 +662,9 @@ test("play end: Interlude closing, the reader stopping or following turned off f
 // ---- settings in interlude.json ----
 
 test("settings: following is on by default while a folder is linked, can be turned off or on; downloading is off until allowed", async () => {
-    assert.deepEqual(liveSettingsOf(null), { live: null, allowDownload: false });
-    assert.deepEqual(liveSettingsOf({ live: "yes", allowDownload: 1 }), { live: null, allowDownload: false });
+    assert.deepEqual(liveSettingsOf(null), { live: null, allowDownload: false, enabled: true });
+    assert.deepEqual(liveSettingsOf({ live: "yes", allowDownload: 1, enabled: 0 }), { live: null, allowDownload: false, enabled: true });
+    assert.equal(liveSettingsOf({ enabled: false }).enabled, false, "Interlude turned off in Settings");
     const dir = await temp("il-live");
     const fx = await makeInterludeFolder({ charts: [{ osuText: makeChart({ seconds: 5 }) }] });
     const file = path.join(dir, "interlude.json");
@@ -675,16 +676,169 @@ test("settings: following is on by default while a folder is linked, can be turn
     assert.equal((await c.liveSettings()).follow, false);
     await c.setLiveSettings({ allowDownload: true });
     const saved = JSON.parse(await readFile(file, "utf8"));
-    assert.deepEqual(saved, { folder: fx.root, live: false, allowDownload: true }, "the folder is kept beside the settings");
+    assert.deepEqual(saved, { folder: fx.root, live: false, allowDownload: true, enabled: true }, "the folder is kept beside the settings");
     await c.unlink();
-    assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { folder: null, live: false, allowDownload: true });
+    assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { folder: null, live: false, allowDownload: true, enabled: true });
     await c.setLiveSettings({ live: true });
     assert.equal((await c.liveSettings()).follow, true, "turned on: followed even without a folder");
     const h = createInterludeHandlers({ interlude: c, card: null, paths: { docsDir: dir }, live: () => ({ state: { status: "waiting" }, text: "w" }) });
     const info = await h.setLive({ live: false, allowDownload: false, junk: 1 });
-    assert.deepEqual(info.settings, { live: false, allowDownload: false, follow: false });
+    assert.deepEqual(info.settings, { live: false, allowDownload: false, enabled: true, follow: false });
     assert.equal(info.state.status, "waiting");
     assert.equal(info.text, "w");
+    // Interlude as a whole turned off over the same channel: kept in the file, never followed while off
+    await h.setLive({ live: true });
+    const off = await h.setLive({ enabled: false });
+    assert.deepEqual(off.settings, { live: true, allowDownload: false, enabled: false, follow: false });
+    assert.equal(JSON.parse(await readFile(file, "utf8")).enabled, false);
+    const next = createInterludeClient({ store: createJsonStore({ file, fallback: { folder: null } }), docsDir: dir, mapsDir: dir, cacheDir: path.join(dir, "cache") });
+    assert.deepEqual(await next.liveSettings(), { live: true, allowDownload: false, enabled: false, follow: false }, "read back off");
+    assert.equal((await h.setLive({ enabled: true })).settings.follow, true);
+});
+
+// main's wiring (createReaderSync, as main.js runs it on every change of the client): a fake reader process
+function fakeReader() {
+    const calls = [];
+    let wanted = false;
+    return {
+        calls,
+        wanted: () => wanted,
+        start() { calls.push("start"); wanted = true; },
+        async stop() { calls.push("stop"); wanted = false; },
+        async restart() { calls.push("restart"); },
+    };
+}
+
+test("following: the reader runs while Interlude is followed; turned off it stops (the live state off), on again it starts", async () => {
+    const dir = await temp("il-sync");
+    const fx = await makeInterludeFolder({ charts: [{ osuText: makeChart({ seconds: 5 }) }] });
+    const reader = fakeReader();
+    const states = [];
+    const syncs = [];
+    let sync = null;
+    const interlude = createInterludeClient({
+        store: createJsonStore({ file: path.join(dir, "interlude.json"), fallback: { folder: null } }), docsDir: dir, mapsDir: dir,
+        cacheDir: path.join(dir, "cache"), onChange: () => syncs.push(sync.sync()),
+    });
+    const live = createInterludeLive({ interlude, card: null, onState: (s) => states.push(s.status) });
+    let ends = 0;
+    sync = createReaderSync({ interlude, reader, live, card: { end: () => { ends += 1; } } });
+    const settled = () => Promise.all(syncs.splice(0));
+
+    await sync.sync();
+    assert.deepEqual(reader.calls, [], "no folder: not followed");
+    await interlude.link(fx.root);
+    await settled();
+    assert.deepEqual(reader.calls, ["start"]);
+    live.onReader({ state: "running" });
+
+    await interlude.setLiveSettings({ enabled: false });
+    await settled();
+    assert.deepEqual(reader.calls, ["start", "stop"]);
+    assert.equal(live.state().status, "off");
+    assert.equal(states.at(-1), "off", "the window is told");
+    assert.equal(ends, 1, "an Interlude chart on the card leaves it");
+
+    await interlude.setLiveSettings({ allowDownload: true });
+    await settled();
+    assert.deepEqual(reader.calls, ["start", "stop"], "nothing starts while Interlude is off");
+    await interlude.setLiveSettings({ enabled: true });
+    await settled();
+    assert.deepEqual(reader.calls, ["start", "stop", "start"], "on again: followed again");
+    assert.equal(ends, 2, "told again on every change while off (nothing on the card: nothing happens), never while on");
+    assert.equal(sync.allowDownload(), true, "with the download setting changed meanwhile");
+    await interlude.setLiveSettings({ allowDownload: false });
+    await settled();
+    assert.deepEqual(reader.calls.slice(3), ["restart"], "a download change starts it again with the new command line");
+    // following itself turned off: Interlude on, the reader stopped all the same
+    await interlude.setLiveSettings({ live: false });
+    await settled();
+    assert.deepEqual(reader.calls.slice(4), ["stop"]);
+    await interlude.setLiveSettings({ live: true });
+    await settled();
+    assert.deepEqual(reader.calls.slice(5), ["start"]);
+    assert.equal(ends, 2, "following turned off keeps the card");
+    // the app quitting: nothing is started any more
+    const idle = fakeReader();
+    await createReaderSync({ interlude, reader: idle, live, stopped: () => true }).sync();
+    assert.deepEqual(idle.calls, []);
+});
+
+test("following: Interlude turned off and on again at once, the reader still stopping: it is started again once it has stopped", async () => {
+    const dir = await temp("il-flip");
+    const { spawn: spawnNow, children } = fakeSpawner();
+    // a reader that takes a moment to exit once its stdin closes
+    const spawn = (...a) => {
+        const c = spawnNow(...a);
+        c.stdin.removeAllListeners("finish");
+        c.stdin.on("finish", () => setTimeout(() => c.emit("exit", 0), 50));
+        return c;
+    };
+    const syncs = [];
+    let sync = null;
+    const interlude = createInterludeClient({
+        store: createJsonStore({ file: path.join(dir, "interlude.json"), fallback: { folder: null } }), docsDir: dir, mapsDir: dir,
+        cacheDir: path.join(dir, "cache"), onChange: () => sync && syncs.push(sync.sync()),
+    });
+    await interlude.setLiveSettings({ live: true });
+    const live = createInterludeLive({ interlude, card: null });
+    const reader = createReaderProcess({ exe: () => "C:/app/interlude-reader.exe", exists: () => true, spawn, onState: (r) => live.onReader(r) });
+    sync = createReaderSync({ interlude, reader, live, card: { end() {} } });
+    await sync.sync();
+    await Promise.all(syncs.splice(0));
+    assert.equal(children.length, 1);
+    // two quick clicks: the second sync comes while the first one waits for the reader to exit
+    await interlude.setLiveSettings({ enabled: false });
+    await interlude.setLiveSettings({ enabled: true });
+    await Promise.all(syncs.splice(0));
+    assert.equal((await interlude.liveSettings()).follow, true);
+    assert.equal(children.length, 2, "started again");
+    assert.equal(reader.running(), true);
+    assert.notEqual(live.state().status, "off");
+    await reader.stop();
+});
+
+test("following: a chart being copied out as Interlude is turned off stays off the card, and so does a line read while the reader stops", async () => {
+    const defer = () => { let resolve; let reject; const p = new Promise((res, rej) => { resolve = res; reject = rej; }); return { p, resolve, reject }; };
+    let enabled = true;
+    const copying = defer();
+    const interlude = {
+        status: async () => (enabled ? { linked: true } : { linked: false, off: true }),
+        library: { meta: async () => ({ title: "Freedom Dive", artist: "xi", version: "4K Another" }), forget: () => {} },
+        select: () => copying.p,
+        clearSelection: () => {},
+        liveSettings: async () => ({ live: null, allowDownload: false, enabled, follow: enabled }),
+    };
+    const calls = [];
+    const card = {
+        showExternal: (r) => calls.push(["showExternal", r.id]),
+        showInfo: (r) => calls.push(["showInfo", r.id]),
+        end: () => calls.push(["end"]),
+    };
+    const live = createInterludeLive({ interlude, card, ...instantTimers });
+    const stopping = defer();
+    let wanted = true;
+    const reader = { wanted: () => wanted, start() {}, async stop() { wanted = false; await stopping.p; }, async restart() {} };
+    const sync = createReaderSync({ interlude, reader, live, card });
+    const settle = async () => { for (let i = 0; i < 8; i += 1) await tick(); };
+    const line = { v: 1, client: "interlude", screen: "levelselect", chart: { hash: "hashA", title: "Freedom Dive", rate: 1 } };
+
+    live.onMessage(line);
+    await settle(); // looked up in the library, now being copied out
+    enabled = false;
+    const synced = sync.sync();
+    await settle(); // the card ended, the reader stopping
+    assert.deepEqual(calls, [["end"]]);
+    copying.reject(new Error(t("app.interlude.off"))); // the client refuses: turned off meanwhile
+    await settle();
+    // the reader's last line before it exits: Interlude is off, nothing for the card
+    live.onMessage(line);
+    await settle();
+    stopping.resolve();
+    await synced;
+    await settle();
+    assert.deepEqual(calls, [["end"]], "nothing of Interlude's comes back on the card");
+    assert.equal(live.state().status, "off");
 });
 
 // ---- the overlay windows: Interlude's play, and kept up when Windows takes them away ----

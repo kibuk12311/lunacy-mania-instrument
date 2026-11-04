@@ -162,6 +162,8 @@ export function createInterludeLibrary({ folder, cacheDir, log = () => {}, sqlit
     const withDb = (name, rel, fn) => serial(() => readCopy(name, rel, fn));
     const copyAgain = (error) => error?.code === "ENOENT" || /malformed|not a database|locked|busy/i.test(String(error?.message));
     async function readCopy(name, rel, fn) {
+        // no folder (none linked, or Interlude turned off): nothing is read, and the copies made before stay known
+        if (!folder()) throw new Error("no Interlude folder");
         const { DatabaseSync } = await sqlite();
         for (let attempt = 1; ; attempt += 1) {
             let db = null;

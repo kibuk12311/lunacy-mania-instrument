@@ -175,7 +175,7 @@ function statusAnswer(skill = localSkill()) {
     };
 }
 
-async function profileTab(lang = "ru", { source = "local", page = "local" } = {}) {
+async function profileTab(lang = "ru", { source = "local", page = "local", api: over = {} } = {}) {
     setLang(lang);
     const calls = [];
     const api = {
@@ -186,6 +186,7 @@ async function profileTab(lang = "ru", { source = "local", page = "local" } = {}
         localProfileReset: async () => { calls.push("reset"); return { ok: true }; },
         onLocalProfileChanged: () => {}, onLocalProfileImport: () => {}, onProfileChanged: () => {},
         recProgress: async () => ({ ok: false, message: "x" }),
+        ...over,
     };
     const dom = fakeDom(api, { storage: { "rec-settings": JSON.stringify({ source }), "profile-view": JSON.stringify({ page }) } });
     globalThis.document.createElementNS = (_ns, tag) => Object.assign(globalThis.document.createElement(tag), { setAttribute() {} });
@@ -226,6 +227,74 @@ test("Profile tab, my profile: the summary, the patterns, plays, the import and 
         assert.equal(JSON.parse(storage.get("rec-settings")).source, "tracker");
         assert.ok(events.some((e) => e.type === "profile-source" && e.detail.source === "tracker"));
     } finally {
+        setLang("ru");
+    }
+});
+
+// main's interlude-state as the window hears it (app/renderer/interlude.js starts once per file: every test gets the same)
+let interludePush = null;
+async function interludeState() {
+    const { initInterludeState } = await import("../../app/renderer/interlude.js");
+    initInterludeState({ interludeStatus: async () => ({ linked: false }), onInterludeState: (cb) => { interludePush = cb; } });
+    await new Promise((r) => setTimeout(r, 0));
+    return interludePush;
+}
+
+test("Profile tab: Interlude turned off in ⚙ Settings, its import says where to turn it on instead of asking for a folder", async () => {
+    const push = await interludeState();
+    push({ linked: false, off: true, folder: String.raw`C:\Games\Interlude` });
+    const { $ } = await profileTab("en", { api: { localProfileImport: async () => ({ ok: false, reason: "no-interlude" }) } });
+    try {
+        assert.equal($("prof-import-interlude").disabled, true);
+        assert.equal($("prof-import-interlude").title, "Interlude is turned off — turn it on in ⚙ Settings → Interlude");
+        await fire($("prof-import-interlude"));
+        assert.equal($("prof-import-status").textContent, "Interlude is turned off — turn it on in ⚙ Settings → Interlude");
+        setLang("ru");
+        assert.equal(t("profile.local.interludeOff"), "Interlude выключен — включи его в ⚙ Настройки → Interlude");
+        // no folder linked: as before
+        push({ linked: false });
+        setLang("en");
+        await fire($("prof-import-interlude"));
+        assert.equal($("prof-import-status").textContent, t("profile.local.noInterlude"));
+    } finally {
+        setLang("ru");
+    }
+});
+
+test("Profile tab open behind ⚙ Settings: Interlude turned off or on there, the import button follows at once", async () => {
+    const push = await interludeState();
+    push({ linked: true, folder: String.raw`C:\Games\Interlude` });
+    let linked = true;
+    let reads = 0;
+    const { $ } = await profileTab("en", { api: { localProfileStatus: async () => { reads += 1; return { ...statusAnswer(), interludeLinked: linked }; } } });
+    try {
+        assert.equal($("prof-import-interlude").disabled, false);
+        const asked = reads;
+        linked = false;
+        push({ linked: false, off: true, folder: String.raw`C:\Games\Interlude` });
+        await new Promise((r) => setTimeout(r, 20));
+        // (every Profile tab this file made listens: each reads again)
+        assert.ok(reads > asked, "read again");
+        const afterOff = reads;
+        assert.equal($("prof-import-interlude").disabled, true);
+        assert.equal($("prof-import-interlude").title, "Interlude is turned off — turn it on in ⚙ Settings → Interlude");
+        // a chart put on the card: the same switch told again, nothing read
+        push({ linked: false, off: true, folder: String.raw`C:\Games\Interlude`, selected: null });
+        await new Promise((r) => setTimeout(r, 20));
+        assert.equal(reads, afterOff);
+        linked = true;
+        push({ linked: true, folder: String.raw`C:\Games\Interlude` });
+        await new Promise((r) => setTimeout(r, 20));
+        assert.equal($("prof-import-interlude").disabled, false);
+        assert.equal($("prof-import-interlude").title, "");
+        const afterOn = reads;
+        // the tab not shown: nothing read now (it reads again when shown)
+        $("profile-tab").hidden = true;
+        push({ linked: false, off: true, folder: String.raw`C:\Games\Interlude` });
+        await new Promise((r) => setTimeout(r, 20));
+        assert.equal(reads, afterOn);
+    } finally {
+        push({ linked: false });
         setLang("ru");
     }
 });

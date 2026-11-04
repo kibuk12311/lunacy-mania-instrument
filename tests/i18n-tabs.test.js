@@ -47,7 +47,8 @@ function fakeDom(api) {
     return byId;
 }
 
-const textOf = (node) => [node.textContent, ...node.children.map(textOf)].filter(Boolean).join(" | ");
+// what is shown: a hidden node (an Interlude button while no folder is linked) says nothing
+const textOf = (node) => (node.hidden ? "" : [node.textContent, ...node.children.map(textOf)].filter(Boolean).join(" | "));
 const fire = async (node, type = "click") => { for (const fn of node.listeners[type] ?? []) await fn({ target: node }); };
 
 test("every key the code asks for exists, and every key of the guarded areas is used", () => {

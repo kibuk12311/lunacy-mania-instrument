@@ -52,6 +52,10 @@ export default {
     "marathon.auto.profileOverall": { ru: "Профиль: {name}, общий уровень: {dan}", en: "Profile: {name}, overall: {dan}" },
     "marathon.auto.profileNoOverall": { ru: "Профиль: {name} — нет общего дана", en: "Profile: {name} — no overall dan" },
     "marathon.auto.profileNoTile": { ru: "Профиль: {name} — нет дана для {tile}", en: "Profile: {name} — no dan for {tile}" },
+    "marathon.auto.skipPlayedOff": {
+        ru: "Нужен профиль mania-tracker, загруженный в «Подборе», или — для ручного профиля — включённый Interlude (⚙ Настройки → Interlude)",
+        en: "Needs a mania-tracker profile loaded on the Picks tab or, for a hand-set profile, Interlude turned on (⚙ Settings → Interlude)",
+    },
     "marathon.auto.profileLoading": { ru: "Загружаем профиль…", en: "Loading the profile…" },
     "marathon.auto.starting": { ru: "Начинаем подбор…", en: "Starting the pick…" },
     "marathon.auto.stopping": { ru: "Останавливаем…", en: "Stopping…" },

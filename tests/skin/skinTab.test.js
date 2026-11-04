@@ -130,6 +130,25 @@ test("an osu! skin opened for editing: no Interlude button, the reason said; Eng
     }
 });
 
+test("Interlude turned off in ⚙ Settings: no Interlude export and no note about it; on again, both back", async () => {
+    const { initInterludeState } = await import("../../app/renderer/interlude.js");
+    let push = null;
+    initInterludeState({ interludeStatus: async () => ({ linked: false }), onInterludeState: (cb) => { push = cb; } });
+    await tick();
+    const { $ } = await openTab("template");
+    push({ linked: false, off: true, folder: String.raw`C:\Games\Interlude` });
+    assert.equal($("sk-export-il").hidden, true);
+    assert.equal($("sk-il-note").textContent, "");
+    push({ linked: false });
+    assert.equal($("sk-export-il").hidden, false, "a folder is not needed for the .isk: shown as before");
+    assert.equal($("sk-il-note").textContent, t("skin.interlude.how"));
+    // a skin opened while it is off: the same
+    push({ linked: false, off: true, folder: null });
+    const later = await openTab("template");
+    assert.equal(later.$("sk-export-il").hidden, true);
+    push({ linked: false });
+});
+
 test("the tab is wired: a button, a section, the preload block and main's register call", () => {
     const html = readFileSync(path.join(root, "app/renderer/index.html"), "utf8");
     assert.match(html, /<button data-tab="skin"[^>]*data-i18n="skin\.html\.tab"/);

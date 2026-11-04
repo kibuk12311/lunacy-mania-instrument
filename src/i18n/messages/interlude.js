@@ -13,6 +13,8 @@ export default {
     "app.interlude.folderGone": { ru: "Папки Interlude больше нет или в ней нет Songs\\charts.db: {folder}", en: "The Interlude folder is gone or has no Songs\\charts.db: {folder}" },
     "app.interlude.dbFailed": { ru: "Не удалось прочитать библиотеку Interlude: {message}", en: "Couldn't read Interlude's library: {message}" },
     "app.interlude.noFolder": { ru: "Сначала выбери папку Interlude (⚙ Настройки → Interlude).", en: "Pick the Interlude folder first (⚙ Settings → Interlude)." },
+    // Interlude turned off with the switch in Settings (its folder kept)
+    "app.interlude.off": { ru: "Interlude выключен (⚙ Настройки → Interlude).", en: "Interlude is turned off (⚙ Settings → Interlude)." },
     "app.interlude.noChart": { ru: "Этой карты нет в библиотеке Interlude.", en: "This chart isn't in Interlude's library." },
     "app.interlude.badFile": { ru: "Это не карта, которую можно отправить в Interlude.", en: "This isn't a map that can be sent to Interlude." },
     "app.interlude.sent": {
@@ -68,6 +70,19 @@ export default {
     "interlude.badge.chart": { ru: "Interlude", en: "Interlude" },
     "interlude.badge.chartTitle": { ru: "На карточке карта из библиотеки Interlude: {name}", en: "The card shows a chart from Interlude's library: {name}" },
     "interlude.panel.heading": { ru: "Interlude", en: "Interlude" },
+    "interlude.panel.enable": { ru: "Включить Interlude", en: "Enable Interlude" },
+    "interlude.panel.enableTitle": {
+        ru: "Без галочки программа обходится без Interlude: его карт нет в сессии, его игр нет в реплеях, за игрой она не следит. Папка остаётся запомненной.",
+        en: "Unchecked, the app does without Interlude: no Interlude maps in sessions, no Interlude plays in the Replay tab, no following the game. The folder stays remembered.",
+    },
+    "interlude.panel.offNote": {
+        ru: "Interlude выключен: его карт нет в сессии, его игр нет в реплеях, программа за ним не следит. Папка запомнена — галочка вернёт всё как было.",
+        en: "Interlude is turned off: no Interlude maps in sessions, no Interlude plays in the Replay tab, and the app doesn't follow it. The folder is remembered — the checkbox brings everything back.",
+    },
+    "interlude.panel.offNoteNoFolder": {
+        ru: "Interlude выключен: его карт нет в сессии, его игр нет в реплеях, программа за ним не следит.",
+        en: "Interlude is turned off: no Interlude maps in sessions, no Interlude plays in the Replay tab, and the app doesn't follow it.",
+    },
     "interlude.panel.notLinked": { ru: "Папка Interlude не выбрана", en: "No Interlude folder linked" },
     "interlude.panel.linked": { ru: "Папка Interlude подключена · карт в библиотеке: {n}", en: "Interlude folder linked · {n} charts in the library" },
     "interlude.panel.linkedNoCount": { ru: "Папка Interlude подключена", en: "Interlude folder linked" },
