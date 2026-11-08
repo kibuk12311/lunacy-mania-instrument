@@ -9,6 +9,7 @@ import { initAnalysisPanel, analysisPanelHtml } from "./analysisPanel.js";
 import { initOverlayPanel } from "./overlayPanel.js";
 import { initInterludeState, onInterludeState } from "./interlude.js";
 import { initInterludePanel } from "./interludePanel.js";
+import { initEtternaPanel } from "./etternaPanel.js";
 import { initProfileTab, onProfileTabShown } from "./profileTab.js";
 import { initSkinTab } from "./skinTab.js";
 import { initReplayTab, onReplayTabShown } from "./replayTab.js";
@@ -148,8 +149,10 @@ const interludeBlock = initInterludePanel({
     button: document.getElementById("interlude-toggle"), panel: document.getElementById("interlude-panel"),
     onOpen: () => settingsView?.open("interlude"), visible: () => !settingsPage.hidden,
 });
+const etternaBlock = initEtternaPanel({ panel: document.getElementById("etterna-panel"), visible: () => !settingsPage.hidden });
 const settingsView = initSettingsPage({
     page: settingsPage, openButton: document.getElementById("settings-open"), tabButton: document.getElementById("settings-tab"), interlude: interludeBlock,
+    etterna: etternaBlock,
 });
 onInterludeState((s) => {
     const next = s?.selected ?? null;

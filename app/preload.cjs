@@ -163,6 +163,19 @@ contextBridge.exposeInMainWorld("danApi", {
     onInterludeLive: (cb) => ipcRenderer.on("interlude-live", (_e, info) => cb(info)),
 
     // <<< interlude
+    // >>> etterna
+    // Etterna (app/etternaIpc.js): its folder and switch, its charts with their MSD and dans, a chart on the card
+    etternaStatus: () => ipcRenderer.invoke("etterna-status"),
+    etternaPickFolder: () => ipcRenderer.invoke("etterna-pick-folder"),
+    etternaDetect: () => ipcRenderer.invoke("etterna-detect"),
+    etternaUnlink: () => ipcRenderer.invoke("etterna-unlink"),
+    etternaSetEnabled: (on) => ipcRenderer.invoke("etterna-set-enabled", { on }),
+    etternaSearch: (query, rate) => ipcRenderer.invoke("etterna-search", { query, rate }),
+    etternaDans: (ids, rate, batch) => ipcRenderer.invoke("etterna-dans", { ids, rate, batch }),
+    etternaSelect: (id, rate) => ipcRenderer.invoke("etterna-select", { id, rate }),
+    // { linked, off?, folder, size, scanning: { done, total } | null, missing?, message? }
+    onEtternaState: (cb) => ipcRenderer.on("etterna-state", (_e, state) => cb(state)),
+    // <<< etterna
     // >>> profile
     // the local profile (app/localProfileIpc.js): status, history, imports, backup, and the tracker page's extras
     localProfileStatus: () => ipcRenderer.invoke("local-profile-status"),

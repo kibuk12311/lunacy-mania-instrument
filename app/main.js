@@ -35,6 +35,8 @@ import { resultsIdOf } from "../src/core/analyzerSameResults.js";
 import { prepareResultsDir } from "./resultsFolder.js";
 import { createInterludeClient } from "./interludeClient.js";
 import { registerInterludeIpc } from "./interludeIpc.js";
+import { createEtternaClient } from "./etternaClient.js";
+import { registerEtternaIpc } from "./etternaIpc.js";
 import { createLocalProfile, registerLocalProfileIpc } from "./localProfileIpc.js";
 import { createReaderProcess, readerArgs, readerPath } from "./interludeReader.js";
 import { createKeyReader, keyReaderPath } from "./keyReader.js";
@@ -336,6 +338,12 @@ async function main() {
             void syncInterludeReader();
         },
     });
+    // Etterna: a folder the user links, its charts listed with their dans in ⚙ Settings (app/etternaClient.js)
+    const etterna = createEtternaClient({
+        store: createJsonStore({ file: path.join(userData, "etterna.json"), fallback: { folder: null, enabled: true } }),
+        cacheDir: path.join(userData, "etterna-cache"), log,
+        onChange: () => void etterna.status().then((s) => send("etterna-state", s), () => {}),
+    });
     const trackerApi = createTrackerApi();
     // osu! lazer's own database (app/lazerRealm.js): read only when a tab asks, in a utility process, from a copy of
     // client.realm in a temp folder of ours
@@ -381,6 +389,7 @@ async function main() {
             profile: () => fetchProfile(TOSU_PORT), client: () => (interlude.selection() ? "interlude" : osuClient),
         }),
         interlude,
+        etterna,
         // osu! lazer's maps and scores from its database, read on demand (app/lazerRealm.js; the session tab)
         lazer,
         // the analysis card for a map from elsewhere than osu! (an Interlude chart): showExternal({ id, text, rate, onEnd }),
@@ -423,6 +432,7 @@ async function main() {
     registerCreateIpc(deps);
     registerExportIpc(deps);
     registerInterludeIpc(deps);
+    registerEtternaIpc(deps);
     registerLocalProfileIpc(deps);
     registerSessionIpc(deps);
     registerSkinIpc(deps);

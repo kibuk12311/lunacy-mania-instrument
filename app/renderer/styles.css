@@ -178,7 +178,24 @@ footer button.il-toggle.on { border-color: var(--blue); }
 /* the block's parts hidden while Interlude is turned off (its actions are a flex row, which would show a [hidden] one) */
 .interlude-panel [hidden] { display: none; }
 .interlude-panel .il-check.il-enable { font-size: 12px; font-weight: 600; margin: 0 0 4px; }
-.interlude-panel .il-off-note { font-size: 11px; margin: 4px 0; line-height: 1.35; }
+.interlude-panel .il-off-note { font-size: 11px; margin: 4px 0; line-height: 1.35; }
+.etterna-panel [hidden] { display: none; }
+.etterna-panel .et-enable { display: flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 600; margin: 0 0 4px; cursor: pointer; }
+.etterna-panel .et-status { font-size: 12px; }
+.etterna-panel .et-folder { font-size: 10px; word-break: break-all; }
+.etterna-panel .et-actions button { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; font-size: 11px; padding: 2px 6px; cursor: pointer; }
+.etterna-panel .et-answer, .etterna-panel .et-off-note { margin: 4px 0; font-size: 11px; line-height: 1.35; }
+.etterna-panel .et-search { width: 100%; margin: 6px 0 4px; background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 6px; font-size: 12px; padding: 3px 6px; user-select: text; }
+.etterna-panel .et-rate { display: flex; gap: 6px; align-items: center; font-size: 11px; margin-bottom: 4px; }
+.etterna-panel .et-rate select { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 6px; font-size: 11px; }
+.etterna-panel .et-results { max-height: 260px; overflow-y: auto; }
+.etterna-panel .et-count { font-size: 10px; margin-bottom: 2px; }
+.etterna-panel button.et-row { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--text); padding: 3px 2px; cursor: pointer; font-size: 11px; }
+.etterna-panel button.et-row:hover { background: var(--accent-bg); }
+.etterna-panel .et-name { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.etterna-panel .et-meta { grid-column: 1; font-size: 10px; }
+.etterna-panel .et-dan { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 11px; white-space: nowrap; }
+.etterna-panel .et-note { font-size: 10px; margin-top: 6px; line-height: 1.35; }
 footer button.il-toggle.attached { color: var(--green); }
 footer button.il-toggle.warn { color: var(--gold); }
 .osu-client.interlude.live { color: var(--green); }

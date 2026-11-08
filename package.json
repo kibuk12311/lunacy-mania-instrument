@@ -1,6 +1,6 @@
 {
   "name": "dan-analyzer",
-  "version": "0.10.11",
+  "version": "0.10.12",
   "description": "Lunacy mania instrument: osu!mania 4K dan calculator, rate changer, marathon builder, map picks and a map generator",
   "author": "Sneezey",
   "license": "MIT",
@@ -41,6 +41,14 @@
     ],
     "npmRebuild": false,
     "afterPack": "tools/after-pack.mjs",
+    "afterAllArtifactBuild": "tools/after-build.mjs",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
     "files": [
       "app/**",
       "src/**",

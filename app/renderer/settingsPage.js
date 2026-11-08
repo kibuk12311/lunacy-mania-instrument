@@ -62,10 +62,10 @@ function writeSource(storage, source) {
 }
 
 // page: the page's section; openButton: ⚙ under the card; tabButton: ⚙ at the end of the tab bar (opens and closes the
-// page, lit while it is open); $: by id; interlude: the IL block (its shown()).
+// page, lit while it is open); $: by id; interlude: the IL block (its shown()); etterna: the Etterna block (its shown()).
 export function initSettingsPage({
     page, openButton, tabButton = null, $ = (id) => document.getElementById(id), api = window.danApi,
-    storage = () => globalThis.localStorage, onProfileChange = manualChanged, interlude = null,
+    storage = () => globalThis.localStorage, onProfileChange = manualChanged, interlude = null, etterna = null,
     setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
     if (!page) return null;
@@ -82,6 +82,7 @@ export function initSettingsPage({
         tabButton?.classList?.add("on");
         void refresh();
         interlude?.shown?.({ focus: section === "interlude" });
+        etterna?.shown?.();
         if (section) $(`st-${section}`)?.scrollIntoView?.({ block: "start" });
     }
     function close() {

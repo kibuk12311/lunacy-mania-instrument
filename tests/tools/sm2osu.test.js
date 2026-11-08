@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     convertSimfile, parseMsd, parseNoteData, buildClock, decodeSimfile, osuFileName,
-} from "../../tools/lib/sm2osu.mjs";
+} from "../../src/etterna/simfile.js";
 import { processPackZip, msdLookup, selectPacks, packDownloadUrl, parseSize, parseArgs, fitName } from "../../tools/fetch-etterna-packs.mjs";
 import { parseRows } from "../../src/gen/mapRows.js";
 import { parseRedTimingPoints } from "../../src/gen/grid.js";

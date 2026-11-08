@@ -14,6 +14,7 @@ import { registerRecommendIpc } from "../app/recommendIpc.js";
 import { registerCreateIpc } from "../app/createIpc.js";
 import { registerExportIpc } from "../app/exportIpc.js";
 import { registerInterludeIpc } from "../app/interludeIpc.js";
+import { registerEtternaIpc } from "../app/etternaIpc.js";
 import { registerLocalProfileIpc } from "../app/localProfileIpc.js";
 import { registerSessionIpc } from "../app/sessionIpc.js";
 import { registerSkinIpc } from "../app/skinIpc.js";
@@ -23,9 +24,9 @@ import { OVERLAY_CHANNELS } from "../app/overlay/overlayManager.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (file) => stripComments(readFileSync(path.join(root, file), "utf8"));
-const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerLocalProfileIpc, registerSessionIpc, registerSkinIpc, registerReplayIpc, registerSettingsIpc };
+const REGISTRARS = { registerProfileIpc, registerAnalysisIpc, registerRateIpc, registerMarathonIpc, registerRecommendIpc, registerCreateIpc, registerExportIpc, registerInterludeIpc, registerEtternaIpc, registerLocalProfileIpc, registerSessionIpc, registerSkinIpc, registerReplayIpc, registerSettingsIpc };
 // deps whose use means I/O (worker, network, disk, the window, shell); none may be called while registering
-const IO_DEPS = ["worker", "analysis", "resultCache", "trackerApi", "recommender", "downloader", "profile", "tosu", "shell", "ffmpegPath", "renderPng", "send", "generatorClient", "generatedStore", "interlude", "dialog", "card", "localProfile", "styleCatalog"];
+const IO_DEPS = ["worker", "analysis", "resultCache", "trackerApi", "recommender", "downloader", "profile", "tosu", "shell", "ffmpegPath", "renderPng", "send", "generatorClient", "generatedStore", "interlude", "etterna", "dialog", "card", "localProfile", "styleCatalog"];
 
 // Any property of a stub is another stub, any call is recorded under its path; as text a stub reads "stub:<path>".
 function stubDeps(ipcMain) {
@@ -126,7 +127,7 @@ test("every channel the preload invokes or sends has a handler in main", () => {
 
 test("every event the preload listens to is sent by main or a tab module", () => {
     const appCode = ["app/main.js", "app/profileService.js", "app/analysisIpc.js", "app/rateIpc.js", "app/marathonIpc.js", "app/recommendIpc.js",
-        "app/createIpc.js", "app/exportIpc.js", "app/interludeIpc.js", "app/sessionIpc.js", "app/replayIpc.js", "app/overlay/overlayManager.js", "app/localProfileService.js"]
+        "app/createIpc.js", "app/exportIpc.js", "app/interludeIpc.js", "app/etternaIpc.js", "app/sessionIpc.js", "app/replayIpc.js", "app/overlay/overlayManager.js", "app/localProfileService.js"]
         .map(source).join("\n");
     const events = [...preload.matchAll(/ipcRenderer\.on\("([\w-]+)"/g)].map((m) => m[1]);
     assert.ok(events.includes("profile-changed"));
@@ -173,7 +174,7 @@ test("the folder event reaches the tab with its payload, and whatever takes itse
 
 test("the preload groups its methods in marked blocks, one per tab", () => {
     const names = [...preloadRaw.matchAll(/\/\/ >>> (\w+)/g)].map((m) => m[1]);
-    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks", "interlude", "profile", "skin", "replay", "overlay"]);
+    assert.deepEqual(names, ["shared", "create", "analysis", "rate", "marathon", "picks", "interlude", "etterna", "profile", "skin", "replay", "overlay"]);
     for (const name of names) {
         assert.equal(preloadRaw.split(`// >>> ${name}`).length - 1, 1, name);
         assert.ok(preloadRaw.indexOf(`// >>> ${name}`) < preloadRaw.indexOf(`// <<< ${name}`), `${name} is closed after it opens`);
@@ -186,5 +187,6 @@ test("the preload groups its methods in marked blocks, one per tab", () => {
     assert.match(inBlock("marathon"), /marathonAddCurrent[\s\S]*marathonDan[\s\S]*marathonCreate/);
     assert.match(inBlock("picks"), /recPlayer[\s\S]*onRecDownloadProgress/);
     assert.match(inBlock("replay"), /onReplayProgress[\s\S]*onReplayFolder/);
+    assert.match(inBlock("etterna"), /etternaStatus[\s\S]*etternaSearch[\s\S]*etternaDans[\s\S]*etternaSelect[\s\S]*onEtternaState/);
     assert.match(inBlock("overlay"), /overlayGet[\s\S]*overlaySet[\s\S]*overlaySetEdit[\s\S]*overlayOpenSettings[\s\S]*onOverlaySettings/);
 });

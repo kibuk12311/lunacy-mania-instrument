@@ -375,7 +375,7 @@ test("a scan of the old folder still under way does not answer for the one just 
         },
     });
     const first = service.list({ titles: true });
-    await new Promise((resolve) => { setTimeout(resolve, 30); });
+    await until(() => scans.length >= 1);
     assert.deepEqual(scans, [path.join(f.game, "Songs")]);
     await service.pickFolder();
     const listed = await service.list({ titles: true });
@@ -383,6 +383,15 @@ test("a scan of the old folder still under way does not answer for the one just 
     finishOld();
     await first;
 });
+
+// waits for a scan to have started, however busy the machine is (a fixed wait failed under load)
+async function until(done, ms = 10_000) {
+    const end = performance.now() + ms;
+    while (!done()) {
+        if (performance.now() > end) throw new Error("timed out waiting for a scan to start");
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+    }
+}
 
 // a Songs index whose scans run only as the test says: scans[i] is { dir, progress(done, total), finish() }
 function heldScans() {
@@ -394,6 +403,7 @@ function heldScans() {
     };
     return { scans, songsIndex };
 }
+// for "no scan started": a turn long enough for list() to have started one if it were going to
 const firstTurn = () => new Promise((resolve) => { setTimeout(resolve, 30); });
 
 test("a scan of the old folder ending leaves the new folder's in its place, and after the change it says nothing", async (t) => {
@@ -407,7 +417,7 @@ test("a scan of the old folder ending leaves the new folder's in its place, and 
         send: (channel, payload) => { if (channel === "replay-progress") sent.push(payload); },
     });
     const first = service.list({ titles: true });
-    await firstTurn();
+    await until(() => scans.length >= 1);
     scans[0].progress(1, 10);
     assert.deepEqual(sent, [{ done: 1, total: 10 }]);
     await service.pickFolder();
@@ -415,7 +425,7 @@ test("a scan of the old folder ending leaves the new folder's in its place, and 
     assert.deepEqual(sent, [{ done: 1, total: 10 }], "the old folder's scan no longer speaks");
 
     const second = service.list({ titles: true });
-    await firstTurn();
+    await until(() => scans.length >= 2);
     assert.deepEqual(scans.map((s) => s.dir), [path.join(f.game, "Songs"), path.join(other, "Songs")]);
     scans[1].progress(3, 20);
     assert.deepEqual(sent.at(-1), { done: 3, total: 20 });
@@ -437,7 +447,7 @@ test("a reset to nothing mid-scan: the scan goes on unheard", async (t) => {
     const sent = [];
     const service = createReplayService({ ...f.opts, tosu: closed, songsIndex, send: (channel, payload) => { if (channel === "replay-progress") sent.push(payload); } });
     const list = service.list({ titles: true });
-    await firstTurn();
+    await until(() => scans.length >= 1);
     assert.equal((await service.resetFolder()).folder, null);
     scans[0].progress(5, 10);
     assert.deepEqual(sent, []);
@@ -454,10 +464,10 @@ test("the folder moving mid-scan with no pick (tosu says another Songs): that on
     let songs = null;
     const service = createReplayService({ ...f.opts, songsIndex, tosu: async () => ({ game: f.game, songs, skin: null }) });
     const first = service.list({ titles: true });
-    await firstTurn();
+    await until(() => scans.length >= 1);
     songs = moved;
     const second = service.list({ titles: true });
-    await firstTurn();
+    await until(() => scans.length >= 2);
     assert.deepEqual(scans.map((s) => s.dir), [path.join(f.game, "Songs"), moved]);
     for (const scan of scans) scan.finish();
     await Promise.all([first, second]);

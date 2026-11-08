@@ -10,10 +10,11 @@ import core from "./core.js";
 import gen from "./gen.js";
 import overlay from "./overlay.js";
 import interlude from "./interlude.js";
+import etterna from "./etterna.js";
 import profile from "./profile.js";
 import session from "./session.js";
 import skin from "./skin.js";
 import replay from "./replay.js";
 import settings from "./settings.js";
 
-export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, profile, session, skin, replay, settings };
+export const AREAS = { html, analysis, recommend, create, rate, marathon, app, core, gen, overlay, interlude, etterna, profile, session, skin, replay, settings };
