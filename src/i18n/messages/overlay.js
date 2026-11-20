@@ -79,8 +79,8 @@ export default {
     "overlay.set.edit": { ru: "Двигать и менять размер", en: "Move and resize" },
     "overlay.set.editDone": { ru: "Готово, закрепить", en: "Done, lock them" },
     "overlay.set.hint": {
-        ru: "Это отдельные окошки поверх игры, в osu! ничего не встраивается. osu! должен быть в оконном или безрамочном режиме (в lazer — «Borderless» или «Windowed»): поверх полноэкранной игры их не видно. Во время игры клики проходят сквозь них. {hotkey} — включить или выключить перемещение: тащи окошко мышью, уголок справа внизу меняет размер.",
-        en: "These are separate windows over the game, nothing is injected into osu!. osu! must be in windowed or borderless mode (in lazer, “Borderless” or “Windowed”): they can't be seen over a fullscreen game. While you play, clicks go through them. {hotkey} turns moving on or off: drag a widget with the mouse, its bottom-right corner resizes it.",
+        ru: "Это отдельные окошки поверх игры, в osu! ничего не встраивается. osu! должен быть в оконном или безрамочном режиме (в lazer — «Borderless» или «Windowed»): поверх полноэкранной игры их не видно. Во время игры клики проходят сквозь них. {hotkey} — включить или выключить перемещение: тащи окошко мышью, уголок справа внизу меняет ширину и высоту как угодно (с Shift — весь размер, не меняя формы).",
+        en: "These are separate windows over the game, nothing is injected into osu!. osu! must be in windowed or borderless mode (in lazer, “Borderless” or “Windowed”): they can't be seen over a fullscreen game. While you play, clicks go through them. {hotkey} turns moving on or off: drag a widget with the mouse, its bottom-right corner changes its width and height any way you like (with Shift, its whole size in the same shape).",
     },
     "overlay.set.keysNote": {
         ru: "В osu! stable нажатия берутся с клавиатуры (настройка «Читать клавиши с клавиатуры» выше); если она выключена, линии строятся по попаданиям и нотам карты. osu! lazer и Interlude отдают нажатия сами.",
@@ -119,6 +119,11 @@ export default {
     "overlay.set.show": { ru: "Показывать это окошко", en: "Show this widget" },
     "overlay.set.style": { ru: "Стиль", en: "Style" },
     "overlay.set.scale": { ru: "Размер", en: "Size" },
+    "overlay.set.resetShape": { ru: "Обычная форма", en: "Usual shape" },
+    "overlay.set.resetShapeTip": {
+        ru: "Вернуть стилю его ширину и высоту (их меняет уголок окошка в режиме перемещения)",
+        en: "Give the widget its style's width and height back (its corner changes them in the move mode)",
+    },
     "overlay.set.styles": { ru: "Все стили (пример с выдуманными числами)", en: "All styles (a sample with made-up numbers)" },
 
     "overlay.set.danNote": {
@@ -200,5 +205,5 @@ export default {
     "overlay.dan.vibro": { ru: "вибро — в даны профиля не идёт", en: "vibro — not counted in your dans" },
     // a play judged below OD 7: the local profile leaves it out of the dans too
     "overlay.dan.lowOd": { ru: "<OD7", en: "<OD7" },
-    "overlay.edit.badge": { ru: "тащи · уголок — размер", en: "drag · corner resizes" },
+    "overlay.edit.badge": { ru: "тащи · уголок — ширина и высота", en: "drag · corner: width and height" },
 };

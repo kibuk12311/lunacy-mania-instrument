@@ -378,7 +378,11 @@ function buildCard(widget) {
         shows.append(label);
         return { key, box, span };
     });
-    controls.append(el("div", "", t("overlay.set.style")), styleRow, bg.row, text.row, scale.row, shows);
+    // the width and height its corner set, back to the style's shape
+    const shape = smallButton(t("overlay.set.resetShape"), () => setWidget(widget, { stretchX: 1, stretchY: 1 }), t("overlay.set.resetShapeTip"));
+    const shapeRow = el("div", "colors");
+    shapeRow.append(shape);
+    controls.append(el("div", "", t("overlay.set.style")), styleRow, bg.row, text.row, scale.row, shapeRow, shows);
     if (widget === "keys") controls.append(el("p", "hint", t("overlay.set.keysNote")));
     if (widget === "nps") controls.append(el("p", "hint", t("overlay.set.npsNote")));
     if (widget === "dan") controls.append(el("p", "hint", t("overlay.set.danNote")));
@@ -402,7 +406,7 @@ function buildCard(widget) {
 
     card.append(title, controls, view, more);
     $("widgets").append(card);
-    cards[widget] = { card, on, styleButtons, bg, text, scale, showBoxes, stage, note, look, extra, key: "" };
+    cards[widget] = { card, on, styleButtons, bg, text, scale, shape, showBoxes, stage, note, look, extra, key: "" };
 }
 
 function renderCard(widget) {
@@ -414,6 +418,7 @@ function renderCard(widget) {
     c.bg.set(Math.round(w.bgOpacity * 100));
     c.text.set(Math.round(w.textOpacity * 100));
     c.scale.set(Math.round(w.scale * 100));
+    c.shape.disabled = (w.stretchX ?? 1) === 1 && (w.stretchY ?? 1) === 1;
     for (const { key, box, span } of c.showBoxes) {
         box.checked = w.show[key];
         span.textContent = showText(widget, key, w);

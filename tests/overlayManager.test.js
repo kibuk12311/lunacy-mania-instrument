@@ -167,6 +167,11 @@ test("the widgets show while playing, are click-through, follow the edit mode an
         // the corner: a new scale resizes the window from the same corner
         fake.listened.get("overlay-scale")(null, { widget: "kps", scale: 2 });
         assert.deepEqual(kps.bounds, { x: kps.bounds.x, y: kps.bounds.y, width: 420, height: 256 });
+        // the corner without Shift: the width and the height each by itself, any shape
+        fake.listened.get("overlay-scale")(null, { widget: "kps", stretchX: 1.5, stretchY: 0.5 });
+        assert.deepEqual([kps.bounds.width, kps.bounds.height], [630, 128]);
+        fake.listened.get("overlay-scale")(null, { widget: "kps", stretchX: 1, stretchY: 1 });
+        assert.deepEqual([kps.bounds.width, kps.bounds.height], [420, 256]);
         kps.bounds.x = 640;
         kps.bounds.y = 360;
         kps.handlers.moved();

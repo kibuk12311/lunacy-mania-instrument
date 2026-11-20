@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("overlayApi", {
     // whether the window is meant to be on screen: a hidden one draws nothing
     onVisible: (cb) => ipcRenderer.on("overlay-visible", (_e, on) => cb(Boolean(on))),
     setScale: (widget, scale) => ipcRenderer.send("overlay-scale", { widget, scale }),
+    setStretch: (widget, stretchX, stretchY) => ipcRenderer.send("overlay-scale", { widget, stretchX, stretchY }),
     // the settings window: read, change (a patch), the edit mode
     get: () => ipcRenderer.invoke("overlay-get"),
     set: (patch) => ipcRenderer.invoke("overlay-set", patch),

@@ -202,7 +202,7 @@ export function createOverlay({
     }
 
     // what sets the size of a widget's window
-    const shapeOf = (w) => ({ scale: w.scale, style: w.style, show: w.show, rows: w.rows ?? null });
+    const shapeOf = (w) => ({ scale: w.scale, stretchX: w.stretchX ?? 1, stretchY: w.stretchY ?? 1, style: w.style, show: w.show, rows: w.rows ?? null });
     const sameShape = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     // a widget as its window is built: its settings, or while the settings window is open with the shape it keeps
     function liveWidget(widget) {
@@ -1016,8 +1016,13 @@ export function createOverlay({
     ipcMain.on("overlay-profile", (_e, p) => setProfile(p));
     ipcMain.on("overlay-scale", (_e, request) => {
         const widget = request?.widget;
-        if (!WIDGETS.includes(widget) || !Number.isFinite(request?.scale)) return;
-        settings = applyPatch(settings, { widgets: { [widget]: { scale: request.scale } } });
+        if (!WIDGETS.includes(widget)) return;
+        // { scale } (the corner with Shift: the same shape, bigger or smaller), { stretchX, stretchY } (the corner:
+        // its width and height each by itself)
+        const patch = {};
+        for (const key of ["scale", "stretchX", "stretchY"]) if (Number.isFinite(request?.[key])) patch[key] = request[key];
+        if (!Object.keys(patch).length) return;
+        settings = applyPatch(settings, { widgets: { [widget]: patch } });
         // resized by its own corner: its window follows at once, the settings window open or not
         if (frozen) frozen.set(widget, shapeOf(settings.widgets[widget]));
         save();

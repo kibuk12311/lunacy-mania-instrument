@@ -20,6 +20,9 @@ export const WIDGETS = ["judgements", "kps", "nps", "keys", "dan", "map"];
 const WIDGETS_OFF = ["map"];
 export const EDIT_HOTKEY = "CommandOrControl+Shift+O";
 export const SCALE = { min: 0.5, max: 2.5 };
+// a widget's own width and height on top of its scale (dragging its corner): 1 is the style's shape, any other makes
+// it wider, narrower, taller or flatter, each by itself, so a widget is not held to its style's proportions
+export const STRETCH = { min: 0.3, max: 5 };
 export const BG_OPACITY = { min: 0, max: 1 };
 export const TEXT_OPACITY = { min: 0.2, max: 1 };
 export const OPACITY = { min: 0.2, max: 1 }; // the one opacity of v2 and before
@@ -144,8 +147,14 @@ export function widgetSize(widget, style, scale = 1, show = null, rows = null) {
     return { width: Math.round(w * scale), height: Math.round(h * scale) };
 }
 
-// a widget's window size from its settings (at its own scale, or the one given)
-export const sizeOf = (widget, w, scale = w.scale) => widgetSize(widget, w.style, scale, w.show, w.rows ?? null);
+// a widget's window size from its settings (at its own scale, or the one given), stretched by its own width and height
+export function sizeOf(widget, w, scale = w.scale) {
+    const size = widgetSize(widget, w.style, 1, w.show, w.rows ?? null);
+    return {
+        width: Math.max(1, Math.round(size.width * scale * (w.stretchX ?? 1))),
+        height: Math.max(1, Math.round(size.height * scale * (w.stretchY ?? 1))),
+    };
+}
 
 const clamp = (x, { min, max }, fallback) => (Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : fallback);
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -219,6 +228,8 @@ function normalizeWidget(widget, raw) {
         weight: WEIGHTS.includes(raw?.weight) ? raw.weight : 0, // 0: the style's own
         radius,
         scale: round2(clamp(raw?.scale, SCALE, 1)),
+        stretchX: round2(clamp(raw?.stretchX, STRETCH, 1)),
+        stretchY: round2(clamp(raw?.stretchY, STRETCH, 1)),
         // null: not placed yet (the manager puts it near the top-left corner of the primary screen)
         x: Number.isFinite(raw?.x) ? Math.round(raw.x) : null,
         y: Number.isFinite(raw?.y) ? Math.round(raw.y) : null,
@@ -295,7 +306,7 @@ export function normalizeOverlaySettings(input) {
 }
 
 const WIDGET_KEYS = [
-    "enabled", "style", "bgOpacity", "textOpacity", "font", "weight", "radius", "scale", "x", "y",
+    "enabled", "style", "bgOpacity", "textOpacity", "font", "weight", "radius", "scale", "stretchX", "stretchY", "x", "y",
     "graphColor", "graphSec", "smoothSec", "speed", "thickness", "bgBlur", "bgDim", "inSelect",
 ];
 

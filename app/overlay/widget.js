@@ -12,7 +12,7 @@
 import { getLang, setLang, t } from "../../src/i18n/i18n.js";
 import { fakeSnapshot } from "../../src/overlay/fake.js";
 import { createPaintLoop } from "../../src/overlay/paintLoop.js";
-import { SCALE, overlayLang } from "../../src/overlay/settings.js";
+import { SCALE, STRETCH, overlayLang } from "../../src/overlay/settings.js";
 import { clockAt, mountWidget } from "./render.js";
 
 const api = window.overlayApi;
@@ -108,18 +108,33 @@ function watchRatio() {
 }
 watchRatio();
 
-// the corner resizes: the scale follows the pointer (the window is sized by main from the scale)
+// The corner resizes (the window is sized by main from the settings): dragged as it is, the width and the height
+// follow the pointer each by itself (any shape, not only the style's); with Shift held, the whole widget grows or
+// shrinks in its shape (the scale, the text with it).
+const within = ({ min, max }, x) => Math.min(max, Math.max(min, Math.round(x * 100) / 100));
 grip.addEventListener("pointerdown", (event) => {
     if (!config?.edit) return;
     grip.setPointerCapture(event.pointerId);
-    const start = { x: event.screenX, y: event.screenY, scale: config.scale, w: window.innerWidth, h: window.innerHeight };
+    const start = {
+        x: event.screenX, y: event.screenY, scale: config.scale, w: window.innerWidth, h: window.innerHeight,
+        sx: config.look?.stretchX ?? 1, sy: config.look?.stretchY ?? 1,
+    };
     let pending = null;
     const move = (e) => {
-        const grow = Math.max((start.w + e.screenX - start.x) / start.w, (start.h + e.screenY - start.y) / start.h);
-        const scale = Math.min(SCALE.max, Math.max(SCALE.min, Math.round(start.scale * grow * 100) / 100));
-        if (scale === pending) return;
-        pending = scale;
-        api.setScale(widget, scale);
+        const gx = (start.w + e.screenX - start.x) / start.w;
+        const gy = (start.h + e.screenY - start.y) / start.h;
+        if (e.shiftKey) {
+            const scale = within(SCALE, start.scale * Math.max(gx, gy));
+            if (`s${scale}` === pending) return;
+            pending = `s${scale}`;
+            api.setScale(widget, scale);
+            return;
+        }
+        const sx = within(STRETCH, start.sx * gx);
+        const sy = within(STRETCH, start.sy * gy);
+        if (`${sx}x${sy}` === pending) return;
+        pending = `${sx}x${sy}`;
+        api.setStretch(widget, sx, sy);
     };
     const up = () => {
         grip.removeEventListener("pointermove", move);
